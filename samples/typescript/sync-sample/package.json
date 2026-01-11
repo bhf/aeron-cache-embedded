@@ -1,0 +1,17 @@
+{
+  "name": "sync-sample",
+  "version": "1.0.0",
+  "description": "Synchronous-style sample for Aeron Cache Embedded Client",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@aeron-cache/embedded-client": "file:../../../libraries/typescript"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^18.0.0"
+  }
+}

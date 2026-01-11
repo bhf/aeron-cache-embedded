@@ -1,0 +1,28 @@
+{
+  "name": "@aeron-cache/embedded-client",
+  "version": "1.0.0",
+  "description": "TypeScript Client for Aeron Cache with Embedded Cache support",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "aeron",
+    "cache",
+    "embedded",
+    "client"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

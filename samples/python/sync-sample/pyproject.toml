@@ -1,0 +1,13 @@
+[tool.poetry]
+name = "sync-sample"
+version = "0.1.0"
+description = "Synchronous-style sample for Aeron Cache Embedded Client"
+authors = ["Optimized <optimus@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+aeron-cache-embedded-client = {path = "../../../libraries/python", develop = true}
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
