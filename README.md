@@ -49,13 +49,8 @@ Please refer to the [Samples README](samples/README.md) for detailed instruction
 ### Java
 
 ```java
-// See samples/java/ for full examples
 EmbeddedAeronCache cache = new EmbeddedAeronCache("http://localhost:8080");
-// ... creates a local map replicating the remote cache
-```
 String val = cache.getLocal("key");
-
-// Remote writes (propagated back via WebSocket)
 cache.put("key", "value");
 ```
 
@@ -64,8 +59,6 @@ cache.put("key", "value");
 ```python
 client = AeronCacheClient("http://localhost:7070", "ws://localhost:7071")
 cache = client.get_cache("my-cache")
-
-# Async subscription
 await cache.subscribe(my_callback)
 ```
 
