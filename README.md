@@ -13,6 +13,16 @@ The goal of these libraries is to provide an "Embedded Cache" mode across langua
     -   `rust/`: Rust client library.
 -   `samples/`: Example applications using each of the clients.
 
+## Support Matrix
+
+| Language   | Sync | Async | Streaming |
+| :--------- |:-----|:------|:----------|
+| Java       | ✅    | ✅     | ✅         |
+| Rust       |      |       |           |
+| Typescript | ❌    |       |           |
+| Python     |      |       |           |
+
+
 ## Features
 
 -   **CRUD Operations**: Full support for Create, Get, Put, Delete items and caches.
