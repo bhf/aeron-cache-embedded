@@ -4,7 +4,7 @@ This sample demonstrates how to use the synchronous API of the `aeron-cache-embe
 
 ## Prerequisites
 
-- Java 11 or higher
+- Java 21 or higher
 - Gradle
 
 ## Running the Sample
