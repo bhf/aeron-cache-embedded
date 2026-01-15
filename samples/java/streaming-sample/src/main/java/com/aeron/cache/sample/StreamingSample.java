@@ -19,14 +19,14 @@ public class StreamingSample {
         var wsUrl = "http://localhost:7071";
         AeronCacheClient client = new AeronCacheClient(baseUrl, wsUrl);
         try {
-            client.createCache("test-cache");
-            System.out.println("Created cache 'test-cache'");
+            client.createCache("streaming-test-cache");
+            System.out.println("Created cache 'streaming-test-cache'");
         } catch (Exception e) {
             e.printStackTrace();
         }
-        EmbeddedAeronCache cache = new EmbeddedAeronCache(client, "test-cache");
+        EmbeddedAeronCache cache = new EmbeddedAeronCache(client, "streaming-test-cache");
 
-        System.out.println("Listening for updates. Press Ctrl+C to exit.");
+        System.out.println("Listening for updates.");
 
         String lastValue = "";
         while (true) {

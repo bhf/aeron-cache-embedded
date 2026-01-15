@@ -13,12 +13,12 @@ public class SyncSample {
         var wsUrl = "http://localhost:7071";
         AeronCacheClient client = new AeronCacheClient(baseUrl, wsUrl);
         try {
-            client.createCache("test-cache");
-            System.out.println("Created cache 'test-cache'");
+            client.createCache("sync-test-cache");
+            System.out.println("Created cache 'sync-test-cache'");
         } catch (Exception e) {
             e.printStackTrace();
         }
-        EmbeddedAeronCache cache = new EmbeddedAeronCache(client, "test-cache");
+        EmbeddedAeronCache cache = new EmbeddedAeronCache(client, "sync-test-cache");
 
         // Put a value
         System.out.println("Putting key 'sync-key' -> 'sync-value'");
