@@ -87,8 +87,8 @@ public class EmbeddedAeronCache {
             }
 
             @Override
-            public void onClose(WebSocket webSocket, int statusCode, String reason) {
-                listener.onClose(webSocket, statusCode, reason);
+            public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+                return listener.onClose(webSocket, statusCode, reason);
             }
 
             @Override

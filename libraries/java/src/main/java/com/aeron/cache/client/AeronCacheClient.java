@@ -6,12 +6,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ExecutionException;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
-import java.util.regex.Matcher;
 
 public class AeronCacheClient {
     private final String baseUrl;
@@ -141,7 +135,7 @@ public class AeronCacheClient {
     public EmbeddedAeronCache getCache(String cacheId) {
         return new EmbeddedAeronCache(this, cacheId);
     }
-}
+
 
     private void checkStatus(HttpResponse<String> response) {
         if (response.statusCode() >= 400) {
