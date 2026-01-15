@@ -13,7 +13,7 @@ The goal of these libraries is to provide an "Embedded Cache" mode across langua
     -   `rust/`: Rust client library.
 -   `samples/`: Example applications using each of the clients.
 
-## Support Matrix
+## Tested and Working Samples
 
 | Language   | Sync | Async | Streaming |
 | :--------- |:-----|:------|:----------|
