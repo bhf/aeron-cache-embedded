@@ -176,3 +176,6 @@ cache-ui/.idea
 *.jfr
 samples/java/.idea/*
 samples/java/sync-sample/.idea/*
+
+*node_modules*
+dist/

@@ -9,7 +9,7 @@ export class EmbeddedAeronCache {
         return this.localCache.get(key);
     }
 
-    async set(key: string, value: string): Promise<any> {
+    async put(key: string, value: string): Promise<any> {
         return this.client.putItem(this.cacheId, key, value);
     }
 

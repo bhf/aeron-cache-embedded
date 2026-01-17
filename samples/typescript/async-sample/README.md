@@ -21,5 +21,5 @@ This sample demonstrates how to trigger asynchronous operations without blocking
 
 3. Run the sample:
    ```bash
-   npm start -- http://localhost:8080
+   npm start
    ```

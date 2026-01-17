@@ -1,32 +1,32 @@
-import { EmbeddedAeronCache } from '@aeron-cache/embedded-client';
+import {AeronCacheClient, EmbeddedAeronCache} from '@aeron-cache/embedded-client';
 
 async function main() {
-    const baseUrl = process.argv[2] || 'http://localhost:8080';
-    console.log(`Starting Async Sample against ${baseUrl}`);
+    const baseUrl = process.argv[2] || 'http://localhost:7070';
+    const wsUrl = process.argv[3] || 'http://localhost:7071';
 
-    const cache = new EmbeddedAeronCache(baseUrl);
+    console.log(`Starting Async Sample against ${baseUrl}, wsUrl: ${wsUrl}`);
+
+    const cacheClient = new AeronCacheClient(baseUrl, wsUrl);
+
     try {
-        await cache.connect();
+        await cacheClient.createCache('async-sample-cache');
+    } catch (e) {
+        console.error(e);
+    }
 
+    const cache = new EmbeddedAeronCache(cacheClient, 'async-sample-cache');
+    try {
         console.log("Putting key 'async-key' -> 'async-value' asynchronously");
-        
-        // Fire off the put
-        const putPromise = cache.put('async-key', 'async-value');
-        
-        // Wait for it
-        await putPromise;
+        const putPromise = await cache.put('async-key', 'async-value');
         console.log("Put operation completed.");
 
         // Allow some time for propagation
         await new Promise(r => setTimeout(r, 100));
-
-        const val = cache.get('async-key');
-        console.log(`Read key 'async-key': ${val || 'not found'}`);
-
+        const val = await cache.get('async-key');
+        const json = JSON.stringify(val);
+        console.log(`Read key 'async-key': ${json || 'not found'}`);
     } catch (err) {
         console.error(err);
-    } finally {
-        cache.close();
     }
 }
 

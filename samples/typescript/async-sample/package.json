@@ -11,7 +11,7 @@
     "@aeron-cache/embedded-client": "file:../../../libraries/typescript"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/node": "^18.0.0"
+    "@types/node": "^18.19.130",
+    "typescript": "^5.0.0"
   }
 }
