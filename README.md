@@ -55,8 +55,8 @@ See the `samples/` directory for full code examples in all languages.
 | Language   | Sync | Async | Streaming |
 |:-----------|:-----|:------|:---------|
 | Java       | ✅    | ✅     | ✅        |
-| Typescript | ❌    | ✅     | ✅        |
-| Python     | ✅     | ✅     | ✅       |
+| Typescript | NA   | ✅     | ✅        |
+| Python     | ✅    | ✅     | ✅       |
 | Rust       |      |       |          |
 
 
