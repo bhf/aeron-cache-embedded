@@ -4,7 +4,7 @@ This sample demonstrates how to listen for real-time updates from the cache usin
 
 ## Prerequisites
 
-- Java 11 or higher
+- Java 21 or higher
 - Gradle
 
 ## Running the Sample
@@ -13,7 +13,5 @@ This sample demonstrates how to listen for real-time updates from the cache usin
 2. Run the application using Gradle:
 
 ```bash
-gradle run --args="http://localhost:8080"
+gradle run
 ```
-
-The application will listen for changes to the key `shared-key`. You can modify this key via another client (e.g., using `curl` or another sample) to see the updates in real-time.

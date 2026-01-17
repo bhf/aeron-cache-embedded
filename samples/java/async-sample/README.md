@@ -4,7 +4,7 @@ This sample demonstrates how to use the asynchronous API (`CompletableFuture`) o
 
 ## Prerequisites
 
-- Java 11 or higher
+- Java 21 or higher
 - Gradle
 
 ## Running the Sample
@@ -13,7 +13,5 @@ This sample demonstrates how to use the asynchronous API (`CompletableFuture`) o
 2. Run the application using Gradle:
 
 ```bash
-gradle run --args="http://localhost:8080"
+gradle run
 ```
-
-Replace `http://localhost:8080` with the actual URL of your Aeron Cache server if different.
