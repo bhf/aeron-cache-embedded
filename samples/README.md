@@ -16,7 +16,6 @@ samples/
 │   ├── async-sample/     # Gradle project
 │   └── streaming-sample/ # Gradle project
 ├── typescript/
-│   ├── sync-sample/      # NPM project
 │   ├── async-sample/     # NPM project
 │   └── streaming-sample/ # NPM project
 ├── python/

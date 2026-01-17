@@ -16,11 +16,11 @@ The goal of these libraries is to provide an "Embedded Cache" mode across langua
 ## Tested and Working Samples
 
 | Language   | Sync | Async | Streaming |
-| :--------- |:-----|:------|:----------|
-| Java       | ✅    | ✅     | ✅         |
-| Rust       |      |       |           |
-| Typescript | ❌    |       |           |
-| Python     |      |       |           |
+| :--------- |:-----|:------|:---------|
+| Java       | ✅    | ✅     | ✅        |
+| Typescript | ❌    | ✅     | ✅        |
+| Rust       |      |       |          |
+| Python     |      |       |          |
 
 
 ## Features
@@ -54,22 +54,39 @@ The Rust client uses Cargo.
 The `samples/` directory contains isolated examples for each language, broken down by usage pattern (Sync, Async, WebSocket).
 Please refer to the [Samples README](samples/README.md) for detailed instructions on how to run them.
 
-## Usage
+## Example Usage
 
 ### Java
 
-```java
-EmbeddedAeronCache cache = new EmbeddedAeronCache("http://localhost:8080");
-String val = cache.getLocal("key");
-cache.put("key", "value");
+```typescript
+var baseUrl = "http://localhost:7070";
+var wsUrl = "http://localhost:7071";
+AeronCacheClient client = new AeronCacheClient(baseUrl, wsUrl);
+try {
+    client.createCache("async-sample-cache");
+    System.out.println("Created cache 'async-sample-cache'");
+} catch (Exception e) {
+    e.printStackTrace();
+}
+EmbeddedAeronCache cache = new EmbeddedAeronCache(client, "async-sample-cache");
+cache.put("stay", "tuned");
 ```
 
-### Python
+### Typescript
 
-```python
-client = AeronCacheClient("http://localhost:7070", "ws://localhost:7071")
-cache = client.get_cache("my-cache")
-await cache.subscribe(my_callback)
+```typescript
+const baseUrl = "http://localhost:7070";
+const wsUrl = "http://localhost:7071";
+const cacheClient = new AeronCacheClient(baseUrl, wsUrl);
+
+try {
+    await cacheClient.createCache('async-sample-cache');
+} catch (e) {
+    console.error(e);
+}
+
+const cache = new EmbeddedAeronCache(cacheClient, 'async-sample-cache');
+await cache.put("stay", "tuned");
 ```
 
 See the `samples/` directory for full code examples in all languages.
