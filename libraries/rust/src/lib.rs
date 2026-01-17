@@ -25,7 +25,7 @@ pub struct AeronCacheClient {
     base_url: String,
     ws_url: String,
     async_client: ReqwestClient,
-    sync_client: BlockingClient,
+    sync_client_cell: std::sync::OnceLock<BlockingClient>,
 }
 
 impl AeronCacheClient {
@@ -34,8 +34,12 @@ impl AeronCacheClient {
             base_url,
             ws_url,
             async_client: ReqwestClient::new(),
-            sync_client: BlockingClient::new(),
+            sync_client_cell: std::sync::OnceLock::new(),
         }
+    }
+
+    fn get_sync_client(&self) -> &BlockingClient {
+        self.sync_client_cell.get_or_init(|| BlockingClient::new())
     }
 
     // --- Sync Operations ---
@@ -43,7 +47,7 @@ impl AeronCacheClient {
     pub fn create_cache(&self, cache_id: &str) -> Result<String, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache", self.base_url);
         let req = CreateRequest { cache_id: cache_id.to_string() };
-        let resp = self.sync_client.post(&url)
+        let resp = self.get_sync_client().post(&url)
             .json(&req)
             .send()?;
         let text = resp.text()?;
@@ -53,7 +57,7 @@ impl AeronCacheClient {
     pub fn put_item(&self, cache_id: &str, key: &str, value: &str) -> Result<String, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
         let req = PutItemRequest { cache_id: cache_id.to_string(), key: key.to_string(), value: value.to_string() };
-        let resp = self.sync_client.post(&url)
+        let resp = self.get_sync_client().post(&url)
             .json(&req)
             .send()?;
         let text = resp.text()?;
@@ -62,21 +66,21 @@ impl AeronCacheClient {
 
     pub fn get_item(&self, cache_id: &str, key: &str) -> Result<String, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}/{}", self.base_url, cache_id, key);
-        let resp = self.sync_client.get(&url).send()?;
+        let resp = self.get_sync_client().get(&url).send()?;
         let text = resp.text()?;
         Ok(text)
     }
 
     pub fn delete_item(&self, cache_id: &str, key: &str) -> Result<String, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}/{}", self.base_url, cache_id, key);
-        let resp = self.sync_client.delete(&url).send()?;
+        let resp = self.get_sync_client().delete(&url).send()?;
         let text = resp.text()?;
         Ok(text)
     }
     
     pub fn delete_cache(&self, cache_id: &str) -> Result<String, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
-        let resp = self.sync_client.delete(&url).send()?;
+        let resp = self.get_sync_client().delete(&url).send()?;
         let text = resp.text()?;
         Ok(text)
     }

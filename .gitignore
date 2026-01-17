@@ -180,3 +180,4 @@ samples/java/sync-sample/.idea/*
 *node_modules*
 dist/
 .venv
+target/

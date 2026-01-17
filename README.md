@@ -57,7 +57,7 @@ See the `samples/` directory for full code examples in all languages.
 | Java       | ✅    | ✅     | ✅        |
 | Typescript | NA   | ✅     | ✅        |
 | Python     | ✅    | ✅     | ✅       |
-| Rust       |      |       |          |
+| Rust       |      | ✅     |          |
 
 
 ## Features
