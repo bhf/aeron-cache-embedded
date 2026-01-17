@@ -11,7 +11,7 @@ This sample demonstrates the live update capabilities of the embedded cache clie
 1. Run the sample using Cargo:
 
 ```bash
-cargo run -- http://localhost:8080
+cargo run
 ```
 
 The application will obtain a lock on the `shared-key` and print changes as they arrive via WebSocket replication.
