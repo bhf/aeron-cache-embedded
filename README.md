@@ -53,11 +53,11 @@ See the `samples/` directory for full code examples in all languages.
 ## Tested and Working Samples
 
 | Language   | Sync | Async | Streaming |
-|:-----------|:-----|:------|:---------|
-| Java       | ✅    | ✅     | ✅        |
-| Typescript | NA   | ✅     | ✅        |
-| Python     | ✅    | ✅     | ✅       |
-| Rust       |      | ✅     |          |
+|:-----------|:----|:------|:-------|
+| Java       | ✅   | ✅     | ✅      |
+| Typescript | NA  | ✅     | ✅      |
+| Python     | ✅   | ✅     | ✅      |
+| Rust       | ✅     | ✅     | ✅       |
 
 
 ## Features
