@@ -16,7 +16,7 @@ This sample demonstrates listening for real-time updates via WebSocket (Streamin
 
 2. Run the sample:
    ```bash
-   poetry run python streaming_sample.py http://localhost:8080
+   poetry run python streaming_sample.py
    ```
 
 The script will listen for changes to `shared-key` indefinitely.
