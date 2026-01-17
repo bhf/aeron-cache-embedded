@@ -11,5 +11,5 @@ This sample demonstrates spawning async tasks/futures with the Rust client.
 1. Run the sample using Cargo:
 
 ```bash
-cargo run -- http://localhost:8080
+cargo run
 ```
