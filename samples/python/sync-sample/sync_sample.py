@@ -1,28 +1,33 @@
-import asyncio
 import sys
+from aeron_cache.client import AeronCacheClient
 from aeron_cache.embedded_cache import EmbeddedAeronCache
 
-async def main():
-    base_url = "http://localhost:8080"
+
+def main():
+    base_url = "http://localhost:7070"
+    ws_url = "http://localhost:7071"
     if len(sys.argv) > 1:
         base_url = sys.argv[1]
+        ws_url = sys.argv[2]
 
-    print(f"Starting Sync Sample against {base_url}")
+    print(f"Starting Sync Sample against {base_url}, ws={ws_url}")
 
-    # Note: The embedded cache is inherently async under the hood (asyncio), 
-    # but we can simulate a sync-like flow in this async main helper.
-    async with EmbeddedAeronCache(base_url) as cache:
-        print("Putting key 'sync-key' -> 'sync-value'")
-        await cache.put("sync-key", "sync-value")
+    client = AeronCacheClient(base_url, ws_url)
 
-        # Allow time to propagate
-        await asyncio.sleep(0.1)
+    try:
+        client.create_cache("sync-sample-cache")
+    except:
+        pass
 
-        val = await cache.get("sync-key")
-        if val:
-            print(f"Read back key 'sync-key': {val}")
-        else:
-            print("Key 'sync-key' not found in local cache yet.")
-            
+    cache = EmbeddedAeronCache(client, "sync-sample-cache")
+
+    print("Putting key 'sync-key' -> 'sync-value'")
+    cache.put("sync-key", "sync-value")
+    print("Put operation completed.")
+
+    val = cache.get("sync-key")
+    print(f"Read key 'sync-key': {val or 'not found'}")
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

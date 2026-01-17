@@ -16,5 +16,5 @@ This sample demonstrates using the client in a synchronous manner (awaiting ever
 
 2. Run the sample:
    ```bash
-   poetry run python sync_sample.py http://localhost:8080
+   poetry run python sync_sample.py
    ```
