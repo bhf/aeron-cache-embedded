@@ -1,31 +1,37 @@
 import asyncio
 import sys
+
+from aeron_cache.client import AeronCacheClient
 from aeron_cache.embedded_cache import EmbeddedAeronCache
 
+
 async def main():
-    base_url = "http://localhost:8080"
+    base_url = "http://localhost:7070"
+    ws_url = "http://localhost:7071"
     if len(sys.argv) > 1:
         base_url = sys.argv[1]
+        ws_url = sys.argv[2]
 
-    print(f"Starting Async Sample against {base_url}")
+    print(f"Starting Async Sample against {base_url}, ws={ws_url}")
 
-    async with EmbeddedAeronCache(base_url) as cache:
-        print("Putting key 'async-key' -> 'async-value' asynchronously")
-        
-        # Fire off the put
-        task = asyncio.create_task(cache.put("async-key", "async-value"))
-        
-        # Do other work if needed...
-        
-        # Wait for completion
-        await task
-        print("Put operation completed.")
+    client = AeronCacheClient(base_url, ws_url)
 
-        # Allow time to propagate
-        await asyncio.sleep(0.1)
+    try:
+        await client.create_cache_async("async-sample-cache")
+    except:
+        pass
 
-        val = await cache.get("async-key")
-        print(f"Read key 'async-key': {val or 'not found'}")
-            
+    cache = EmbeddedAeronCache(client, "async-sample-cache")
+
+    print("Putting key 'async-key' -> 'async-value' asynchronously")
+    task = asyncio.create_task(cache.put_async("async-key", "async-value"))
+
+    await task
+    print("Put operation completed.")
+    await asyncio.sleep(0.1)
+
+    val = await cache.get_async("async-key")
+    print(f"Read key 'async-key': {val or 'not found'}")
+
 if __name__ == "__main__":
     asyncio.run(main())

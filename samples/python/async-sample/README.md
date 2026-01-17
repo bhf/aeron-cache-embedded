@@ -16,5 +16,5 @@ This sample demonstrates using `asyncio.create_task` to perform cache operations
 
 2. Run the sample:
    ```bash
-   poetry run python async_sample.py http://localhost:8080
+   poetry run python async_sample.py
    ```
