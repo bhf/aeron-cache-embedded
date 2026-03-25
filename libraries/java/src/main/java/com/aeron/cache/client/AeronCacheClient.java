@@ -1,5 +1,8 @@
 package com.aeron.cache.client;
 
+import com.aeron.cache.models.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -11,16 +14,19 @@ public class AeronCacheClient {
     private final String baseUrl;
     private final String wsUrl;
     private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
 
     public AeronCacheClient(String baseUrl, String wsUrl) {
         this.baseUrl = baseUrl;
         this.wsUrl = wsUrl;
         this.httpClient = HttpClient.newHttpClient();
+        this.objectMapper = new ObjectMapper()
+                .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
     // --- Sync Operations ---
 
-    public String createCache(String cacheId) throws Exception {
+    public CreateResponse createCache(String cacheId) throws Exception {
         String json = "{\"cacheId\":\"" + cacheId + "\"}";
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache"))
@@ -29,10 +35,10 @@ public class AeronCacheClient {
                 .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         checkStatus(response);
-        return response.body();
+        return objectMapper.readValue(response.body(), CreateResponse.class);
     }
 
-    public String putItem(String cacheId, String key, String value) throws Exception {
+    public PutItemResponse putItem(String cacheId, String key, String value) throws Exception {
         String json = String.format("{\"cacheId\":\"%s\",\"key\":\"%s\",\"value\":\"%s\"}", cacheId, key, value);
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
@@ -41,42 +47,42 @@ public class AeronCacheClient {
                 .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         checkStatus(response);
-        return response.body();
+        return objectMapper.readValue(response.body(), PutItemResponse.class);
     }
 
-    public String getItem(String cacheId, String key) throws Exception {
+    public GetItemResponse getItem(String cacheId, String key) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId + "/" + key))
                 .GET()
                 .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         checkStatus(response);
-        return response.body();
+        return objectMapper.readValue(response.body(), GetItemResponse.class);
     }
 
-    public String deleteItem(String cacheId, String key) throws Exception {
+    public DeleteItemResponse deleteItem(String cacheId, String key) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId + "/" + key))
                 .DELETE()
                 .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         checkStatus(response);
-        return response.body();
+        return objectMapper.readValue(response.body(), DeleteItemResponse.class);
     }
     
-    public String deleteCache(String cacheId) throws Exception {
+    public DeleteCacheResponse deleteCache(String cacheId) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
                 .DELETE()
                 .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         checkStatus(response);
-        return response.body();
+        return objectMapper.readValue(response.body(), DeleteCacheResponse.class);
     }
 
     // --- Async Operations ---
 
-    public CompletableFuture<String> createCacheAsync(String cacheId) {
+    public CompletableFuture<CreateResponse> createCacheAsync(String cacheId) {
         String json = "{\"cacheId\":\"" + cacheId + "\"}";
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache"))
@@ -84,10 +90,17 @@ public class AeronCacheClient {
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(this::checkStatusAsync);
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), CreateResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
     }
 
-    public CompletableFuture<String> putItemAsync(String cacheId, String key, String value) {
+    public CompletableFuture<PutItemResponse> putItemAsync(String cacheId, String key, String value) {
         String json = String.format("{\"cacheId\":\"%s\",\"key\":\"%s\",\"value\":\"%s\"}", cacheId, key, value);
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
@@ -95,34 +108,62 @@ public class AeronCacheClient {
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(this::checkStatusAsync);
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), PutItemResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
     }
 
-    public CompletableFuture<String> getItemAsync(String cacheId, String key) {
+    public CompletableFuture<GetItemResponse> getItemAsync(String cacheId, String key) {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId + "/" + key))
                 .GET()
                 .build();
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(this::checkStatusAsync);
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), GetItemResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
     }
 
-    public CompletableFuture<String> deleteItemAsync(String cacheId, String key) {
+    public CompletableFuture<DeleteItemResponse> deleteItemAsync(String cacheId, String key) {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId + "/" + key))
                 .DELETE()
                 .build();
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(this::checkStatusAsync);
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), DeleteItemResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
     }
     
-    public CompletableFuture<String> deleteCacheAsync(String cacheId) {
+    public CompletableFuture<DeleteCacheResponse> deleteCacheAsync(String cacheId) {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
                 .DELETE()
                 .build();
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(this::checkStatusAsync);
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), DeleteCacheResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
     }
 
     // --- WebSocket ---
@@ -138,15 +179,14 @@ public class AeronCacheClient {
 
 
     private void checkStatus(HttpResponse<String> response) {
-        if (response.statusCode() >= 400) {
+        if (response.statusCode() >= 400 && response.statusCode() != 400 && response.statusCode() != 401 && response.statusCode() != 404) {
             throw new RuntimeException("Http Error: " + response.statusCode() + " Body: " + response.body());
         }
     }
 
-    private String checkStatusAsync(HttpResponse<String> response) {
-        if (response.statusCode() >= 400) {
+    private void checkStatusAsync(HttpResponse<String> response) {
+        if (response.statusCode() >= 400 && response.statusCode() != 400 && response.statusCode() != 401 && response.statusCode() != 404) {
             throw new RuntimeException("Http Error: " + response.statusCode() + " Body: " + response.body());
         }
-        return response.body();
     }
 }

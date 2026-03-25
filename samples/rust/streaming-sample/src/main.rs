@@ -20,7 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Will now create cache id {}", cache_id);
 
     // Ensure the cache exists on the server
-    let _ = client.create_cache_async(cache_id).await;
+    let create_response = client.create_cache_async(cache_id).await?;
+    println!("Created cache: {}", create_response.cache_id);
 
     // Get the handle
     let cache = client.get_cache(cache_id);
@@ -36,22 +37,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match socket.read_message() {
                 Ok(msg) => {
                     if msg.is_text() || msg.is_binary() {
-                        println!("Observed change: {}", msg);
+                        let text = msg.to_text().unwrap_or("");
+                        println!("[Rust] Observed change: {}", text);
                     }
                 }
                 Err(e) => {
-                    eprintln!("WebSocket error: {}", e);
+                    eprintln!("[Rust] WebSocket error: {}", e);
                     break;
                 }
             }
         }
     });
 
-    println!("Poller started for 'streaming-key'...");
+    println!("[Rust] Poller started for 'streaming-key'...");
 
+    let mut last_val = None;
     loop {
-        let current = cache.get_local("streaming-key");
-        println!("Polled 'streaming-key': {:?}", current);
+        if let Some(current) = cache.get_local("streaming-key") {
+            if Some(current.clone()) != last_val {
+                println!("[Rust-Poller] Observed change in 'streaming-key': {}", current);
+                last_val = Some(current);
+            }
+        }
         sleep(Duration::from_secs(1)).await;
     }
 }

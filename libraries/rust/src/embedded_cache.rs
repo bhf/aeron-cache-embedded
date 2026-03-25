@@ -3,17 +3,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, RwLock};
 use tungstenite::{Message};
-use crate::AeronCacheClient;
-
-#[derive(Deserialize)]
-struct CacheUpdateEvent {
-    #[serde(rename = "eventType")]
-    event_type: String,
-    #[serde(rename = "itemKey")]
-    item_key: Option<String>,
-    #[serde(rename = "itemValue")]
-    item_value: Option<String>,
-}
+use crate::{AeronCacheClient, CacheUpdateEvent, PutItemResponse, GetItemResponse, DeleteItemResponse, DeleteCacheResponse};
 
 pub struct EmbeddedAeronCache<'a> {
     client: &'a AeronCacheClient,
@@ -42,8 +32,9 @@ where
                             }
                         }
                         "REMOVE_ITEM" => {
-                            if let Some(k) = event.item_key {
-                                cache.remove(&k);
+                            match event.item_key {
+                                Some(ref k) => { cache.remove(k); }
+                                None => {}
                             }
                         }
                         "CLEAR_CACHE" | "DELETE_CACHE" => {
@@ -79,35 +70,35 @@ impl<'a> EmbeddedAeronCache<'a> {
         }
     }
 
-    pub fn insert(&self, key: &str, value: &str) -> Result<String, Box<dyn Error>> {
+    pub fn insert(&self, key: &str, value: &str) -> Result<PutItemResponse, Box<dyn Error>> {
         self.client.put_item(&self.cache_id, key, value)
     }
 
-    pub fn get(&self, key: &str) -> Result<String, Box<dyn Error>> {
+    pub fn get(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
         self.client.get_item(&self.cache_id, key)
     }
 
-    pub fn remove(&self, key: &str) -> Result<String, Box<dyn Error>> {
+    pub fn remove(&self, key: &str) -> Result<DeleteItemResponse, Box<dyn Error>> {
         self.client.delete_item(&self.cache_id, key)
     }
 
-    pub fn clear(&self) -> Result<String, Box<dyn Error>> {
+    pub fn clear(&self) -> Result<DeleteCacheResponse, Box<dyn Error>> {
         self.client.delete_cache(&self.cache_id)
     }
 
-    pub async fn insert_async(&self, key: &str, value: &str) -> Result<String, Box<dyn Error>> {
+    pub async fn insert_async(&self, key: &str, value: &str) -> Result<PutItemResponse, Box<dyn Error>> {
         self.client.put_item_async(&self.cache_id, key, value).await
     }
 
-    pub async fn get_async(&self, key: &str) -> Result<String, Box<dyn Error>> {
+    pub async fn get_async(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
         self.client.get_item_async(&self.cache_id, key).await
     }
 
-    pub async fn remove_async(&self, key: &str) -> Result<String, Box<dyn Error>> {
+    pub async fn remove_async(&self, key: &str) -> Result<DeleteItemResponse, Box<dyn Error>> {
         self.client.delete_item_async(&self.cache_id, key).await
     }
 
-    pub async fn clear_async(&self) -> Result<String, Box<dyn Error>> {
+    pub async fn clear_async(&self) -> Result<DeleteCacheResponse, Box<dyn Error>> {
         self.client.delete_cache_async(&self.cache_id).await
     }
 

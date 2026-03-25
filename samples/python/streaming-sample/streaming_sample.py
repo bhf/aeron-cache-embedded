@@ -24,12 +24,15 @@ async def main():
     print("Connected. Waiting for updates on 'streaming-sample-cache'...")
 
     async def on_changes(data):
-        print(f"Observed change: {data}")
+        print(f"[Python] Observed change: {data}")
 
     async def poller():
+        last_val = None
         while True:
             val = cache.get_local("streaming-key")
-            print(f"Polled 'streaming-key': {val}")
+            if val and val != last_val:
+                print(f"[Python-Poller] 'streaming-key' updated: {val}")
+                last_val = val
             await asyncio.sleep(1)
 
     asyncio.create_task(poller())

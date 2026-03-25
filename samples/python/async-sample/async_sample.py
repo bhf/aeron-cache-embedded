@@ -17,21 +17,21 @@ async def main():
     client = AeronCacheClient(base_url, ws_url)
 
     try:
-        await client.create_cache_async("async-sample-cache")
+        response = await client.create_cache_async("async-sample-cache")
+        print(f"Created cache: {response.cache_id}")
     except:
         pass
 
     cache = EmbeddedAeronCache(client, "async-sample-cache")
 
     print("Putting key 'async-key' -> 'async-value' asynchronously")
-    task = asyncio.create_task(cache.put_async("async-key", "async-value"))
+    put_response = await cache.put_async("async-key", "async-value")
+    print(f"Put operation status: {put_response.status}")
 
-    await task
-    print("Put operation completed.")
     await asyncio.sleep(0.1)
 
-    val = await cache.get_async("async-key")
-    print(f"Read key 'async-key': {val or 'not found'}")
+    get_response = await cache.get_async("async-key")
+    print(f"Read key 'async-key': {get_response.value or 'not found'}")
 
 if __name__ == "__main__":
     asyncio.run(main())

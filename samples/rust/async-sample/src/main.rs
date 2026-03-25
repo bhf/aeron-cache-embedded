@@ -19,25 +19,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Will now create cache id {}", cache_id);
 
     // Ensure the cache exists on the server
-    let _ = client.create_cache_async(cache_id).await;
+    let create_response = client.create_cache_async(cache_id).await?;
+    println!("Created cache: {}", create_response.cache_id);
 
     // Get the handle
     let cache = client.get_cache(cache_id);
 
     println!("Putting key 'async-key' -> 'async-value' asynchronously");
     
-    // Spawn the put
-    let put_future = cache.insert_async("async-key", "async-value");
-
     // Await it
-    put_future.await?;
-    println!("Put operation completed.");
+    let put_response = cache.insert_async("async-key", "async-value").await?;
+    println!("Put operation status: {}", put_response.status);
 
     // Allow propagation
     sleep(Duration::from_millis(100)).await;
 
     match cache.get_async("async-key").await {
-        Ok(val) => println!("Read key 'async-key': {}", val),
+        Ok(resp) => println!("Read key 'async-key': {}", resp.value),
         Err(e) => println!("Read key 'async-key' error: {}", e),
     }
 

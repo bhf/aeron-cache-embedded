@@ -15,30 +15,32 @@ async function main() {
     const cacheClient = new AeronCacheClient(baseUrl, wsUrl);
 
     try {
-        await cacheClient.createCache('streaming-sample-cache');
+        const response = await cacheClient.createCache('streaming-sample-cache');
+        console.log(`Created cache: ${response.cacheId}`);
     } catch (e) {
         console.error(e);
     }
 
     const cache = new EmbeddedAeronCache(cacheClient, 'streaming-sample-cache');
-    const onMessage = () => {
-        console.info('Got message from Aeron Cache')
+    const onMessage = (event: any) => {
+        console.info(`[TypeScript] Got message from Aeron Cache: Type ${event.type}, Key ${event.key}`);
     };
     const onError = () => {
-        console.error('Error in subscription');
+        console.error('[TypeScript] Error in subscription');
     };
 
     cache.subscribe(onMessage, onError);
     try {
-        console.log("Connected. Waiting for updates on 'shared-key'...");
-
+        console.log("Connected. Waiting for updates on 'streaming-key'...");
+        
+        let lastValue = "";
         // Loop forever checking for updates
         setInterval(async () => {
             try {
-                const current = await cache.getLocal('shared-key');
-                if (current !== undefined) {
-                    const result = JSON.stringify(current);
-                    console.log(`Read key 'shared-key': ${result}`);
+                const current = await cache.getLocal('streaming-key');
+                if (current !== undefined && current !== lastValue) {
+                    console.log(`[TypeScript-Poller] Observed change in 'streaming-key': ${current}`);
+                    lastValue = current;
                 }
             } catch (e) {
             }

@@ -13,8 +13,8 @@ public class SyncSample {
         var wsUrl = "http://localhost:7071";
         AeronCacheClient client = new AeronCacheClient(baseUrl, wsUrl);
         try {
-            client.createCache("sync-test-cache");
-            System.out.println("Created cache 'sync-test-cache'");
+            var response = client.createCache("sync-test-cache");
+            System.out.println("Created cache: " + response.getCacheId());
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -23,7 +23,8 @@ public class SyncSample {
         // Put a value
         System.out.println("Putting key 'sync-key' -> 'sync-value'");
         try {
-            cache.put("sync-key", "sync-value");
+            var response = cache.put("sync-key", "sync-value");
+            System.out.println("Put response: " + response.getStatus());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -35,8 +36,8 @@ public class SyncSample {
         }
 
         try {
-            var value = cache.get("sync-key");
-            System.out.println("Retrieved key 'sync-key' -> '" + value + "'");
+            var response = cache.get("sync-key");
+            System.out.println("Retrieved key 'sync-key' -> '" + response.getValue() + "'");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

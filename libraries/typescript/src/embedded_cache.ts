@@ -1,4 +1,11 @@
 import { AeronCacheClient } from './index';
+import { 
+    PutItemResponse, 
+    GetItemResponse, 
+    DeleteItemResponse, 
+    DeleteCacheResponse,
+    CacheUpdateEvent
+} from './models';
 
 export class EmbeddedAeronCache {
     private localCache: Map<string, string> = new Map();
@@ -9,31 +16,31 @@ export class EmbeddedAeronCache {
         return this.localCache.get(key);
     }
 
-    async put(key: string, value: string): Promise<any> {
+    async put(key: string, value: string): Promise<PutItemResponse> {
         return this.client.putItem(this.cacheId, key, value);
     }
 
-    async get(key: string): Promise<any> {
+    async get(key: string): Promise<GetItemResponse> {
         return this.client.getItem(this.cacheId, key);
     }
 
-    async delete(key: string): Promise<any> {
+    async delete(key: string): Promise<DeleteItemResponse> {
         return this.client.deleteItem(this.cacheId, key);
     }
 
-    async clear(): Promise<any> {
+    async clear(): Promise<DeleteCacheResponse> {
         return this.client.deleteCache(this.cacheId);
     }
 
-    subscribe(onMessage: (data: any) => void, onError?: (err: any) => void): WebSocket {
-        const wrappedOnMessage = (data: any) => {
+    subscribe(onMessage: (data: CacheUpdateEvent) => void, onError?: (err: any) => void): WebSocket {
+        const wrappedOnMessage = (data: CacheUpdateEvent) => {
             this.updateLocalCache(data);
             onMessage(data);
         };
         return this.client.subscribe(this.cacheId, wrappedOnMessage, onError);
     }
 
-    private updateLocalCache(event: any) {
+    private updateLocalCache(event: CacheUpdateEvent) {
         if (!event || !event.eventType) return;
 
         switch (event.eventType) {

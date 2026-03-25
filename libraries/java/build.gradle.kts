@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    // No external dependencies required as it uses Java 11 HTTP Client
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.16.1")
 }
 
 java {

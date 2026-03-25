@@ -15,18 +15,19 @@ def main():
     client = AeronCacheClient(base_url, ws_url)
 
     try:
-        client.create_cache("sync-sample-cache")
-    except:
+        response = client.create_cache("sync-sample-cache")
+        print(f"Created cache: {response.cache_id}")
+    except Exception:
         pass
 
     cache = EmbeddedAeronCache(client, "sync-sample-cache")
 
     print("Putting key 'sync-key' -> 'sync-value'")
-    cache.put("sync-key", "sync-value")
-    print("Put operation completed.")
+    put_response = cache.put("sync-key", "sync-value")
+    print(f"Put operation status: {put_response.status if hasattr(put_response, 'status') else 'OK'}")
 
-    val = cache.get("sync-key")
-    print(f"Read key 'sync-key': {val or 'not found'}")
+    get_response = cache.get("sync-key")
+    print(f"Read key 'sync-key': {get_response.value or 'not found'}")
 
 
 if __name__ == "__main__":

@@ -16,21 +16,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache_id = "sync-sample";
 
     // Ensure the cache exists on the server (Sync)
-    let _ = client.create_cache(cache_id);
+    let create_response = client.create_cache(cache_id)?;
+    println!("Created cache: {}", create_response.cache_id);
 
     // Get the handle
     let cache = client.get_cache(cache_id);
 
     println!("Putting key 'sync-key' -> 'sync-value' synchronously");
-    cache.insert("sync-key", "sync-value")?;
-
-    println!("Put operation completed.");
+    let put_response = cache.insert("sync-key", "sync-value")?;
+    println!("Put operation status: {}", put_response.status);
 
     // Allow propagation
     sleep(Duration::from_millis(100));
 
     match cache.get("sync-key") {
-        Ok(val) => println!("Read back key 'sync-key': {}", val),
+        Ok(resp) => println!("Read back key 'sync-key': {}", resp.value),
         Err(e) => println!("Read key 'sync-key' error: {}", e),
     }
 

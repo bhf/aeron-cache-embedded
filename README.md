@@ -50,12 +50,29 @@ await cache.put("stay", "tuned");
 
 See the `samples/` directory for full code examples in all languages.
 
+## Running Samples
+
+You can run all samples using the provided helper scripts:
+
+### Standard Samples (Sync/Async)
+This script runs the basic sync and async samples for all languages sequentially.
+```bash
+./run-all-samples.sh
+```
+
+### Streaming Samples (Embedded Cache)
+This script runs the streaming (Embedded Cache) samples for all languages in **parallel**. It captures the output from all languages into a single terminal window.
+```bash
+./run-streaming-samples.sh
+```
+*Note: Press Ctrl+C to stop all parallel streaming processes.*
 
 ## Features
 
+-   **Business Status Mapping**: Responses include an `operationStatus` field (e.g., `SUCCESS`, `CACHE_EXISTS`, `UNKNOWN_KEY`) to handle business logic without throwing transport-level exceptions for HTTP 400 errors.
 -   **CRUD Operations**: Full support for Create, Get, Put, Delete items and caches.
 -   **Sync & Async**: APIs available in both synchronous (blocking) and asynchronous (non-blocking) styles where appropriate.
--   **Embedded Aeron Cache**: A specialized `EmbeddedAeronCache` object that wraps a local Map/HashMap. It subscribes to the cache's WebSocket stream and applies updates (Add, Remove, Clear) to the local map automatically.
+-   **Embedded Aeron Cache**: A specialized `EmbeddedAeronCache` object that maintains a local shadowed copy of the cache data. It subscribes to the cache's WebSocket stream and applies updates (`ADD_ITEM`, `REMOVE_ITEM`, `DELETE_CACHE`, `CLEAR_CACHE`) to the local map automatically.
 
 
 ## Project Structure
