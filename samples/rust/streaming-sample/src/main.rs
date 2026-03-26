@@ -36,14 +36,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             match socket.read_message() {
                 Ok(msg) => {
-                    if msg.is_text() || msg.is_binary() {
-                        let text = msg.to_text().unwrap_or("");
-                        println!("[Rust] Observed change: {}", text);
+                    if msg.is_text() {
+                        println!("[Rust] Received update message");
                     }
                 }
                 Err(e) => {
                     eprintln!("[Rust] WebSocket error: {}", e);
-                    break;
                 }
             }
         }

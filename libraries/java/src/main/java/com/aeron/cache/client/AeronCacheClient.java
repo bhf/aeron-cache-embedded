@@ -168,9 +168,8 @@ public class AeronCacheClient {
 
     // --- WebSocket ---
     
-    public CompletableFuture<WebSocket> subscribe(String cacheId, WebSocket.Listener listener) {
-        return httpClient.newWebSocketBuilder()
-                .buildAsync(URI.create(wsUrl + "/api/ws/v1/cache/" + cacheId), listener);
+    public ReconnectingWebSocket subscribe(String cacheId, WebSocket.Listener listener) {
+        return new ReconnectingWebSocket(httpClient, URI.create(wsUrl + "/api/ws/v1/cache/" + cacheId), listener);
     }
 
     public EmbeddedAeronCache getCache(String cacheId) {

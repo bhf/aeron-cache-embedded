@@ -11,45 +11,55 @@ pub struct EmbeddedAeronCache<'a> {
     local_cache: Arc<RwLock<HashMap<String, String>>>,
 }
 
-pub struct UpdatingWebSocket<S> {
-    socket: tungstenite::WebSocket<S>,
+pub struct UpdatingWebSocket {
+    socket: tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
+    client_ws_url: String,
+    cache_id: String,
     local_cache: Arc<RwLock<HashMap<String, String>>>,
 }
 
-impl<S> UpdatingWebSocket<S>
-where
-    S: std::io::Read + std::io::Write,
-{
-    pub fn read_message(&mut self) -> Result<Message, tungstenite::Error> {
-        let msg = self.socket.read_message()?;
-        if let Message::Text(ref text) = msg {
-            if let Ok(event) = serde_json::from_str::<CacheUpdateEvent>(text) {
-                if let Ok(mut cache) = self.local_cache.write() {
-                    match event.event_type.as_str() {
-                        "ADD_ITEM" => {
-                            if let (Some(k), Some(v)) = (event.item_key, event.item_value) {
-                                cache.insert(k, v);
+impl UpdatingWebSocket {
+    pub fn read_message(&mut self) -> Result<Message, Box<dyn Error>> {
+        loop {
+            match self.socket.read_message() {
+                Ok(msg) => {
+                    if let Message::Text(ref text) = msg {
+                        if let Ok(event) = serde_json::from_str::<CacheUpdateEvent>(text) {
+                            if let Ok(mut cache) = self.local_cache.write() {
+                                match event.event_type.as_str() {
+                                    "ADD_ITEM" => {
+                                        if let (Some(k), Some(v)) = (event.item_key, event.item_value) {
+                                            cache.insert(k, v);
+                                        }
+                                    }
+                                    "REMOVE_ITEM" => {
+                                        if let Some(ref k) = event.item_key {
+                                            cache.remove(k);
+                                        }
+                                    }
+                                    "CLEAR_CACHE" | "DELETE_CACHE" => {
+                                        cache.clear();
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
-                        "REMOVE_ITEM" => {
-                            match event.item_key {
-                                Some(ref k) => { cache.remove(k); }
-                                None => {}
-                            }
-                        }
-                        "CLEAR_CACHE" | "DELETE_CACHE" => {
-                            cache.clear();
-                        }
-                        _ => {}
+                    }
+                    return Ok(msg);
+                }
+                Err(_) => {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    let url = format!("{}/api/ws/v1/cache/{}", self.client_ws_url, self.cache_id);
+                    if let Ok((socket, _)) = tungstenite::connect(url::Url::parse(&url)?) {
+                        self.socket = socket;
                     }
                 }
             }
         }
-        Ok(msg)
     }
 
-    pub fn write_message(&mut self, msg: Message) -> Result<(), tungstenite::Error> {
-        self.socket.write_message(msg)
+    pub fn write_message(&mut self, msg: Message) -> Result<(), Box<dyn Error>> {
+        self.socket.write_message(msg).map_err(|e| e.into())
     }
 }
 
@@ -102,10 +112,12 @@ impl<'a> EmbeddedAeronCache<'a> {
         self.client.delete_cache_async(&self.cache_id).await
     }
 
-    pub fn subscribe(&self) -> Result<UpdatingWebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
+    pub fn subscribe(&self) -> Result<UpdatingWebSocket, Box<dyn Error>> {
         let socket = self.client.subscribe(&self.cache_id)?;
         Ok(UpdatingWebSocket {
             socket,
+            client_ws_url: self.client.ws_url.clone(),
+            cache_id: self.cache_id.clone(),
             local_cache: self.local_cache.clone(),
         })
     }

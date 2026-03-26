@@ -86,8 +86,8 @@ pub struct CacheUpdateEvent {
 }
 
 pub struct AeronCacheClient {
-    base_url: String,
-    ws_url: String,
+    pub base_url: String,
+    pub ws_url: String,
     async_client: ReqwestClient,
     sync_client_cell: std::sync::OnceLock<BlockingClient>,
 }

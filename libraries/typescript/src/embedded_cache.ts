@@ -32,7 +32,7 @@ export class EmbeddedAeronCache {
         return this.client.deleteCache(this.cacheId);
     }
 
-    subscribe(onMessage: (data: CacheUpdateEvent) => void, onError?: (err: any) => void): WebSocket {
+    subscribe(onMessage: (data: CacheUpdateEvent) => void, onError?: (err: any) => void): { close: () => void } {
         const wrappedOnMessage = (data: CacheUpdateEvent) => {
             this.updateLocalCache(data);
             onMessage(data);

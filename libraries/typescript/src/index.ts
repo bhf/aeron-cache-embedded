@@ -65,18 +65,46 @@ export class AeronCacheClient {
         return new EmbeddedAeronCache(this, cacheId);
     }
 
-    subscribe(cacheId: string, onMessage: (data: CacheUpdateEvent) => void, onError?: (err: any) => void): WebSocket {
-        const ws = new WebSocket(`${this.wsUrl}/api/ws/v1/cache/${cacheId}`);
-        ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data) as CacheUpdateEvent;
-                onMessage(data);
-            } catch (e) {
-                if (onError) onError(e);
+    subscribe(cacheId: string, onMessage: (data: CacheUpdateEvent) => void, onError?: (err: any) => void): { close: () => void } {
+        let ws: WebSocket | null = null;
+        let isClosed = false;
+        let reconnectTimeout: any = null;
+        const wsUrl = `${this.wsUrl}/api/ws/v1/cache/${cacheId}`;
+
+        const connect = () => {
+            if (isClosed) return;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data) as CacheUpdateEvent;
+                    onMessage(data);
+                } catch (e) {
+                    if (onError) onError(e);
+                }
+            };
+
+            ws.onerror = (err) => {
+                if (onError) onError(err);
+            };
+
+            ws.onclose = () => {
+                if (!isClosed) {
+                    reconnectTimeout = setTimeout(connect, 5000);
+                }
+            };
+        };
+
+        connect();
+
+        return {
+            close: () => {
+                isClosed = true;
+                if (reconnectTimeout) clearTimeout(reconnectTimeout);
+                if (ws) ws.close();
             }
         };
-        if (onError) ws.onerror = onError;
-        return ws;
     }
 
     private async handleResponse(response: Response): Promise<any> {

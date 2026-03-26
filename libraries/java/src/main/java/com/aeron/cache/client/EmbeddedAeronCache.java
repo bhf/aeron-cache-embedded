@@ -59,7 +59,7 @@ public class EmbeddedAeronCache {
         return client.deleteCacheAsync(cacheId);
     }
 
-    public CompletableFuture<WebSocket> subscribe(WebSocket.Listener listener) {
+    public ReconnectingWebSocket subscribe(WebSocket.Listener listener) {
         WebSocket.Listener wrapper = new WebSocket.Listener() {
             @Override
             public void onOpen(WebSocket webSocket) {

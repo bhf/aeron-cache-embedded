@@ -149,8 +149,12 @@ class AeronCacheClient:
 
     async def subscribe(self, cache_id, callback):
         uri = f"{self.ws_url}/api/ws/v1/cache/{cache_id}"
-        async with websockets.connect(uri) as websocket:
-            async for message in websocket:
-                data = json.loads(message)
-                event = CacheUpdateEvent.from_dict(data)
-                await callback(event)
+        while True:
+            try:
+                async with websockets.connect(uri) as websocket:
+                    async for message in websocket:
+                        data = json.loads(message)
+                        event = CacheUpdateEvent.from_dict(data)
+                        await callback(event)
+            except (websockets.ConnectionClosed, Exception):
+                await asyncio.sleep(5)

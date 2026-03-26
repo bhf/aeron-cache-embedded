@@ -23,15 +23,15 @@ async function main() {
 
     const cache = new EmbeddedAeronCache(cacheClient, 'streaming-sample-cache');
     const onMessage = (event: any) => {
-        console.info(`[TypeScript] Got message from Aeron Cache: Type ${event.type}, Key ${event.key}`);
+        console.info(`[TypeScript] Got message from Aeron Cache: Type ${event.eventType}, Key ${event.itemKey}`);
     };
-    const onError = () => {
-        console.error('[TypeScript] Error in subscription');
+    const onError = (err: any) => {
+        console.error('[TypeScript] Error in subscription', err);
     };
 
-    cache.subscribe(onMessage, onError);
+    const subscription = cache.subscribe(onMessage, onError);
     try {
-        console.log("Connected. Waiting for updates on 'streaming-key'...");
+        console.log("Subscription established. Reconnection is enabled. Waiting for updates on 'streaming-key'...");
         
         let lastValue = "";
         // Loop forever checking for updates
