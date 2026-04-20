@@ -32,12 +32,16 @@ export class EmbeddedAeronCache {
         return this.client.deleteCache(this.cacheId);
     }
 
-    subscribe(onMessage: (data: CacheUpdateEvent) => void, onError?: (err: any) => void): { close: () => void } {
+    subscribe(
+        onMessage: (data: CacheUpdateEvent) => void, 
+        onError?: (err: any) => void,
+        onStatusChange?: (status: 'Connected' | 'Disconnected') => void
+    ): { close: () => void } {
         const wrappedOnMessage = (data: CacheUpdateEvent) => {
             this.updateLocalCache(data);
             onMessage(data);
         };
-        return this.client.subscribe(this.cacheId, wrappedOnMessage, onError);
+        return this.client.subscribe(this.cacheId, wrappedOnMessage, onError, onStatusChange);
     }
 
     private updateLocalCache(event: CacheUpdateEvent) {

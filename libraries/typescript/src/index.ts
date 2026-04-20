@@ -65,7 +65,12 @@ export class AeronCacheClient {
         return new EmbeddedAeronCache(this, cacheId);
     }
 
-    subscribe(cacheId: string, onMessage: (data: CacheUpdateEvent) => void, onError?: (err: any) => void): { close: () => void } {
+    subscribe(
+        cacheId: string, 
+        onMessage: (data: CacheUpdateEvent) => void, 
+        onError?: (err: any) => void,
+        onStatusChange?: (status: 'Connected' | 'Disconnected') => void
+    ): { close: () => void } {
         let ws: WebSocket | null = null;
         let isClosed = false;
         let reconnectTimeout: any = null;
@@ -75,6 +80,10 @@ export class AeronCacheClient {
             if (isClosed) return;
             
             ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                if (onStatusChange) onStatusChange('Connected');
+            };
             
             ws.onmessage = (event) => {
                 try {
@@ -90,6 +99,7 @@ export class AeronCacheClient {
             };
 
             ws.onclose = () => {
+                if (onStatusChange) onStatusChange('Disconnected');
                 if (!isClosed) {
                     reconnectTimeout = setTimeout(connect, 5000);
                 }
