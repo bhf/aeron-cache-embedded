@@ -59,57 +59,9 @@ public class EmbeddedAeronCache {
         return client.deleteCacheAsync(cacheId);
     }
 
-    public ReconnectingWebSocket subscribe(WebSocket.Listener listener) {
-        WebSocket.Listener wrapper = new WebSocket.Listener() {
-            @Override
-            public void onOpen(WebSocket webSocket) {
-                System.out.println("[EmbeddedAeronCache] WebSocket connection opened. Requesting first message...");
-                webSocket.request(1);
-                listener.onOpen(webSocket);
-            }
-
-            @Override
-            public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
-                String payload = data.toString();
-                System.out.println("[EmbeddedAeronCache] Received raw update message: " + payload);
-                try {
-                    CacheUpdateEvent event = objectMapper.readValue(payload, CacheUpdateEvent.class);
-                    System.out.println("[EmbeddedAeronCache] Parsed update event: " + event.getEventType() + " for key: " + event.getItemKey());
-                    updateLocalCache(event);
-                } catch (Exception e) {
-                    System.err.println("[EmbeddedAeronCache] Error parsing WebSocket update message: " + e.getMessage());
-                    e.printStackTrace();
-                }
-                webSocket.request(1);
-                return listener.onText(webSocket, data, last);
-            }
-
-            @Override
-            public CompletionStage<?> onBinary(WebSocket webSocket, java.nio.ByteBuffer data, boolean last) {
-                return listener.onBinary(webSocket, data, last);
-            }
-
-            @Override
-            public CompletionStage<?> onPing(WebSocket webSocket, java.nio.ByteBuffer message) {
-                return listener.onPing(webSocket, message);
-            }
-
-            @Override
-            public CompletionStage<?> onPong(WebSocket webSocket, java.nio.ByteBuffer message) {
-                return listener.onPong(webSocket, message);
-            }
-
-            @Override
-            public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-                return listener.onClose(webSocket, statusCode, reason);
-            }
-
-            @Override
-            public void onError(WebSocket webSocket, Throwable error) {
-                listener.onError(webSocket, error);
-            }
-        };
-        return client.subscribe(cacheId, wrapper);
+    public ReconnectingWebSocket subscribe(AeronCacheSubscriber subscriber) {
+        subscriber.setInternalUpdater(this::updateLocalCache);
+        return client.subscribe(cacheId, subscriber);
     }
 
     private void updateLocalCache(CacheUpdateEvent event) {

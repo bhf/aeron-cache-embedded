@@ -181,3 +181,5 @@ samples/java/sync-sample/.idea/*
 dist/
 .venv
 target/
+
+*.idea

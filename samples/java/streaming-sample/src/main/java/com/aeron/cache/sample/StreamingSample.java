@@ -2,9 +2,10 @@ package com.aeron.cache.sample;
 
 
 import com.aeron.cache.client.AeronCacheClient;
+import com.aeron.cache.client.AeronCacheSubscriber;
 import com.aeron.cache.client.EmbeddedAeronCache;
+import com.aeron.cache.models.CacheUpdateEvent;
 import java.net.http.WebSocket;
-import java.util.concurrent.CompletionStage;
 
 public class StreamingSample {
     public static void main(String[] args) {
@@ -22,17 +23,17 @@ public class StreamingSample {
         }
         EmbeddedAeronCache cache = new EmbeddedAeronCache(client, "streaming-sample-cache");
 
-        // Subscribe explicitly
-        cache.subscribe(new WebSocket.Listener() {
+        // Subscribe explicitly using AeronCacheSubscriber abstraction
+        cache.subscribe(new AeronCacheSubscriber() {
             @Override
             public void onOpen(WebSocket webSocket) {
+                super.onOpen(webSocket);
                 System.out.println("[Java] WebSocket subscription opened");
             }
 
             @Override
-            public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
-                System.out.println("[Java] Received update: " + data);
-                return WebSocket.Listener.super.onText(webSocket, data, last);
+            public void onAfterUpdate(CacheUpdateEvent event) {
+                System.out.println("[Java] Received update: " + event.getEventType() + " for " + event.getItemKey());
             }
         });
 
