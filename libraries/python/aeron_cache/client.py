@@ -23,7 +23,7 @@ class AeronCacheClient:
     def create_cache(self, cache_id) -> CreateResponse:
         url = f"{self.base_url}/api/v1/cache"
         response = requests.post(url, json={"cacheId": cache_id})
-        if response.status_code >= 400 and response.status_code != 400:
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
              response.raise_for_status()
         data = response.json()
         return CreateResponse(
@@ -34,7 +34,7 @@ class AeronCacheClient:
     def put_item(self, cache_id, key, value) -> PutItemResponse:
         url = f"{self.base_url}/api/v1/cache/{cache_id}"
         response = requests.post(url, json={"cacheId": cache_id, "key": key, "value": value})
-        if response.status_code >= 400 and response.status_code != 400:
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
              response.raise_for_status()
         data = response.json()
         return PutItemResponse(
@@ -46,7 +46,7 @@ class AeronCacheClient:
     def get_item(self, cache_id, key) -> GetItemResponse:
         url = f"{self.base_url}/api/v1/cache/{cache_id}/{key}"
         response = requests.get(url)
-        if response.status_code >= 400 and response.status_code != 400:
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
              response.raise_for_status()
         data = response.json()
         return GetItemResponse(
@@ -59,7 +59,7 @@ class AeronCacheClient:
     def delete_item(self, cache_id, key) -> DeleteItemResponse:
         url = f"{self.base_url}/api/v1/cache/{cache_id}/{key}"
         response = requests.delete(url)
-        if response.status_code >= 400 and response.status_code != 400:
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
              response.raise_for_status()
         data = response.json()
         return DeleteItemResponse(
@@ -71,7 +71,7 @@ class AeronCacheClient:
     def delete_cache(self, cache_id) -> DeleteCacheResponse:
         url = f"{self.base_url}/api/v1/cache/{cache_id}"
         response = requests.delete(url)
-        if response.status_code >= 400 and response.status_code != 400:
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
              response.raise_for_status()
         data = response.json()
         return DeleteCacheResponse(
@@ -85,7 +85,7 @@ class AeronCacheClient:
         url = f"{self.base_url}/api/v1/cache"
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json={"cacheId": cache_id}) as response:
-                if response.status >= 400 and response.status != 400:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
                     response.raise_for_status()
                 data = await response.json()
                 return CreateResponse(
@@ -97,7 +97,7 @@ class AeronCacheClient:
         url = f"{self.base_url}/api/v1/cache/{cache_id}"
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json={"cacheId": cache_id, "key": key, "value": value}) as response:
-                if response.status >= 400 and response.status != 400:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
                     response.raise_for_status()
                 data = await response.json()
                 return PutItemResponse(
@@ -110,7 +110,7 @@ class AeronCacheClient:
         url = f"{self.base_url}/api/v1/cache/{cache_id}/{key}"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
-                if response.status >= 400 and response.status != 400:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
                     response.raise_for_status()
                 data = await response.json()
                 return GetItemResponse(
@@ -124,7 +124,7 @@ class AeronCacheClient:
         url = f"{self.base_url}/api/v1/cache/{cache_id}/{key}"
         async with aiohttp.ClientSession() as session:
             async with session.delete(url) as response:
-                if response.status >= 400 and response.status != 400:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
                     response.raise_for_status()
                 data = await response.json()
                 return DeleteItemResponse(
@@ -137,7 +137,7 @@ class AeronCacheClient:
         url = f"{self.base_url}/api/v1/cache/{cache_id}"
         async with aiohttp.ClientSession() as session:
             async with session.delete(url) as response:
-                if response.status >= 400 and response.status != 400:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
                     response.raise_for_status()
                 data = await response.json()
                 return DeleteCacheResponse(

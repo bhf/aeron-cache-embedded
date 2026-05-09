@@ -183,3 +183,10 @@ dist/
 target/
 
 *.idea
+# Python
+__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+.coverage
+poetry.lock
