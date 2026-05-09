@@ -3,11 +3,11 @@ name: Java CI
 on:
   push:
     paths:
-      - 'aeron-cache-embedded/libraries/java/**'
+      - 'libraries/java/**'
       - '.github/workflows/java-ci.yml'
   pull_request:
     paths:
-      - 'aeron-cache-embedded/libraries/java/**'
+      - 'libraries/java/**'
       - '.github/workflows/java-ci.yml'
 
 jobs:
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: aeron-cache-embedded/libraries/java
+        working-directory: libraries/java
     steps:
       - uses: actions/checkout@v4
       
