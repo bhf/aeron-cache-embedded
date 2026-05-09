@@ -27,5 +27,48 @@ jobs:
       - name: Build
         run: cargo build --verbose
         
+      - name: Set up Homebrew
+        run: |
+          echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+      
+      - name: Install Aeron Cache Backend
+        run: |
+          brew tap bhf/aeroncache
+          brew install aeron-cache
+
+      - name: Start Aeron Cache Backend
+        run: |
+          nohup aeron-cache > aeron-cache-log.txt 2>&1 &
+          ENV_FILE="$HOME/.aeron-cache/aeron-cache-ui.env"
+          
+          for i in {1..30}; do
+            if [ -f "$ENV_FILE" ]; then
+              echo "Environment file found"
+              break
+            fi
+            echo "Waiting for $ENV_FILE..."
+            sleep 1
+          done
+          
+          if [ -f "$ENV_FILE" ]; then
+            FULL_API=$(grep "^AERON_CACHE_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
+            BASE_URL=$(echo "$FULL_API" | sed -E 's|(https?://[^/]+).*|\1|')
+            
+            FULL_WS=$(grep "^AERON_CACHE_WS_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
+            if [[ "$FULL_WS" == ws:* && "$FULL_WS" != ws://* ]]; then
+              FULL_WS="${FULL_WS/ws:/ws:\/\/}"
+            fi
+            WS_URL=$(echo "$FULL_WS" | sed -E 's|(wss?://[^/]+).*|\1|')
+            
+            echo "Found Base API URL: $BASE_URL"
+            echo "Found Base WS URL: $WS_URL"
+            echo "AERON_CACHE_BASE_URL=$BASE_URL" >> $GITHUB_ENV
+            echo "AERON_CACHE_WS_URL=$WS_URL" >> $GITHUB_ENV
+          else
+            echo "Error: $ENV_FILE not found after timeout"
+            exit 1
+          fi
+
       - name: Run tests
         run: cargo test --verbose
