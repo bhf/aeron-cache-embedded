@@ -80,4 +80,17 @@ public class AeronCacheClientTest {
         Exception exception = assertThrows(RuntimeException.class, () -> client.getItem("test-cache", "my-key"));
         assertTrue(exception.getMessage().contains("Http Error: 500"));
     }
+
+    @Test
+    public void testAllowBusinessLogicHttpErrors() throws Exception {
+        stubFor(get(urlEqualTo("/api/v1/cache/test-cache/non-existent-key"))
+                .willReturn(aResponse()
+                        .withStatus(404)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"operationStatus\":\"UNKNOWN_KEY\"}")));
+
+        GetItemResponse response = client.getItem("test-cache", "non-existent-key");
+        assertNotNull(response);
+        assertEquals(com.aeron.cache.models.OperationStatus.UNKNOWN_KEY, response.getOperationStatus());
+    }
 }

@@ -45,6 +45,52 @@ describe('AeronCacheClient', () => {
         expect(response).toEqual(mockResponse);
     });
 
+    it('should get item', async () => {
+        const mockResponse = { key: 'my-key', value: 'my-value' };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const response = await client.getItem('test-cache', 'my-key');
+        
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache/my-key');
+        expect(response).toEqual(mockResponse);
+    });
+
+    it('should delete item', async () => {
+        const mockResponse = { success: true };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const response = await client.deleteItem('test-cache', 'my-key');
+        
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache/my-key', {
+            method: 'DELETE'
+        });
+        expect(response).toEqual(mockResponse);
+    });
+
+    it('should delete cache', async () => {
+        const mockResponse = { success: true };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const response = await client.deleteCache('test-cache');
+        
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache', {
+            method: 'DELETE'
+        });
+        expect(response).toEqual(mockResponse);
+    });
+
     it('should throw error on 500 status', async () => {
         (global.fetch as jest.Mock).mockResolvedValue({
             ok: false,

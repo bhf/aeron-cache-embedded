@@ -23,6 +23,26 @@ describe('EmbeddedAeronCache', () => {
         expect(response).toEqual(mockResponse);
     });
 
+    it('delegates delete to client', async () => {
+        const mockResponse = { operationStatus: 'SUCCESS' };
+        mockClient.deleteItem.mockResolvedValue(mockResponse as any);
+
+        const response = await cache.delete('key1');
+
+        expect(mockClient.deleteItem).toHaveBeenCalledWith('test-cache', 'key1');
+        expect(response).toEqual(mockResponse);
+    });
+
+    it('delegates clear to client', async () => {
+        const mockResponse = { operationStatus: 'SUCCESS' };
+        mockClient.deleteCache.mockResolvedValue(mockResponse as any);
+
+        const response = await cache.clear();
+
+        expect(mockClient.deleteCache).toHaveBeenCalledWith('test-cache');
+        expect(response).toEqual(mockResponse);
+    });
+
     it('updates local cache via subscription and returns local value', () => {
         let subscriptionCallback: any;
         const mockWs = { close: jest.fn() };
