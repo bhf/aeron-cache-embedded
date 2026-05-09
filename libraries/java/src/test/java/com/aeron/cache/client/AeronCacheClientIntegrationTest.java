@@ -16,16 +16,16 @@ public class AeronCacheClientIntegrationTest {
 
     @BeforeAll
     public static void setup() {
-        String apiUrl = System.getenv("AERON_CACHE_API_URL");
+        String baseUrl = System.getenv("AERON_CACHE_BASE_URL");
         String wsUrl = System.getenv("AERON_CACHE_WS_URL");
 
-        Assumptions.assumeTrue(apiUrl != null && !apiUrl.isEmpty(), "Integration tests disabled: AERON_CACHE_API_URL not set");
+        Assumptions.assumeTrue(baseUrl != null && !baseUrl.isEmpty(), "Integration tests disabled: AERON_CACHE_BASE_URL not set");
         
         if (wsUrl == null || wsUrl.isEmpty()) {
-            wsUrl = apiUrl.replace("http://", "ws://").replace("https://", "wss://");
+            wsUrl = baseUrl.replace("http://", "ws://").replace("https://", "wss://");
         }
 
-        client = new AeronCacheClient(apiUrl, wsUrl);
+        client = new AeronCacheClient(baseUrl, wsUrl);
     }
 
     @Test

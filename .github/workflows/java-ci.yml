@@ -51,14 +51,15 @@ jobs:
           done
           
           if [ -f "$ENV_FILE" ]; then
-            API_URL=$(grep AERON_CACHE_API "$ENV_FILE" | cut -d'=' -f2)
-            if [[ "$API_URL" != */cache ]]; then
-              API_URL="${API_URL%/}/cache"
-            fi
-            echo "Found API URL: $API_URL"
-            echo "AERON_CACHE_API_URL=$API_URL" >> $GITHUB_ENV
+            # The aeronc-cache-ui.env file has something like AERON_CACHE_API=http://127.0.0.1:8080/api/v1/cache
+            # The client needs the base URL: http://127.0.0.1:8080
+            FULL_URL=$(grep AERON_CACHE_API "$ENV_FILE" | cut -d'=' -f2 | tr -d '\r' | tr -d '"')
+            BASE_URL=$(echo "$FULL_URL" | sed -E 's|(https?://[^/]+).*|\1|')
             
-            WS_URL=$(echo "$API_URL" | sed 's/^http/ws/')
+            echo "Found Base URL: $BASE_URL"
+            echo "AERON_CACHE_BASE_URL=$BASE_URL" >> $GITHUB_ENV
+            
+            WS_URL=$(echo "$BASE_URL" | sed 's/^http/ws/')
             echo "AERON_CACHE_WS_URL=$WS_URL" >> $GITHUB_ENV
           else
             echo "Error: $ENV_FILE not found after timeout"
