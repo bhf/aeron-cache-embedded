@@ -16,3 +16,6 @@ tokio = { version = "1.0", features = ["full"], optional = true }
 [lib]
 name = "aeron_cache_embedded_client"
 path = "src/lib.rs"
+
+[dev-dependencies]
+mockito = "1.7.2"

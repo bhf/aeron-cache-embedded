@@ -114,7 +114,7 @@ impl AeronCacheClient {
         let resp = self.get_sync_client().post(&url)
             .json(&req)
             .send()?;
-        if !resp.status().is_success() && resp.status() != 400 {
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
         }
         let data = resp.json::<CreateResponse>()?;
@@ -127,7 +127,7 @@ impl AeronCacheClient {
         let resp = self.get_sync_client().post(&url)
             .json(&req)
             .send()?;
-        if !resp.status().is_success() && resp.status() != 400 {
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
         }
         let data = resp.json::<PutItemResponse>()?;
@@ -137,7 +137,7 @@ impl AeronCacheClient {
     pub fn get_item(&self, cache_id: &str, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}/{}", self.base_url, cache_id, key);
         let resp = self.get_sync_client().get(&url).send()?;
-        if !resp.status().is_success() && resp.status() != 400 {
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
         }
         let data = resp.json::<GetItemResponse>()?;
@@ -147,7 +147,7 @@ impl AeronCacheClient {
     pub fn delete_item(&self, cache_id: &str, key: &str) -> Result<DeleteItemResponse, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}/{}", self.base_url, cache_id, key);
         let resp = self.get_sync_client().delete(&url).send()?;
-        if !resp.status().is_success() && resp.status() != 400 {
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
         }
         let data = resp.json::<DeleteItemResponse>()?;
@@ -157,7 +157,7 @@ impl AeronCacheClient {
     pub fn delete_cache(&self, cache_id: &str) -> Result<DeleteCacheResponse, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
         let resp = self.get_sync_client().delete(&url).send()?;
-        if !resp.status().is_success() && resp.status() != 400 {
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
         }
         let data = resp.json::<DeleteCacheResponse>()?;
@@ -173,7 +173,7 @@ impl AeronCacheClient {
             .json(&req)
             .send()
             .await?;
-        if !resp.status().is_success() && resp.status() != 400 {
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
         }
         let data = resp.json::<CreateResponse>().await?;
@@ -187,7 +187,7 @@ impl AeronCacheClient {
             .json(&req)
             .send()
             .await?;
-        if !resp.status().is_success() && resp.status() != 400 {
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
         }
         let data = resp.json::<PutItemResponse>().await?;
@@ -197,7 +197,7 @@ impl AeronCacheClient {
     pub async fn get_item_async(&self, cache_id: &str, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}/{}", self.base_url, cache_id, key);
         let resp = self.async_client.get(&url).send().await?;
-        if !resp.status().is_success() && resp.status() != 400 {
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
         }
         let data = resp.json::<GetItemResponse>().await?;
@@ -207,7 +207,7 @@ impl AeronCacheClient {
     pub async fn delete_item_async(&self, cache_id: &str, key: &str) -> Result<DeleteItemResponse, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}/{}", self.base_url, cache_id, key);
         let resp = self.async_client.delete(&url).send().await?;
-        if !resp.status().is_success() && resp.status() != 400 {
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
         }
         let data = resp.json::<DeleteItemResponse>().await?;
@@ -217,7 +217,7 @@ impl AeronCacheClient {
     pub async fn delete_cache_async(&self, cache_id: &str) -> Result<DeleteCacheResponse, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
         let resp = self.async_client.delete(&url).send().await?;
-        if !resp.status().is_success() && resp.status() != 400 {
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
         }
         let data = resp.json::<DeleteCacheResponse>().await?;
