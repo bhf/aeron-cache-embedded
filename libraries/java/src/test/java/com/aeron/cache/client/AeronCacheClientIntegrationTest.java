@@ -65,19 +65,35 @@ public class AeronCacheClientIntegrationTest {
         EmbeddedAeronCache embedded = client.getCache(cacheId);
 
         CountDownLatch latch = new CountDownLatch(1);
+        CountDownLatch openLatch = new CountDownLatch(1);
+        
         AeronCacheSubscriber subscriber = new AeronCacheSubscriber() {
             @Override
+            public void onOpen(java.net.http.WebSocket webSocket) {
+                super.onOpen(webSocket);
+                openLatch.countDown();
+            }
+
+            @Override
             public void onAfterUpdate(CacheUpdateEvent event) {
+                System.out.println("Received WS event: " + event.getEventType() + " for key: " + event.getItemKey());
                 if ("ADD_ITEM".equals(event.getEventType()) && "ws-key".equals(event.getItemKey())) {
                     latch.countDown();
                 }
+            }
+
+            @Override
+            public void onError(java.net.http.WebSocket webSocket, Throwable error) {
+                System.err.println("Websocket error:");
+                error.printStackTrace();
             }
         };
 
         ReconnectingWebSocket ws = embedded.subscribe(subscriber);
         
-        // Allow some time for websocket to connect
-        Thread.sleep(1000);
+        // Wait for websocket to connect fully
+        boolean opened = openLatch.await(5, TimeUnit.SECONDS);
+        assertTrue(opened, "Websocket failed to connect within timeout");
 
         embedded.put("ws-key", "ws-val");
 
