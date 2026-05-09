@@ -1,0 +1,69 @@
+import { AeronCacheClient } from './index';
+
+describe('AeronCacheClient', () => {
+    let client: AeronCacheClient;
+
+    beforeEach(() => {
+        client = new AeronCacheClient('http://localhost:7070', 'ws://localhost:7071');
+        // Mock global fetch
+        global.fetch = jest.fn();
+    });
+
+    it('should create cache', async () => {
+        const mockResponse = { cacheId: 'test-cache', status: 'CREATED' };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const response = await client.createCache('test-cache');
+        
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cacheId: 'test-cache' })
+        });
+        expect(response).toEqual(mockResponse);
+    });
+
+    it('should put item', async () => {
+        const mockResponse = { success: true };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const response = await client.putItem('test-cache', 'my-key', 'my-value');
+        
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cacheId: 'test-cache', key: 'my-key', value: 'my-value' })
+        });
+        expect(response).toEqual(mockResponse);
+    });
+
+    it('should throw error on 500 status', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error'
+        });
+
+        await expect(client.getItem('test-cache', 'my-key')).rejects.toThrow('HTTP Error: 500 Internal Server Error');
+    });
+
+    it('should allow business logic HTTP errors (400, 404)', async () => {
+        const mockResponse = { operationStatus: 'UNKNOWN_KEY' };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: false,
+            status: 404, // 404 is in allowed list and should return json instead of throwing
+            json: async () => mockResponse
+        });
+
+        const response = await client.getItem('test-cache', 'non-existent-key');
+        expect(response).toEqual(mockResponse);
+    });
+});
