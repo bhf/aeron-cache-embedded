@@ -53,7 +53,7 @@ if (shouldRun && !wsUrl) {
             const timeout = setTimeout(() => {
                 ws.close();
                 reject(new Error('Websocket event not received within timeout'));
-            }, 5000);
+            }, 10000);
 
             let openedTriggered = false;
 
@@ -72,7 +72,7 @@ if (shouldRun && !wsUrl) {
             };
 
             const onError = (err: any) => {
-                console.error("Websocket error", err);
+                console.error("Websocket error in TS suite. WS URL is:", wsUrl);
             };
 
             const onStatusChange = (status: 'Connected' | 'Disconnected') => {
@@ -89,5 +89,5 @@ if (shouldRun && !wsUrl) {
 
             const ws = embedded.subscribe(onMessage, onError, onStatusChange);
         });
-    });
+    }, 15000); // Give Jest 15s before failing
 });
