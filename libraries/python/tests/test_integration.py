@@ -3,7 +3,6 @@ import pytest
 import uuid
 import asyncio
 from aeron_cache.client import AeronCacheClient
-from aeron_cache.models import OperationStatus
 
 # Skip the whole module if not provided
 pytestmark = pytest.mark.skipif(
