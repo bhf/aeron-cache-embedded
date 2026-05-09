@@ -224,7 +224,7 @@ impl AeronCacheClient {
         Ok(data)
     }
 
-    pub fn get_cache(&self, cache_id: &str) -> EmbeddedAeronCache {
+    pub fn get_cache(&self, cache_id: &str) -> EmbeddedAeronCache<'_> {
         EmbeddedAeronCache::new(self, cache_id.to_string())
     }
 
