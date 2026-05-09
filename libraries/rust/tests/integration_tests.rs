@@ -71,7 +71,7 @@ fn test_integration_websocket_subscription() {
 
     // Rust websocket implementation might be blocking during read.
     // Read one message from websocket stream.
-    let msg = ws.read_message().expect("Failed to read message");
+    ws.read_message().expect("Failed to read message");
     
     // Usually it starts with some message or our ADD_ITEM will arrive.
     // In our rudimentary WebSocket impl, it parses incoming to cache immediately inside `read_message`.
