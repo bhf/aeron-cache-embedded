@@ -147,6 +147,9 @@ class AeronCacheClient:
 
     # --- WebSocket ---
 
+    def get_cache(self, cache_id: str) -> EmbeddedAeronCache:
+        return EmbeddedAeronCache(self, cache_id)
+
     async def subscribe(self, cache_id, callback):
         uri = f"{self.ws_url}/api/ws/v1/cache/{cache_id}"
         while True:
