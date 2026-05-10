@@ -14,7 +14,7 @@ fn test_create_cache_success() {
     
     let result = client.create_cache("test-cache").unwrap();
     assert_eq!(result.cache_id, "test-cache");
-    assert_eq!(result.operation_status.unwrap(), "SUCCESS");
+    assert_eq!(result.operation_status, "SUCCESS");
     
     mock.assert();
 }
@@ -66,7 +66,7 @@ fn test_business_error_404_allowed() {
     let client = AeronCacheClient::new(server.url(), "ws://localhost:7071".to_string());
     
     let result = client.get_item("test-cache", "non-existent-key").unwrap();
-    assert_eq!(result.operation_status.unwrap(), "UNKNOWN_KEY");
+    assert_eq!(result.operation_status, "UNKNOWN_KEY");
     
     mock.assert();
 }

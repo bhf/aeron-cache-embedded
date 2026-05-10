@@ -2,7 +2,7 @@ export type OperationStatus = 'SUCCESS' | 'ERROR' | 'UNKNOWN_CACHE' | 'UNKNOWN_K
 
 export interface CreateResponse {
     cacheId: string;
-    operationStatus?: OperationStatus;
+    operationStatus: string;
 }
 
 export interface PutItemRequest {
@@ -13,25 +13,25 @@ export interface PutItemRequest {
 export interface PutItemResponse {
     cacheId: string;
     key: string;
-    operationStatus?: OperationStatus;
+    operationStatus: string;
 }
 
 export interface GetItemResponse {
     cacheId: string;
     key: string;
     value: string;
-    operationStatus?: OperationStatus;
+    operationStatus: string;
 }
 
 export interface DeleteItemResponse {
     cacheId: string;
     key: string;
-    operationStatus?: OperationStatus;
+    operationStatus: string;
 }
 
 export interface DeleteCacheResponse {
     cacheId: string;
-    operationStatus?: OperationStatus;
+    operationStatus: string;
 }
 
 export interface CacheUpdateEvent {

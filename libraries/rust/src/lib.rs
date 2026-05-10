@@ -18,7 +18,7 @@ pub struct CreateResponse {
     #[serde(rename = "cacheId")]
     pub cache_id: String,
     #[serde(rename = "operationStatus")]
-    pub operation_status: Option<String>,
+    pub operation_status: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -35,7 +35,7 @@ pub struct PutItemResponse {
     #[serde(default = "default_status")]
     pub status: String,
     #[serde(rename = "operationStatus")]
-    pub operation_status: Option<String>,
+    pub operation_status: String,
 }
 
 fn default_status() -> String {
@@ -49,7 +49,7 @@ pub struct GetItemResponse {
     pub key: String,
     pub value: String,
     #[serde(rename = "operationStatus")]
-    pub operation_status: Option<String>,
+    pub operation_status: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -58,7 +58,7 @@ pub struct DeleteItemResponse {
     pub cache_id: String,
     pub key: String,
     #[serde(rename = "operationStatus")]
-    pub operation_status: Option<String>,
+    pub operation_status: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -66,7 +66,7 @@ pub struct DeleteCacheResponse {
     #[serde(rename = "cacheId")]
     pub cache_id: String,
     #[serde(rename = "operationStatus")]
-    pub operation_status: Option<String>,
+    pub operation_status: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

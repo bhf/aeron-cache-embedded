@@ -4,7 +4,7 @@ public class PutItemResponse {
     private String cacheId;
     private String key;
     private String status;
-    private OperationStatus operationStatus;
+    private String operationStatus;
 
     public String getCacheId() { return cacheId; }
     public void setCacheId(String cacheId) { this.cacheId = cacheId; }
@@ -13,6 +13,6 @@ public class PutItemResponse {
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 
-    public OperationStatus getOperationStatus() { return operationStatus; }
-    public void setOperationStatus(OperationStatus operationStatus) { this.operationStatus = operationStatus; }
+    public String getOperationStatus() { return operationStatus; }
+    public void setOperationStatus(String operationStatus) { this.operationStatus = operationStatus; }
 }

@@ -29,13 +29,13 @@ fn test_embedded_cache_removes_and_clears_delegates() {
     let mock_del = server.mock("DELETE", "/api/v1/cache/test-cache/key1")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"cacheId": "test-cache", "key": "key1"}"#)
+        .with_body(r#"{"cacheId": "test-cache", "key": "key1", "operationStatus": "SUCCESS"}"#)
         .create();
         
     let mock_clear = server.mock("DELETE", "/api/v1/cache/test-cache")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"cacheId": "test-cache"}"#)
+        .with_body(r#"{"cacheId": "test-cache", "operationStatus": "SUCCESS"}"#)
         .create();
 
     let client = AeronCacheClient::new(server.url(), "ws://localhost:7071".to_string());

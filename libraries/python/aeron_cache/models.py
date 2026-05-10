@@ -4,32 +4,32 @@ from typing import Optional
 @dataclass
 class CreateResponse:
     cacheId: str
-    operationStatus: Optional[str] = None
+    operationStatus: str
 
 @dataclass
 class PutItemResponse:
     cacheId: str
     key: str
+    operationStatus: str
     status: Optional[str] = "OK"
-    operationStatus: Optional[str] = None
 
 @dataclass
 class GetItemResponse:
     cacheId: str
     key: str
     value: str
-    operationStatus: Optional[str] = None
+    operationStatus: str
 
 @dataclass
 class DeleteItemResponse:
     cacheId: str
     key: str
-    operationStatus: Optional[str] = None
+    operationStatus: str
 
 @dataclass
 class DeleteCacheResponse:
     cacheId: str
-    operationStatus: Optional[str] = None
+    operationStatus: str
 
 @dataclass
 class ErrorResponse:

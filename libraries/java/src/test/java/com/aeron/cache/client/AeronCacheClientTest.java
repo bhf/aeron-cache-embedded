@@ -91,6 +91,6 @@ public class AeronCacheClientTest {
 
         GetItemResponse response = client.getItem("test-cache", "non-existent-key");
         assertNotNull(response);
-        assertEquals(com.aeron.cache.models.OperationStatus.UNKNOWN_KEY, response.getOperationStatus());
+        assertEquals("UNKNOWN_KEY", response.getOperationStatus());
     }
 }

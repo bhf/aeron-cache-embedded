@@ -44,7 +44,7 @@ fn test_integration_cache_operations() {
 
     // Get the item again, should handle 404 cleanly
     let get_resp2 = cache.get("key1").unwrap();
-    assert!(get_resp2.operation_status == Some("UNKNOWN_KEY".to_string()) || get_resp2.value.is_empty());
+    assert!(get_resp2.operation_status == "UNKNOWN_KEY" || get_resp2.value.is_empty());
 }
 
 #[test]
