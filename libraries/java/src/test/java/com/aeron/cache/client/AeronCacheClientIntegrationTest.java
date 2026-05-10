@@ -55,7 +55,7 @@ public class AeronCacheClientIntegrationTest {
         // Get the item again, should handle 404 cleanly based on our previous logic
         GetItemResponse getResp2 = embedded.get("key1");
         assertNotNull(getResp2);
-        assertTrue(getResp2.getOperationStatus() == "UNKNOWN_KEY" || getResp2.getValue() == null);
+        assertTrue("UNKNOWN_KEY".equals(getResp2.getOperationStatus()) || getResp2.getValue() == null);
     }
 
     @Test
