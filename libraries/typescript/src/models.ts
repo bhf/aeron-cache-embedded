@@ -6,7 +6,6 @@ export interface CreateResponse {
 }
 
 export interface PutItemRequest {
-    cacheId: string;
     key: string;
     value: string;
 }

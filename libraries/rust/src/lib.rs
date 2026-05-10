@@ -23,8 +23,6 @@ pub struct CreateResponse {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PutItemRequest {
-    #[serde(rename = "cacheId")]
-    pub cache_id: String,
     pub key: String,
     pub value: String,
 }
@@ -123,7 +121,7 @@ impl AeronCacheClient {
 
     pub fn put_item(&self, cache_id: &str, key: &str, value: &str) -> Result<PutItemResponse, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
-        let req = PutItemRequest { cache_id: cache_id.to_string(), key: key.to_string(), value: value.to_string() };
+        let req = PutItemRequest { key: key.to_string(), value: value.to_string() };
         let resp = self.get_sync_client().post(&url)
             .json(&req)
             .send()?;
@@ -182,7 +180,7 @@ impl AeronCacheClient {
 
     pub async fn put_item_async(&self, cache_id: &str, key: &str, value: &str) -> Result<PutItemResponse, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
-        let req = PutItemRequest { cache_id: cache_id.to_string(), key: key.to_string(), value: value.to_string() };
+        let req = PutItemRequest { key: key.to_string(), value: value.to_string() };
         let resp = self.async_client.post(&url)
             .json(&req)
             .send()

@@ -37,7 +37,7 @@ export class AeronCacheClient {
         const response = await fetch(`${this.baseUrl}/api/v1/cache/${cacheId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cacheId, key, value })
+            body: JSON.stringify({ key, value })
         });
         return this.handleResponse(response);
     }

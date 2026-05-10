@@ -40,7 +40,7 @@ describe('AeronCacheClient', () => {
         expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cacheId: 'test-cache', key: 'my-key', value: 'my-value' })
+            body: JSON.stringify({ key: 'my-key', value: 'my-value' })
         });
         expect(response).toEqual(mockResponse);
     });

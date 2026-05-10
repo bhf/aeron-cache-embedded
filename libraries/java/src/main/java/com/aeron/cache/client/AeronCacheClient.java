@@ -39,7 +39,7 @@ public class AeronCacheClient {
     }
 
     public PutItemResponse putItem(String cacheId, String key, String value) throws Exception {
-        String json = String.format("{\"cacheId\":\"%s\",\"key\":\"%s\",\"value\":\"%s\"}", cacheId, key, value);
+        String json = String.format("{\"key\":\"%s\",\"value\":\"%s\"}", key, value);
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
                 .header("Content-Type", "application/json")
@@ -101,7 +101,7 @@ public class AeronCacheClient {
     }
 
     public CompletableFuture<PutItemResponse> putItemAsync(String cacheId, String key, String value) {
-        String json = String.format("{\"cacheId\":\"%s\",\"key\":\"%s\",\"value\":\"%s\"}", cacheId, key, value);
+        String json = String.format("{\"key\":\"%s\",\"value\":\"%s\"}", key, value);
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
                 .header("Content-Type", "application/json")
