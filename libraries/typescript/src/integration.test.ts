@@ -79,11 +79,13 @@ if (shouldRun && !wsUrl) {
                 if (status === 'Connected' && !openedTriggered) {
                     openedTriggered = true;
                     // Trigger cache update which should reflect in websocket
-                    embedded.put('ws-key', 'ws-val').catch(err => {
-                        clearTimeout(timeout);
-                        ws.close();
-                        reject(err);
-                    });
+                    setTimeout(() => {
+                        embedded.put('ws-key', 'ws-val').catch(err => {
+                            clearTimeout(timeout);
+                            ws.close();
+                            reject(err);
+                        });
+                    }, 1000);
                 }
             };
 
