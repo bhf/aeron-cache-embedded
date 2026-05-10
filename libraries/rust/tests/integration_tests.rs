@@ -83,3 +83,27 @@ fn test_integration_websocket_subscription() {
 
     cache.clear().unwrap();
 }
+
+#[test]
+fn test_get_and_clear_cache() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_get_and_clear_cache: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-cache2");
+
+    client.create_cache(&cache_id).unwrap();
+    client.put_item(&cache_id, "key1", "val1").unwrap();
+    client.put_item(&cache_id, "key2", "val2").unwrap();
+
+    let get_resp = client.get_cache_items(&cache_id).unwrap();
+    assert_eq!(get_resp.items.len(), 2);
+
+    let clear_resp = client.clear_cache(&cache_id).unwrap();
+    assert_eq!(clear_resp.operation_status, "SUCCESS");
+
+    let get_resp2 = client.get_cache_items(&cache_id).unwrap();
+    assert_eq!(get_resp2.items.len(), 0);
+}

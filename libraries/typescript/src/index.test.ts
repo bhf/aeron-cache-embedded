@@ -112,4 +112,28 @@ describe('AeronCacheClient', () => {
         const response = await client.getItem('test-cache', 'non-existent-key');
         expect(response).toEqual(mockResponse);
     });
+
+    test('getCacheItems makes correct request', async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({ cacheId: 'test-cache-get', operationStatus: 'SUCCESS', items: [{key: 'k1', value: 'v1'}] })
+        });
+
+        const response = await client.getCacheItems('test-cache-get');
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache-get');
+        expect(response.cacheId).toBe('test-cache-get');
+        expect(response.items.length).toBe(1);
+        expect(response.items[0].key).toBe('k1');
+    });
+
+    test('clearCache makes correct request', async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({ cacheId: 'test-cache-clear', operationStatus: 'SUCCESS' })
+        });
+
+        const response = await client.clearCache('test-cache-clear');
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache-clear', { method: 'PATCH' });
+        expect(response.operationStatus).toBe('SUCCESS');
+    });
 });

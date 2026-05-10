@@ -106,4 +106,26 @@ public class AeronCacheClientIntegrationTest {
         embedded.clear();
         ws.close();
     }
+
+    @Test
+    public void testGetAndClearCache() throws Exception {
+        
+        String cacheId = "it-cache2-" + System.currentTimeMillis();
+
+        client.createCache(cacheId);
+        client.putItem(cacheId, "key1", "val1");
+        client.putItem(cacheId, "key2", "val2");
+
+        com.aeron.cache.models.GetCacheResponse getResp = client.getCacheItems(cacheId);
+        assertNotNull(getResp);
+        assertEquals(2, getResp.getItems().size());
+
+        com.aeron.cache.models.ClearCacheResponse clearResp = client.clearCache(cacheId);
+        assertNotNull(clearResp);
+        assertEquals("SUCCESS", clearResp.getOperationStatus());
+
+        com.aeron.cache.models.GetCacheResponse getResp2 = client.getCacheItems(cacheId);
+        assertEquals(0, getResp2.getItems().size());
+    }
+
 }

@@ -26,6 +26,15 @@ public class AeronCacheClient {
 
     // --- Sync Operations ---
 
+    
+    public GetCacheResponse getCacheItems(String cacheId) throws Exception {
+        return getCacheItemsAsync(cacheId).get();
+    }
+
+    public ClearCacheResponse clearCache(String cacheId) throws Exception {
+        return clearCacheAsync(cacheId).get();
+    }
+
     public CreateResponse createCache(String cacheId) throws Exception {
         String json = "{\"cacheId\":\"" + cacheId + "\"}";
         HttpRequest request = HttpRequest.newBuilder()
@@ -150,6 +159,41 @@ public class AeronCacheClient {
                 });
     }
     
+    
+    public CompletableFuture<GetCacheResponse> getCacheItemsAsync(String cacheId) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
+                .GET()
+                .build();
+                
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(response -> response.body())
+                .thenApply(body -> {
+                    try {
+                        return objectMapper.readValue(body, GetCacheResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
+    public CompletableFuture<ClearCacheResponse> clearCacheAsync(String cacheId) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
+                .method("PATCH", HttpRequest.BodyPublishers.noBody())
+                .build();
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(response -> response.body())
+                .thenApply(body -> {
+                    try {
+                        return objectMapper.readValue(body, ClearCacheResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
     public CompletableFuture<DeleteCacheResponse> deleteCacheAsync(String cacheId) {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))

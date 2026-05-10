@@ -83,3 +83,21 @@ async def test_websocket_subscription(client):
 
     assert embedded.get_local("ws-key") == "ws-val"
     embedded.clear()
+
+def test_get_and_clear_cache(client):
+    cache_id = f"it-cache2-{uuid.uuid4().hex[:8]}"
+
+    # Create Cache
+    client.create_cache(cache_id)
+
+    client.put_item(cache_id, "key1", "val1")
+    client.put_item(cache_id, "key2", "val2")
+
+    get_resp = client.get_cache_items(cache_id)
+    assert len(get_resp.items) == 2
+
+    clear_resp = client.clear_cache(cache_id)
+    assert clear_resp.operationStatus == "SUCCESS"
+
+    get_resp2 = client.get_cache_items(cache_id)
+    assert len(get_resp2.items) == 0

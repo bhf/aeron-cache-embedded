@@ -93,3 +93,31 @@ def test_allow_business_logic_http_errors(client):
     
     response = client.get_item("test-cache", "non-existent-key")
     assert response.operationStatus == "UNKNOWN_KEY"
+
+@responses.activate
+def test_get_cache(client):
+    responses.add(
+        responses.GET,
+        "http://localhost:7070/api/v1/cache/test-cache",
+        json={"cacheId": "test-cache", "operationStatus": "SUCCESS", "items": [{"key": "my-key", "value": "my-value"}]},
+        status=200
+    )
+    
+    response = client.get_cache_items("test-cache")
+    assert response.cacheId == "test-cache"
+    assert len(response.items) == 1
+    assert response.items[0].key == "my-key"
+    assert response.items[0].value == "my-value"
+
+@responses.activate
+def test_clear_cache(client):
+    responses.add(
+        responses.PATCH,
+        "http://localhost:7070/api/v1/cache/test-cache",
+        json={"cacheId": "test-cache", "operationStatus": "SUCCESS"},
+        status=200
+    )
+    
+    response = client.clear_cache("test-cache")
+    assert response.cacheId == "test-cache"
+    assert response.operationStatus == "SUCCESS"

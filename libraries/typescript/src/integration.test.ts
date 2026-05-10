@@ -92,4 +92,21 @@ if (shouldRun && !wsUrl) {
             const ws = embedded.subscribe(onMessage, onError, onStatusChange);
         });
     }, 15000); // Give Jest 15s before failing
+
+    test('get_and_clear_cache behaves correctly', async () => {
+        const cacheId = `it-cache2-${Date.now()}`;
+        
+        await client.createCache(cacheId);
+        await client.putItem(cacheId, 'key1', 'val1');
+        await client.putItem(cacheId, 'key2', 'val2');
+
+        const getResp = await client.getCacheItems(cacheId);
+        expect(getResp.items.length).toBe(2);
+
+        const clearResp = await client.clearCache(cacheId);
+        expect(clearResp.operationStatus).toBe('SUCCESS');
+
+        const getResp2 = await client.getCacheItems(cacheId);
+        expect(getResp2.items.length).toBe(0);
+    });
 });

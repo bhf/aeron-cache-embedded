@@ -1,4 +1,6 @@
-export type OperationStatus = 'SUCCESS' | 'ERROR' | 'UNKNOWN_CACHE' | 'UNKNOWN_KEY' | 'CACHE_EXISTS';
+export interface CreateRequest {
+    cacheId: string;
+}
 
 export interface CreateResponse {
     cacheId: string;
@@ -36,15 +38,24 @@ export interface DeleteCacheResponse {
 
 export interface CacheUpdateEvent {
     cacheId: string;
-    key: string;
-    value: string;
-    timestamp: number;
-}
-
-export interface CacheUpdateEvent {
-    cacheId: string;
-    eventType: 'ADD_ITEM' | 'DELETE_CACHE' | 'REMOVE_ITEM' | 'CLEAR_CACHE';
+    eventType: string;
+    requestId: string;
     itemKey?: string;
     itemValue?: string;
-    requestId: string;
+}
+
+export interface CacheItem {
+    key: string;
+    value: string;
+}
+
+export interface GetCacheResponse {
+    cacheId: string;
+    operationStatus: string;
+    items: CacheItem[];
+}
+
+export interface ClearCacheResponse {
+    cacheId: string;
+    operationStatus: string;
 }

@@ -70,3 +70,39 @@ fn test_business_error_404_allowed() {
     
     mock.assert();
 }
+
+#[test]
+fn test_get_cache_items() {
+    let mut server = mockito::Server::new();
+    let url = server.url();
+
+    let _m = server.mock("GET", "/api/v1/cache/test-cache-get")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"cacheId":"test-cache-get","operationStatus":"SUCCESS","items":[{"key":"k1","value":"v1"}]}"#)
+        .create();
+
+    let client = AeronCacheClient::new(url, "ws://localhost".into());
+    let response = client.get_cache_items("test-cache-get").unwrap();
+
+    assert_eq!(response.cache_id, "test-cache-get");
+    assert_eq!(response.items.len(), 1);
+    assert_eq!(response.items[0].key, "k1");
+}
+
+#[test]
+fn test_clear_cache() {
+    let mut server = mockito::Server::new();
+    let url = server.url();
+
+    let _m = server.mock("PATCH", "/api/v1/cache/test-cache-clear")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"cacheId":"test-cache-clear","operationStatus":"SUCCESS"}"#)
+        .create();
+
+    let client = AeronCacheClient::new(url, "ws://localhost".into());
+    let response = client.clear_cache("test-cache-clear").unwrap();
+
+    assert_eq!(response.operation_status, "SUCCESS");
+}

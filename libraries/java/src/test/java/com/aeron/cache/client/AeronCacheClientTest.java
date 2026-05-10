@@ -93,4 +93,32 @@ public class AeronCacheClientTest {
         assertNotNull(response);
         assertEquals("UNKNOWN_KEY", response.getOperationStatus());
     }
+
+    @Test
+    public void testGetCacheItems() throws Exception {
+        stubFor(get(urlEqualTo("/api/v1/cache/test-cache-get"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"cacheId\":\"test-cache-get\",\"operationStatus\":\"SUCCESS\",\"items\":[{\"key\":\"k1\",\"value\":\"v1\"}]}")));
+
+        com.aeron.cache.models.GetCacheResponse response = client.getCacheItems("test-cache-get");
+        assertNotNull(response);
+        assertEquals("test-cache-get", response.getCacheId());
+        assertNotNull(response.getItems());
+        assertEquals(1, response.getItems().size());
+        assertEquals("k1", response.getItems().get(0).getKey());
+    }
+
+    @Test
+    public void testClearCache() throws Exception {
+        stubFor(patch(urlEqualTo("/api/v1/cache/test-cache-clear"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"cacheId\":\"test-cache-clear\",\"operationStatus\":\"SUCCESS\"}")));
+
+        com.aeron.cache.models.ClearCacheResponse response = client.clearCache("test-cache-clear");
+        assertNotNull(response);
+        assertEquals("SUCCESS", response.getOperationStatus());
+    }
+
 }

@@ -5,7 +5,9 @@ import {
     GetItemResponse, 
     DeleteItemResponse, 
     DeleteCacheResponse,
-    CacheUpdateEvent
+    CacheUpdateEvent,
+    GetCacheResponse,
+    ClearCacheResponse
 } from './models';
 
 export { EmbeddedAeronCache };
@@ -52,6 +54,29 @@ export class AeronCacheClient {
             method: 'DELETE'
         });
         return this.handleResponse(response);
+    }
+
+    
+    async getCacheItems(cacheId: string): Promise<GetCacheResponse> {
+        const url = `${this.baseUrl}/api/v1/cache/${cacheId}`;
+        const response = await fetch(url);
+        
+        if (!response.ok && response.status !== 404 && response.status !== 400) {
+            throw new Error(`Http Error: ${response.status}`);
+        }
+        
+        return response.json();
+    }
+
+    async clearCache(cacheId: string): Promise<ClearCacheResponse> {
+        const url = `${this.baseUrl}/api/v1/cache/${cacheId}`;
+        const response = await fetch(url, { method: 'PATCH' });
+        
+        if (!response.ok && response.status !== 404 && response.status !== 400) {
+            throw new Error(`Http Error: ${response.status}`);
+        }
+        
+        return response.json();
     }
 
     async deleteCache(cacheId: string): Promise<DeleteCacheResponse> {

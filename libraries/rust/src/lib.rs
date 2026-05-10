@@ -7,6 +7,28 @@ use url::Url;
 pub mod embedded_cache;
 pub use embedded_cache::EmbeddedAeronCache;
 
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CacheItem {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GetCacheResponse {
+    pub cache_id: String,
+    pub operation_status: String,
+    pub items: Vec<CacheItem>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearCacheResponse {
+    pub cache_id: String,
+    pub operation_status: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CreateRequest {
     #[serde(rename = "cacheId")]
@@ -220,6 +242,55 @@ impl AeronCacheClient {
         }
         let data = resp.json::<DeleteCacheResponse>().await?;
         Ok(data)
+    }
+
+    
+    pub fn get_cache_items(&self, cache_id: &str) -> Result<GetCacheResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
+        let response = self.get_sync_client().get(&url).send()?;
+
+        if !response.status().is_success() && response.status() != reqwest::StatusCode::NOT_FOUND && response.status() != reqwest::StatusCode::BAD_REQUEST {
+            return Err(format!("Http Error: {}", response.status()).into());
+        }
+
+        let resp_body = response.json::<GetCacheResponse>()?;
+        Ok(resp_body)
+    }
+
+    pub fn clear_cache(&self, cache_id: &str) -> Result<ClearCacheResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
+        let response = self.get_sync_client().patch(&url).send()?;
+
+        if !response.status().is_success() && response.status() != reqwest::StatusCode::NOT_FOUND && response.status() != reqwest::StatusCode::BAD_REQUEST {
+            return Err(format!("Http Error: {}", response.status()).into());
+        }
+
+        let resp_body = response.json::<ClearCacheResponse>()?;
+        Ok(resp_body)
+    }
+
+    pub async fn get_cache_items_async(&self, cache_id: &str) -> Result<GetCacheResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
+        let response = self.async_client.get(&url).send().await?;
+
+        if !response.status().is_success() && response.status() != reqwest::StatusCode::NOT_FOUND && response.status() != reqwest::StatusCode::BAD_REQUEST {
+            return Err(format!("Http Error: {}", response.status()).into());
+        }
+
+        let resp_body = response.json::<GetCacheResponse>().await?;
+        Ok(resp_body)
+    }
+
+    pub async fn clear_cache_async(&self, cache_id: &str) -> Result<ClearCacheResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
+        let response = self.async_client.patch(&url).send().await?;
+
+        if !response.status().is_success() && response.status() != reqwest::StatusCode::NOT_FOUND && response.status() != reqwest::StatusCode::BAD_REQUEST {
+            return Err(format!("Http Error: {}", response.status()).into());
+        }
+
+        let resp_body = response.json::<ClearCacheResponse>().await?;
+        Ok(resp_body)
     }
 
     pub fn get_cache(&self, cache_id: &str) -> EmbeddedAeronCache<'_> {

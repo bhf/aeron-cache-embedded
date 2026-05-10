@@ -10,6 +10,8 @@ from .models import (
     GetItemResponse, 
     DeleteItemResponse, 
     DeleteCacheResponse,
+    GetCacheResponse,
+    ClearCacheResponse,
     CacheUpdateEvent
 )
 
@@ -133,6 +135,28 @@ class AeronCacheClient:
                     operationStatus=data.get('operationStatus')
                 )
         
+    def get_cache_items(self, cache_id) -> GetCacheResponse:
+        url = f"{self.base_url}/api/v1/cache/{cache_id}"
+        response = requests.get(url)
+        return GetCacheResponse.from_dict(response.json())
+
+    def clear_cache(self, cache_id) -> ClearCacheResponse:
+        url = f"{self.base_url}/api/v1/cache/{cache_id}"
+        response = requests.patch(url)
+        return ClearCacheResponse(**response.json())
+
+    async def get_cache_async(self, cache_id) -> GetCacheResponse:
+        url = f"{self.base_url}/api/v1/cache/{cache_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                return GetCacheResponse.from_dict(await response.json())
+
+    async def clear_cache_async(self, cache_id) -> ClearCacheResponse:
+        url = f"{self.base_url}/api/v1/cache/{cache_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.patch(url) as response:
+                return ClearCacheResponse(**await response.json())
+
     async def delete_cache_async(self, cache_id) -> DeleteCacheResponse:
         url = f"{self.base_url}/api/v1/cache/{cache_id}"
         async with aiohttp.ClientSession() as session:

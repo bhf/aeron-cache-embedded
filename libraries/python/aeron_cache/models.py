@@ -53,3 +53,28 @@ class CacheUpdateEvent:
             itemKey=data.get('itemKey'),
             itemValue=data.get('itemValue')
         )
+
+@dataclass
+class CacheItem:
+    key: str
+    value: str
+
+@dataclass
+class GetCacheResponse:
+    cacheId: str
+    operationStatus: str
+    items: list[CacheItem]
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        items = [CacheItem(**item) for item in data.get('items', [])]
+        return cls(
+            cacheId=data.get('cacheId'),
+            operationStatus=data.get('operationStatus'),
+            items=items
+        )
+
+@dataclass
+class ClearCacheResponse:
+    cacheId: str
+    operationStatus: str
