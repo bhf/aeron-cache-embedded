@@ -3,7 +3,7 @@
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "TypeScript Client for Aeron Cache with Embedded Cache support",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

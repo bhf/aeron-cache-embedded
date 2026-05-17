@@ -1,6 +1,6 @@
 [package]
 name = "aeron-cache-embedded-client"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "Rust Client for Aeron Cache with Embedded Cache support"
 license = "MIT"
