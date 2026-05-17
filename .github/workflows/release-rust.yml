@@ -1,0 +1,30 @@
+name: Publish Rust Package
+
+on:
+  push:
+    tags:
+      - 'rust-v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: libraries/rust
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          
+      - name: Build and Package
+        run: cargo package --allow-dirty
+          
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: libraries/rust/target/package/*.crate

@@ -1,5 +1,8 @@
 {
-  "name": "@aeron-cache/embedded-client",
+  "name": "@bhf/aeron-cache-embedded-client",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "version": "1.0.0",
   "description": "TypeScript Client for Aeron Cache with Embedded Cache support",
   "main": "dist/index.js",

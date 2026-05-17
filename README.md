@@ -20,6 +20,42 @@ The goal of these libraries is to provide an "Embedded Cache" mode across langua
 | Python     | ✅   | ✅     | ✅      |
 | Rust       | ✅     | ✅     | ✅       |
 
+## Installation
+
+### Java (GitHub Packages)
+Add the GitHub Packages repository and dependency to your build file:
+```kotlin
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/bhf/aeron-cache-embedded")
+    }
+}
+dependencies {
+    implementation("com.aeron.cache:aeron-cache-embedded-client:1.0.0")
+}
+```
+
+### TypeScript (GitHub Packages npm registry)
+Configure your `.npmrc` to use GitHub Packages for the `@bhf` scope, then install:
+```bash
+npm install @bhf/aeron-cache-embedded-client
+```
+
+### Python
+You can install the Python client directly from this repository via git:
+```bash
+pip install "git+https://github.com/bhf/aeron-cache-embedded.git@py-v1.0.0#subdirectory=libraries/python"
+```
+Alternatively, `.whl` and `.tar.gz` files are attached to the [GitHub Releases](https://github.com/bhf/aeron-cache-embedded/releases).
+
+### Rust
+You can add the Rust client as a git dependency in your `Cargo.toml`:
+```toml
+[dependencies]
+aeron-cache-embedded-client = { git = "https://github.com/bhf/aeron-cache-embedded", tag = "rust-v1.0.0" }
+```
+Alternatively, `.crate` archives are available on the [GitHub Releases](https://github.com/bhf/aeron-cache-embedded/releases) page.
+
 ## Example Usage
 
 ### Java
