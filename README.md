@@ -11,6 +11,15 @@ Embedded cache client SDKs for Aeron Cache in multiple languages: Java, TypeScri
 
 The goal of these libraries is to provide an "Embedded Cache" mode across languages. In this mode, the client maintains a local copy of the cache data which is kept in sync with the server via WebSocket updates, allowing for fast local reads.
 
+## Table of Contents
+- [Functionality and Samples By Language](#functionality-and-samples-by-language)
+- [Installation](#installation)
+- [Example Usage](#example-usage)
+- [Running Samples](#running-samples)
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Adding New Languages](#adding-new-languages)
+
 ## Functionality and Samples By Language
 
 | Language   | Sync | Async | Streaming |
@@ -19,6 +28,8 @@ The goal of these libraries is to provide an "Embedded Cache" mode across langua
 | Typescript | NA  | ✅     | ✅      |
 | Python     | ✅   | ✅     | ✅      |
 | Rust       | ✅     | ✅     | ✅       |
+
+[Back to top](#aeron-cache-embedded-clients)
 
 ## Installation
 
@@ -55,6 +66,8 @@ You can add the Rust client as a git dependency in your `Cargo.toml`:
 aeron-cache-embedded-client = { git = "https://github.com/bhf/aeron-cache-embedded", tag = "rust-v1.0.0" }
 ```
 Alternatively, `.crate` archives are available on the [GitHub Releases](https://github.com/bhf/aeron-cache-embedded/releases) page.
+
+[Back to top](#aeron-cache-embedded-clients)
 
 ## Example Usage
 
@@ -93,6 +106,8 @@ await cache.put("stay", "tuned");
 
 See the `samples/` directory for full code examples in all languages.
 
+[Back to top](#aeron-cache-embedded-clients)
+
 ## Running Samples
 
 You can run all samples using the provided helper scripts:
@@ -110,6 +125,8 @@ This script runs the streaming (Embedded Cache) samples for all languages in **p
 ```
 *Note: Press Ctrl+C to stop all parallel streaming processes.*
 
+[Back to top](#aeron-cache-embedded-clients)
+
 ## Features
 
 -   **Business Status Mapping**: Responses include an `operationStatus` field (e.g., `SUCCESS`, `CACHE_EXISTS`, `UNKNOWN_KEY`) to handle business logic without throwing transport-level exceptions for HTTP 400 errors.
@@ -117,6 +134,7 @@ This script runs the streaming (Embedded Cache) samples for all languages in **p
 -   **Sync & Async**: APIs available in both synchronous (blocking) and asynchronous (non-blocking) styles where appropriate.
 -   **Embedded Aeron Cache**: A specialized `EmbeddedAeronCache` object that maintains a local shadowed copy of the cache data. It subscribes to the cache's WebSocket stream and applies updates (`ADD_ITEM`, `REMOVE_ITEM`, `DELETE_CACHE`, `CLEAR_CACHE`) to the local map automatically.
 
+[Back to top](#aeron-cache-embedded-clients)
 
 ## Project Structure
 
@@ -126,4 +144,19 @@ This script runs the streaming (Embedded Cache) samples for all languages in **p
     -   `python/`: Python client library.
     -   `rust/`: Rust client library.
 -   `samples/`: Example applications using each of the clients.
+
+[Back to top](#aeron-cache-embedded-clients)
+
+## Adding New Languages
+
+If you need to implement a client for a language not listed here, we provide **Agent Instructions** to help you scaffold a new library that follows the "Embedded Cache" pattern.
+
+You can find the instructions here: [aeron-cache-embedded/instructions/library-generation.instructions.md](aeron-cache-embedded/instructions/library-generation.instructions.md)
+
+These instructions cover:
+- Tiers for low-level HTTP clients and high-level embedded abstractions.
+- Automated synchronization logic via WebSockets.
+- Data model requirements based on the [OpenAPI Specification](https://github.com/bhf/aeron-cache/blob/main/cache-http/openapi.yml).
+
+[Back to top](#aeron-cache-embedded-clients)
 
