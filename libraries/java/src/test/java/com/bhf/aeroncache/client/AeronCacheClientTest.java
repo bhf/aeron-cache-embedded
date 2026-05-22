@@ -1,8 +1,10 @@
-package com.aeron.cache.client;
+package com.bhf.aeroncache.client;
 
-import com.aeron.cache.models.CreateResponse;
-import com.aeron.cache.models.GetItemResponse;
-import com.aeron.cache.models.PutItemResponse;
+import com.bhf.aeroncache.models.CreateResponse;
+import com.bhf.aeroncache.models.GetItemResponse;
+import com.bhf.aeroncache.models.PutItemResponse;
+import com.bhf.aeroncache.models.ClearCacheResponse;
+import com.bhf.aeroncache.models.GetCacheResponse;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
@@ -101,7 +103,7 @@ public class AeronCacheClientTest {
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"cacheId\":\"test-cache-get\",\"operationStatus\":\"SUCCESS\",\"items\":[{\"key\":\"k1\",\"value\":\"v1\"}]}")));
 
-        com.aeron.cache.models.GetCacheResponse response = client.getCacheItems("test-cache-get");
+        GetCacheResponse response = client.getCacheItems("test-cache-get");
         assertNotNull(response);
         assertEquals("test-cache-get", response.getCacheId());
         assertNotNull(response.getItems());
@@ -116,7 +118,7 @@ public class AeronCacheClientTest {
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"cacheId\":\"test-cache-clear\",\"operationStatus\":\"SUCCESS\"}")));
 
-        com.aeron.cache.models.ClearCacheResponse response = client.clearCache("test-cache-clear");
+        ClearCacheResponse response = client.clearCache("test-cache-clear");
         assertNotNull(response);
         assertEquals("SUCCESS", response.getOperationStatus());
     }

@@ -1,4 +1,4 @@
-package com.aeron.cache.client;
+package com.bhf.aeroncache.client;
 
 import java.net.URI;
 import java.net.http.HttpClient;

@@ -1,11 +1,9 @@
-package com.aeron.cache.client;
+package com.bhf.aeroncache.client;
 
-import com.aeron.cache.models.CacheUpdateEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import java.net.http.WebSocket;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;

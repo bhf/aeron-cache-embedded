@@ -1,6 +1,6 @@
-package com.aeron.cache.client;
+package com.bhf.aeroncache.client;
 
-import com.aeron.cache.models.CacheUpdateEvent;
+import com.bhf.aeroncache.models.CacheUpdateEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.WebSocket;
 import java.util.concurrent.CompletionStage;

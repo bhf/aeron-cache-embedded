@@ -3,7 +3,7 @@ plugins {
     `maven-publish`
 }
 
-group = "com.aeron.cache"
+group = "com.bhf.aeroncache"
 version = "1.0.1"
 
 repositories {

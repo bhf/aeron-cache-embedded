@@ -1,4 +1,4 @@
-package com.aeron.cache.models;
+package com.bhf.aeroncache.models;
 
 public enum OperationStatus {
     SUCCESS,

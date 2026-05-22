@@ -1,6 +1,6 @@
-package com.aeron.cache.client;
+package com.bhf.aeroncache.client;
 
-import com.aeron.cache.models.*;
+import com.bhf.aeroncache.models.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.URI;

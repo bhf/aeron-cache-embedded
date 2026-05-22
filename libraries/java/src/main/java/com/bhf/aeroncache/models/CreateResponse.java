@@ -1,10 +1,8 @@
-package com.aeron.cache.models;
+package com.bhf.aeroncache.models;
 
-public class ClearCacheResponse {
+public class CreateResponse {
     private String cacheId;
     private String operationStatus;
-
-    public ClearCacheResponse() {}
 
     public String getCacheId() { return cacheId; }
     public void setCacheId(String cacheId) { this.cacheId = cacheId; }

@@ -1,6 +1,6 @@
-package com.aeron.cache.client;
+package com.bhf.aeroncache.client;
 
-import com.aeron.cache.models.*;
+import com.bhf.aeroncache.models.*;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
@@ -116,15 +116,15 @@ public class AeronCacheClientIntegrationTest {
         client.putItem(cacheId, "key1", "val1");
         client.putItem(cacheId, "key2", "val2");
 
-        com.aeron.cache.models.GetCacheResponse getResp = client.getCacheItems(cacheId);
+        GetCacheResponse getResp = client.getCacheItems(cacheId);
         assertNotNull(getResp);
         assertEquals(2, getResp.getItems().size());
 
-        com.aeron.cache.models.ClearCacheResponse clearResp = client.clearCache(cacheId);
+        ClearCacheResponse clearResp = client.clearCache(cacheId);
         assertNotNull(clearResp);
         assertEquals("SUCCESS", clearResp.getOperationStatus());
 
-        com.aeron.cache.models.GetCacheResponse getResp2 = client.getCacheItems(cacheId);
+        GetCacheResponse getResp2 = client.getCacheItems(cacheId);
         assertEquals(0, getResp2.getItems().size());
     }
 
