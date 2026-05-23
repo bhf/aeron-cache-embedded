@@ -151,7 +151,7 @@ This script runs the streaming (Embedded Cache) samples for all languages in **p
 
 If you need to implement a client for a language not listed here, we provide **Agent Instructions** to help you scaffold a new library that follows the "Embedded Cache" pattern.
 
-You can find the instructions here: [aeron-cache-embedded/instructions/library-generation.instructions.md](aeron-cache-embedded/instructions/library-generation.instructions.md)
+You can find the instructions here: [instructions/library-generation.instructions.md](instructions/library-generation.instructions.md)
 
 These instructions cover:
 - Tiers for low-level HTTP clients and high-level embedded abstractions.
