@@ -7,6 +7,17 @@ class CreateResponse:
     operationStatus: str
 
 @dataclass
+class PutItemRequest:
+    key: str
+    value: str
+
+@dataclass
+class PutTimedItemRequest:
+    key: str
+    value: str
+    ttl: int
+
+@dataclass
 class PutItemResponse:
     cacheId: str
     key: str

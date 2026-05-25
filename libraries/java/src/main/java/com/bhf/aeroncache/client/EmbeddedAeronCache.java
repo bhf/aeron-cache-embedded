@@ -30,6 +30,10 @@ public class EmbeddedAeronCache {
         return client.putItem(cacheId, key, value);
     }
 
+    public PutItemResponse putTimed(String key, String value, long ttl) throws Exception {
+        return client.putTimedItem(cacheId, key, value, ttl);
+    }
+
     public GetItemResponse get(String key) throws Exception {
         return client.getItem(cacheId, key);
     }
@@ -44,6 +48,10 @@ public class EmbeddedAeronCache {
 
     public CompletableFuture<PutItemResponse> putAsync(String key, String value) {
         return client.putItemAsync(cacheId, key, value);
+    }
+
+    public CompletableFuture<PutItemResponse> putTimedAsync(String key, String value, long ttl) {
+        return client.putTimedItemAsync(cacheId, key, value, ttl);
     }
 
     public CompletableFuture<GetItemResponse> getAsync(String key) {

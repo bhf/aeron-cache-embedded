@@ -24,6 +24,23 @@ fn test_embedded_cache_put_delegates() {
 }
 
 #[test]
+fn test_embedded_cache_put_timed_delegates() {
+    let mut server = Server::new();
+    let mock = server.mock("POST", "/api/v1/cache/timed/test-cache")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"cacheId": "test-cache", "key": "key1", "status": "OK", "operationStatus": "SUCCESS"}"#)
+        .create();
+
+    let client = AeronCacheClient::new(server.url(), "ws://localhost:7071".to_string());
+    let cache = client.get_cache("test-cache");
+    
+    let result = cache.insert_timed("key1", "val1", 1000).unwrap();
+    assert_eq!(result.key, "key1");
+    mock.assert();
+}
+
+#[test]
 fn test_embedded_cache_removes_and_clears_delegates() {
     let mut server = Server::new();
     let mock_del = server.mock("DELETE", "/api/v1/cache/test-cache/key1")

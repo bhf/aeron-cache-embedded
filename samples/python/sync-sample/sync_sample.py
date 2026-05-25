@@ -29,6 +29,13 @@ def main():
     get_response = cache.get("sync-key")
     print(f"Read key 'sync-key': {get_response.value or 'not found'}")
 
+    print("Putting key 'timed-key' -> 'timed-value' with 5000ms TTL")
+    timed_put_response = cache.put_timed("timed-key", "timed-value", 5000)
+    print(f"Timed Put operation status: {timed_put_response.operationStatus or 'OK'}")
+
+    timed_get_response = cache.get("timed-key")
+    print(f"Read key 'timed-key': {timed_get_response.value or 'not found'}")
+
 
 if __name__ == "__main__":
     main()

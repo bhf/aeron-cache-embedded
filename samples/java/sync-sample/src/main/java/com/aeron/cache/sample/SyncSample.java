@@ -41,5 +41,20 @@ public class SyncSample {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+
+        System.out.println("Putting key 'timed-key' -> 'timed-value' with 5000ms TTL");
+        try {
+            var response = cache.putTimed("timed-key", "timed-value", 5000L);
+            System.out.println("Timed Put response: " + response.getOperationStatus());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        try {
+            var response = cache.get("timed-key");
+            System.out.println("Retrieved key 'timed-key' -> '" + response.getValue() + "'");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }

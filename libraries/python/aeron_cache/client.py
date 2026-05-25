@@ -45,6 +45,18 @@ class AeronCacheClient:
             operationStatus=data.get('operationStatus')
         )
 
+    def put_timed_item(self, cache_id, key, value, ttl) -> PutItemResponse:
+        url = f"{self.base_url}/api/v1/cache/timed/{cache_id}"
+        response = requests.post(url, json={"key": key, "value": value, "ttl": ttl})
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
+             response.raise_for_status()
+        data = response.json()
+        return PutItemResponse(
+            cacheId=data.get('cacheId'),
+            key=data.get('key'),
+            operationStatus=data.get('operationStatus')
+        )
+
     def get_item(self, cache_id, key) -> GetItemResponse:
         url = f"{self.base_url}/api/v1/cache/{cache_id}/{key}"
         response = requests.get(url)
@@ -99,6 +111,19 @@ class AeronCacheClient:
         url = f"{self.base_url}/api/v1/cache/{cache_id}"
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json={"key": key, "value": value}) as response:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
+                    response.raise_for_status()
+                data = await response.json()
+                return PutItemResponse(
+                    cacheId=data.get('cacheId'),
+                    key=data.get('key'),
+                    operationStatus=data.get('operationStatus')
+                )
+
+    async def put_timed_item_async(self, cache_id, key, value, ttl) -> PutItemResponse:
+        url = f"{self.base_url}/api/v1/cache/timed/{cache_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json={"key": key, "value": value, "ttl": ttl}) as response:
                 if response.status >= 400 and response.status not in [400, 401, 404]:
                     response.raise_for_status()
                 data = await response.json()

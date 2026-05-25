@@ -34,5 +34,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => println!("Read key 'sync-key' error: {}", e),
     }
 
+    println!("Putting key 'timed-key' -> 'timed-value' with 5000ms TTL");
+    let timed_put_response = cache.insert_timed("timed-key", "timed-value", 5000)?;
+    println!("Timed Put operation status: {}", timed_put_response.operation_status);
+
+    match cache.get("timed-key") {
+        Ok(resp) => println!("Read back key 'timed-key': {}", resp.value),
+        Err(e) => println!("Read key 'timed-key' error: {}", e),
+    }
+
     Ok(())
 }

@@ -20,6 +20,10 @@ export class EmbeddedAeronCache {
         return this.client.putItem(this.cacheId, key, value);
     }
 
+    async putTimed(key: string, value: string, ttl: number): Promise<PutItemResponse> {
+        return this.client.putTimedItem(this.cacheId, key, value, ttl);
+    }
+
     async get(key: string): Promise<GetItemResponse> {
         return this.client.getItem(this.cacheId, key);
     }

@@ -44,6 +44,15 @@ export class AeronCacheClient {
         return this.handleResponse(response);
     }
 
+    async putTimedItem(cacheId: string, key: string, value: string, ttl: number): Promise<PutItemResponse> {
+        const response = await fetch(`${this.baseUrl}/api/v1/cache/timed/${cacheId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, value, ttl })
+        });
+        return this.handleResponse(response);
+    }
+
     async getItem(cacheId: string, key: string): Promise<GetItemResponse> {
         const response = await fetch(`${this.baseUrl}/api/v1/cache/${cacheId}/${key}`);
         return this.handleResponse(response);

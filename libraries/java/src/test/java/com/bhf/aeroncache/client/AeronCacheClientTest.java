@@ -64,6 +64,20 @@ public class AeronCacheClientTest {
     }
 
     @Test
+    public void testPutTimedItem() throws Exception {
+        stubFor(post(urlEqualTo("/api/v1/cache/timed/test-cache"))
+                .withRequestBody(matchingJsonPath("$.key", equalTo("my-key")))
+                .withRequestBody(matchingJsonPath("$.value", equalTo("my-value")))
+                .withRequestBody(matchingJsonPath("$.ttl", equalTo("1000")))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"success\":true}")));
+
+        PutItemResponse response = client.putTimedItem("test-cache", "my-key", "my-value", 1000L);
+        assertNotNull(response);
+    }
+
+    @Test
     public void testGetItem() throws Exception {
         stubFor(get(urlEqualTo("/api/v1/cache/test-cache/my-key"))
                 .willReturn(aResponse()
