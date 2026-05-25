@@ -12,6 +12,12 @@ export interface PutItemRequest {
     value: string;
 }
 
+export interface PutTimedItemRequest {
+    key: string;
+    value: string;
+    ttl: number;
+}
+
 export interface PutItemResponse {
     cacheId: string;
     key: string;

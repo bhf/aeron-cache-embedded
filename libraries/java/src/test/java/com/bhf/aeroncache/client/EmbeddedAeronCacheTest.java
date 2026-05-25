@@ -28,6 +28,12 @@ public class EmbeddedAeronCacheTest {
     }
 
     @Test
+    public void testPutTimedDelegatesToClient() throws Exception {
+        cache.putTimed("my-key", "my-value", 1000L);
+        verify(mockClient, times(1)).putTimedItem("test-cache", "my-key", "my-value", 1000L);
+    }
+
+    @Test
     public void testRemoveDelegatesToClient() throws Exception {
         cache.remove("my-key");
         verify(mockClient, times(1)).deleteItem("test-cache", "my-key");

@@ -23,6 +23,16 @@ describe('EmbeddedAeronCache', () => {
         expect(response).toEqual(mockResponse);
     });
 
+    it('delegates putTimed to client', async () => {
+        const mockResponse = { operationStatus: 'SUCCESS' };
+        mockClient.putTimedItem.mockResolvedValue(mockResponse as any);
+
+        const response = await cache.putTimed('key1', 'val1', 1000);
+
+        expect(mockClient.putTimedItem).toHaveBeenCalledWith('test-cache', 'key1', 'val1', 1000);
+        expect(response).toEqual(mockResponse);
+    });
+
     it('delegates delete to client', async () => {
         const mockResponse = { operationStatus: 'SUCCESS' };
         mockClient.deleteItem.mockResolvedValue(mockResponse as any);

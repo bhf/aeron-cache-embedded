@@ -83,6 +83,10 @@ impl<'a> EmbeddedAeronCache<'a> {
         self.client.put_item(&self.cache_id, key, value)
     }
 
+    pub fn insert_timed(&self, key: &str, value: &str, ttl: i64) -> Result<PutItemResponse, Box<dyn Error>> {
+        self.client.put_timed_item(&self.cache_id, key, value, ttl)
+    }
+
     pub fn get(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
         self.client.get_item(&self.cache_id, key)
     }
@@ -97,6 +101,10 @@ impl<'a> EmbeddedAeronCache<'a> {
 
     pub async fn insert_async(&self, key: &str, value: &str) -> Result<PutItemResponse, Box<dyn Error>> {
         self.client.put_item_async(&self.cache_id, key, value).await
+    }
+
+    pub async fn insert_timed_async(&self, key: &str, value: &str, ttl: i64) -> Result<PutItemResponse, Box<dyn Error>> {
+        self.client.put_timed_item_async(&self.cache_id, key, value, ttl).await
     }
 
     pub async fn get_async(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {

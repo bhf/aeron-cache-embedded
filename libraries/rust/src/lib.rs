@@ -50,6 +50,13 @@ pub struct PutItemRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PutTimedItemRequest {
+    pub key: String,
+    pub value: String,
+    pub ttl: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PutItemResponse {
     #[serde(rename = "cacheId")]
     pub cache_id: String,
@@ -154,6 +161,19 @@ impl AeronCacheClient {
         Ok(data)
     }
 
+    pub fn put_timed_item(&self, cache_id: &str, key: &str, value: &str, ttl: i64) -> Result<PutItemResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/timed/{}", self.base_url, cache_id);
+        let req = PutTimedItemRequest { key: key.to_string(), value: value.to_string(), ttl };
+        let resp = self.get_sync_client().post(&url)
+            .json(&req)
+            .send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        let data = resp.json::<PutItemResponse>()?;
+        Ok(data)
+    }
+
     pub fn get_item(&self, cache_id: &str, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}/{}", self.base_url, cache_id, key);
         let resp = self.get_sync_client().get(&url).send()?;
@@ -203,6 +223,20 @@ impl AeronCacheClient {
     pub async fn put_item_async(&self, cache_id: &str, key: &str, value: &str) -> Result<PutItemResponse, Box<dyn Error>> {
         let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
         let req = PutItemRequest { key: key.to_string(), value: value.to_string() };
+        let resp = self.async_client.post(&url)
+            .json(&req)
+            .send()
+            .await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        let data = resp.json::<PutItemResponse>().await?;
+        Ok(data)
+    }
+
+    pub async fn put_timed_item_async(&self, cache_id: &str, key: &str, value: &str, ttl: i64) -> Result<PutItemResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/timed/{}", self.base_url, cache_id);
+        let req = PutTimedItemRequest { key: key.to_string(), value: value.to_string(), ttl };
         let resp = self.async_client.post(&url)
             .json(&req)
             .send()

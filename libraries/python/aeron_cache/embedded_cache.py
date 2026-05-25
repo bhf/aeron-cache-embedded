@@ -19,6 +19,9 @@ class EmbeddedAeronCache:
     def put(self, key, value) -> PutItemResponse:
         return self.client.put_item(self.cache_id, key, value)
 
+    def put_timed(self, key, value, ttl) -> PutItemResponse:
+        return self.client.put_timed_item(self.cache_id, key, value, ttl)
+
     def get(self, key) -> GetItemResponse:
         return self.client.get_item(self.cache_id, key)
 
@@ -30,6 +33,9 @@ class EmbeddedAeronCache:
 
     async def put_async(self, key, value) -> PutItemResponse:
         return await self.client.put_item_async(self.cache_id, key, value)
+
+    async def put_timed_async(self, key, value, ttl) -> PutItemResponse:
+        return await self.client.put_timed_item_async(self.cache_id, key, value, ttl)
 
     async def get_async(self, key) -> GetItemResponse:
         return await self.client.get_item_async(self.cache_id, key)

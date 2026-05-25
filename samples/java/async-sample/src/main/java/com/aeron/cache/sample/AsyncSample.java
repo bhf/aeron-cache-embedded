@@ -42,6 +42,17 @@ public class AsyncSample {
                 throw new RuntimeException(e);
             }
 
+            System.out.println("Putting key 'timed-key' -> 'timed-value' with 5000ms TTL asynchronously");
+            cache.putTimedAsync("timed-key", "timed-value", 5000L).thenAccept(timedResp -> {
+                System.out.println("Timed Put operation completed with status: " + timedResp.getOperationStatus());
+                try {
+                    var getResponse = cache.get("timed-key");
+                    System.out.println("Read key 'timed-key': " + getResponse.getValue());
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }).join();
+
         }).join(); // Wait for completion for the sample
 
     }

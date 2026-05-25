@@ -59,6 +59,18 @@ public class AeronCacheClient {
         return objectMapper.readValue(response.body(), PutItemResponse.class);
     }
 
+    public PutItemResponse putTimedItem(String cacheId, String key, String value, long ttl) throws Exception {
+        String json = String.format("{\"key\":\"%s\",\"value\":\"%s\",\"ttl\":%d}", key, value, ttl);
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/v1/cache/timed/" + cacheId))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        checkStatus(response);
+        return objectMapper.readValue(response.body(), PutItemResponse.class);
+    }
+
     public GetItemResponse getItem(String cacheId, String key) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId + "/" + key))
@@ -113,6 +125,24 @@ public class AeronCacheClient {
         String json = String.format("{\"key\":\"%s\",\"value\":\"%s\"}", key, value);
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), PutItemResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
+    public CompletableFuture<PutItemResponse> putTimedItemAsync(String cacheId, String key, String value, long ttl) {
+        String json = String.format("{\"key\":\"%s\",\"value\":\"%s\",\"ttl\":%d}", key, value, ttl);
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/v1/cache/timed/" + cacheId))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
