@@ -99,5 +99,51 @@ def test_get_and_clear_cache(client):
     clear_resp = client.clear_cache(cache_id)
     assert clear_resp.operationStatus == "SUCCESS"
 
+def test_bulk_operations(client):
+    from aeron_cache.models import BulkCacheOpsRequest, CacheOperationRequest, BulkOperationType
+    import uuid
+
+    cache_id = f"it-bulk-{uuid.uuid4().hex[:8]}"
+    req_id = str(uuid.uuid4())
+
+    request = BulkCacheOpsRequest(
+        requestId=req_id,
+        operations=[
+            CacheOperationRequest(
+                operationType=BulkOperationType.CREATE_CACHE,
+                requestId="op-1",
+                cacheId=cache_id
+            ),
+            CacheOperationRequest(
+                operationType=BulkOperationType.ADD_ITEM,
+                requestId="op-2",
+                cacheId=cache_id,
+                key="bulk-key",
+                value="bulk-val"
+            ),
+            CacheOperationRequest(
+                operationType=BulkOperationType.GET_ITEM,
+                requestId="op-3",
+                cacheId=cache_id,
+                key="bulk-key"
+            )
+        ]
+    )
+
+    response = client.bulk_ops(request)
+    assert response.requestId == req_id
+    assert len(response.operationResponses) == 3
+    
+    # Verify CREATE_CACHE
+    assert response.operationResponses[0].requestId == "op-1"
+    
+    # Verify ADD_ITEM
+    assert response.operationResponses[1].requestId == "op-2"
+    
+    # Verify GET_ITEM
+    assert response.operationResponses[2].requestId == "op-3"
+    assert response.operationResponses[2].value == "bulk-val"
+
     get_resp2 = client.get_cache_items(cache_id)
-    assert len(get_resp2.items) == 0
+    assert len(get_resp2.items) == 1
+    assert get_resp2.items[0].key == "bulk-key"

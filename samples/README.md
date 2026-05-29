@@ -2,10 +2,11 @@
 
 This folder contains example applications demonstrating how to use the Aeron Cache Embedded Clients in Java, TypeScript, Python, and Rust.
 
-The samples for each language are split into three distinct categories:
+The samples for each language are split into distinct categories:
 1.  **Sync Sample**: Demonstrates sequential, synchronous-style operations.
 2.  **Async Sample**: Demonstrates non-blocking, asynchronous operations.
 3.  **Streaming Sample**: Demonstrates how to listen for real-time updates from the server.
+4.  **Bulk Sample**: Demonstrates executing multiple operations in a single request.
 
 ## Structure
 

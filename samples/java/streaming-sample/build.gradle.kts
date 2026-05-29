@@ -9,7 +9,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.aeron.cache:aeron-cache-embedded-client:1.0.0")
+    implementation("com.bhf.aeroncache:aeron-cache-embedded-client:1.0.1")
     implementation("org.slf4j:slf4j-simple:2.0.13")
 }
 

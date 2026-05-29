@@ -1,0 +1,13 @@
+[project]
+name = "bulk-sample"
+version = "0.1.0"
+description = "Aeron Cache Bulk Operations Sample"
+dependencies = [
+    "aeron-cache-embedded-client",
+]
+
+[tool.setuptools]
+py-modules = ["bulk_sample"]
+
+[tool.setuptools.package-dir]
+"" = "."

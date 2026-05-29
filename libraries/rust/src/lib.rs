@@ -112,6 +112,58 @@ pub struct CacheUpdateEvent {
     pub request_id: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BulkOperationType {
+    None,
+    CreateCache,
+    AddItem,
+    RemoveItem,
+    ClearCache,
+    GetItem,
+    DeleteCache,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheOperationRequest {
+    pub operation_type: BulkOperationType,
+    pub request_id: String,
+    pub cache_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkCacheOpsRequest {
+    pub request_id: String,
+    pub operations: Vec<CacheOperationRequest>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheOperationResponse {
+    pub request_id: String,
+    pub status: String,
+    pub cache_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkCacheOpsResponse {
+    pub request_id: String,
+    pub operation_responses: Vec<CacheOperationResponse>,
+}
+
 pub struct AeronCacheClient {
     pub base_url: String,
     pub ws_url: String,
@@ -204,6 +256,18 @@ impl AeronCacheClient {
         Ok(data)
     }
 
+    pub fn bulk_ops(&self, req: &BulkCacheOpsRequest) -> Result<BulkCacheOpsResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/bulkops", self.base_url);
+        let resp = self.get_sync_client().post(&url)
+            .json(req)
+            .send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        let data = resp.json::<BulkCacheOpsResponse>()?;
+        Ok(data)
+    }
+
     // --- Async Operations ---
 
     pub async fn create_cache_async(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
@@ -275,6 +339,19 @@ impl AeronCacheClient {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
         }
         let data = resp.json::<DeleteCacheResponse>().await?;
+        Ok(data)
+    }
+
+    pub async fn bulk_ops_async(&self, req: &BulkCacheOpsRequest) -> Result<BulkCacheOpsResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/bulkops", self.base_url);
+        let resp = self.async_client.post(&url)
+            .json(req)
+            .send()
+            .await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        let data = resp.json::<BulkCacheOpsResponse>().await?;
         Ok(data)
     }
 

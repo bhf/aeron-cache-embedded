@@ -12,7 +12,10 @@ from .models import (
     DeleteCacheResponse,
     GetCacheResponse,
     ClearCacheResponse,
-    CacheUpdateEvent
+    CacheUpdateEvent,
+    BulkCacheOpsRequest,
+    BulkCacheOpsResponse,
+    BulkOperationType
 )
 
 class AeronCacheClient:
@@ -92,6 +95,22 @@ class AeronCacheClient:
             cacheId=data.get('cacheId'),
             operationStatus=data.get('operationStatus')
         )
+
+    def bulk_ops(self, request: BulkCacheOpsRequest) -> BulkCacheOpsResponse:
+        url = f"{self.base_url}/api/v1/cache/bulkops"
+        # Convert request to dict, handling Enum and Optional fields
+        payload = {
+            "requestId": request.requestId,
+            "operations": [
+                {k: (v.value if isinstance(v, BulkOperationType) else v) 
+                 for k, v in op.__dict__.items() if v is not None}
+                for op in request.operations
+            ]
+        }
+        response = requests.post(url, json=payload)
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
+             response.raise_for_status()
+        return BulkCacheOpsResponse.from_dict(response.json())
 
     # --- Async Operations ---
 
@@ -193,6 +212,23 @@ class AeronCacheClient:
                     cacheId=data.get('cacheId'),
                     operationStatus=data.get('operationStatus')
                 )
+
+    async def bulk_ops_async(self, request: BulkCacheOpsRequest) -> BulkCacheOpsResponse:
+        url = f"{self.base_url}/api/v1/cache/bulkops"
+        payload = {
+            "requestId": request.requestId,
+            "operations": [
+                {k: (v.value if isinstance(v, BulkOperationType) else v) 
+                 for k, v in op.__dict__.items() if v is not None}
+                for op in request.operations
+            ]
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as response:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
+                    response.raise_for_status()
+                data = await response.json()
+                return BulkCacheOpsResponse.from_dict(data)
 
     # --- WebSocket ---
 
