@@ -91,6 +91,25 @@ describe('AeronCacheClient', () => {
         expect(response).toEqual(mockResponse);
     });
 
+    it('should perform bulk operations', async () => {
+        const mockResponse = { requestId: 'req-1', operationResponses: [] };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const request = { requestId: 'req-1', operations: [] };
+        const response = await client.bulkOps(request);
+        
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/bulkops', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request)
+        });
+        expect(response).toEqual(mockResponse);
+    });
+
     it('should throw error on 500 status', async () => {
         (global.fetch as jest.Mock).mockResolvedValue({
             ok: false,

@@ -89,3 +89,49 @@ class GetCacheResponse:
 class ClearCacheResponse:
     cacheId: str
     operationStatus: str
+
+from enum import Enum
+
+class BulkOperationType(str, Enum):
+    NONE = "NONE"
+    CREATE_CACHE = "CREATE_CACHE"
+    ADD_ITEM = "ADD_ITEM"
+    REMOVE_ITEM = "REMOVE_ITEM"
+    CLEAR_CACHE = "CLEAR_CACHE"
+    GET_ITEM = "GET_ITEM"
+    DELETE_CACHE = "DELETE_CACHE"
+
+@dataclass
+class CacheOperationRequest:
+    operationType: BulkOperationType
+    requestId: str
+    cacheId: str
+    key: Optional[str] = None
+    value: Optional[str] = None
+    ttl: Optional[int] = None
+
+@dataclass
+class BulkCacheOpsRequest:
+    requestId: str
+    operations: list[CacheOperationRequest]
+
+@dataclass
+class CacheOperationResponse:
+    requestId: str
+    status: str
+    cacheId: str
+    key: Optional[str] = None
+    value: Optional[str] = None
+
+@dataclass
+class BulkCacheOpsResponse:
+    requestId: str
+    operationResponses: list[CacheOperationResponse]
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        ops = [CacheOperationResponse(**op) for op in data.get('operationResponses', [])]
+        return cls(
+            requestId=data.get('requestId'),
+            operationResponses=ops
+        )

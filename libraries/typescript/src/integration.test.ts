@@ -109,4 +109,40 @@ if (shouldRun && !wsUrl) {
         const getResp2 = await client.getCacheItems(cacheId);
         expect(getResp2.items.length).toBe(0);
     });
+
+    test('bulk_operations behaves correctly', async () => {
+        const cacheId = `it-bulk-${Date.now()}`;
+        const requestId = `req-${Date.now()}`;
+
+        const request = {
+            requestId,
+            operations: [
+                {
+                    operationType: 'CREATE_CACHE' as const,
+                    requestId: 'op-1',
+                    cacheId
+                },
+                {
+                    operationType: 'ADD_ITEM' as const,
+                    requestId: 'op-2',
+                    cacheId,
+                    key: 'bulk-key',
+                    value: 'bulk-val'
+                },
+                {
+                    operationType: 'GET_ITEM' as const,
+                    requestId: 'op-3',
+                    cacheId,
+                    key: 'bulk-key'
+                }
+            ]
+        };
+
+        const response = await client.bulkOps(request);
+        expect(response.requestId).toBe(requestId);
+        expect(response.operationResponses.length).toBe(3);
+
+        expect(response.operationResponses[2].requestId).toBe('op-3');
+        expect(response.operationResponses[2].value).toBe('bulk-val');
+    });
 });

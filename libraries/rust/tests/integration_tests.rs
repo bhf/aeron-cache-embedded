@@ -107,3 +107,55 @@ fn test_get_and_clear_cache() {
     let get_resp2 = client.get_cache_items(&cache_id).unwrap();
     assert_eq!(get_resp2.items.len(), 0);
 }
+
+#[test]
+fn test_integration_bulk_operations() {
+    use aeron_cache_embedded_client::{BulkCacheOpsRequest, CacheOperationRequest, BulkOperationType};
+
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_bulk_operations: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-bulk");
+    let req_id = generate_id("req");
+
+    let request = BulkCacheOpsRequest {
+        request_id: req_id.clone(),
+        operations: vec![
+            CacheOperationRequest {
+                operation_type: BulkOperationType::CreateCache,
+                request_id: "op-1".to_string(),
+                cache_id: cache_id.clone(),
+                key: None,
+                value: None,
+                ttl: None,
+            },
+            CacheOperationRequest {
+                operation_type: BulkOperationType::AddItem,
+                request_id: "op-2".to_string(),
+                cache_id: cache_id.clone(),
+                key: Some("bulk-key".to_string()),
+                value: Some("bulk-val".to_string()),
+                ttl: None,
+            },
+            CacheOperationRequest {
+                operation_type: BulkOperationType::GetItem,
+                request_id: "op-3".to_string(),
+                cache_id: cache_id.clone(),
+                key: Some("bulk-key".to_string()),
+                value: None,
+                ttl: None,
+            },
+        ],
+    };
+
+    let response = client.bulk_ops(&request).expect("Failed bulk operations");
+    assert_eq!(response.request_id, req_id);
+    assert_eq!(response.operation_responses.len(), 3);
+
+    // Verify GET_ITEM result
+    assert_eq!(response.operation_responses[2].request_id, "op-3");
+    assert_eq!(response.operation_responses[2].value, Some("bulk-val".to_string()));
+}

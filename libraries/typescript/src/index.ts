@@ -7,7 +7,9 @@ import {
     DeleteCacheResponse,
     CacheUpdateEvent,
     GetCacheResponse,
-    ClearCacheResponse
+    ClearCacheResponse,
+    BulkCacheOpsRequest,
+    BulkCacheOpsResponse
 } from './models';
 
 export { EmbeddedAeronCache };
@@ -91,6 +93,15 @@ export class AeronCacheClient {
     async deleteCache(cacheId: string): Promise<DeleteCacheResponse> {
         const response = await fetch(`${this.baseUrl}/api/v1/cache/${cacheId}`, {
             method: 'DELETE'
+        });
+        return this.handleResponse(response);
+    }
+
+    async bulkOps(request: BulkCacheOpsRequest): Promise<BulkCacheOpsResponse> {
+        const response = await fetch(`${this.baseUrl}/api/v1/cache/bulkops`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(request)
         });
         return this.handleResponse(response);
     }

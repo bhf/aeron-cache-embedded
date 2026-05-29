@@ -71,6 +71,40 @@ def test_delete_cache(client):
     assert response.cacheId == "test-cache"
 
 @responses.activate
+def test_bulk_ops(client):
+    from aeron_cache.models import BulkCacheOpsRequest, CacheOperationRequest, BulkOperationType
+    
+    responses.add(
+        responses.POST,
+        "http://localhost:7070/api/v1/cache/bulkops",
+        json={
+            "requestId": "req-1",
+            "operationResponses": [
+                {"requestId": "op-1", "status": "SUCCESS", "cacheId": "test-cache", "key": "k1"}
+            ]
+        },
+        status=200
+    )
+    
+    request = BulkCacheOpsRequest(
+        requestId="req-1",
+        operations=[
+            CacheOperationRequest(
+                operationType=BulkOperationType.ADD_ITEM,
+                requestId="op-1",
+                cacheId="test-cache",
+                key="k1",
+                value="v1"
+            )
+        ]
+    )
+    
+    response = client.bulk_ops(request)
+    assert response.requestId == "req-1"
+    assert len(response.operationResponses) == 1
+    assert response.operationResponses[0].status == "SUCCESS"
+
+@responses.activate
 def test_http_error_throws_exception(client):
     responses.add(
         responses.GET,

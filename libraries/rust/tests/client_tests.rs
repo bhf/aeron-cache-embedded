@@ -106,3 +106,38 @@ fn test_clear_cache() {
 
     assert_eq!(response.operation_status, "SUCCESS");
 }
+
+#[test]
+fn test_bulk_ops() {
+    use aeron_cache_embedded_client::{BulkCacheOpsRequest, CacheOperationRequest, BulkOperationType};
+
+    let mut server = mockito::Server::new();
+    let url = server.url();
+
+    let _m = server.mock("POST", "/api/v1/cache/bulkops")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"requestId": "req-1", "operationResponses": [{"requestId": "op-1", "status": "SUCCESS", "cacheId": "test-cache", "key": "k1"}]}"#)
+        .create();
+
+    let client = AeronCacheClient::new(url, "ws://localhost".into());
+    
+    let request = BulkCacheOpsRequest {
+        request_id: "req-1".to_string(),
+        operations: vec![
+            CacheOperationRequest {
+                operation_type: BulkOperationType::AddItem,
+                request_id: "op-1".to_string(),
+                cache_id: "test-cache".to_string(),
+                key: Some("k1".to_string()),
+                value: Some("v1".to_string()),
+                ttl: None,
+            }
+        ],
+    };
+
+    let response = client.bulk_ops(&request).unwrap();
+    assert_eq!(response.request_id, "req-1");
+    assert_eq!(response.operation_responses.len(), 1);
+    assert_eq!(response.operation_responses[0].status, "SUCCESS");
+}

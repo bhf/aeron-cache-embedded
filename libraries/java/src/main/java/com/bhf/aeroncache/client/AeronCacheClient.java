@@ -101,6 +101,18 @@ public class AeronCacheClient {
         return objectMapper.readValue(response.body(), DeleteCacheResponse.class);
     }
 
+    public BulkCacheOpsResponse bulkOps(BulkCacheOpsRequest bulkOpsRequest) throws Exception {
+        String json = objectMapper.writeValueAsString(bulkOpsRequest);
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/v1/cache/bulkops"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        checkStatus(response);
+        return objectMapper.readValue(response.body(), BulkCacheOpsResponse.class);
+    }
+
     // --- Async Operations ---
 
     public CompletableFuture<CreateResponse> createCacheAsync(String cacheId) {
@@ -238,6 +250,28 @@ public class AeronCacheClient {
                         throw new RuntimeException(e);
                     }
                 });
+    }
+
+    public CompletableFuture<BulkCacheOpsResponse> bulkOpsAsync(BulkCacheOpsRequest bulkOpsRequest) {
+        try {
+            String json = objectMapper.writeValueAsString(bulkOpsRequest);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/v1/cache/bulkops"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenApply(resp -> {
+                        checkStatusAsync(resp);
+                        try {
+                            return objectMapper.readValue(resp.body(), BulkCacheOpsResponse.class);
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+        } catch (Exception e) {
+            return CompletableFuture.failedFuture(e);
+        }
     }
 
     // --- WebSocket ---

@@ -14,5 +14,5 @@ dependencies {
 }
 
 application {
-    mainClass.set("com.aeron.cache.sample.AsyncSample")
+    mainClass.set("com.bhf.aeroncache.samples.BulkSample")
 }
