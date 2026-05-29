@@ -5,6 +5,8 @@ import com.bhf.aeroncache.models.GetItemResponse;
 import com.bhf.aeroncache.models.PutItemResponse;
 import com.bhf.aeroncache.models.ClearCacheResponse;
 import com.bhf.aeroncache.models.GetCacheResponse;
+import com.bhf.aeroncache.models.BulkCacheOpsRequest;
+import com.bhf.aeroncache.models.BulkCacheOpsResponse;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
@@ -95,6 +97,21 @@ public class AeronCacheClientTest {
 
         Exception exception = assertThrows(RuntimeException.class, () -> client.getItem("test-cache", "my-key"));
         assertTrue(exception.getMessage().contains("Http Error: 500"));
+    }
+
+    @Test
+    public void testBulkOps() throws Exception {
+        stubFor(post(urlEqualTo("/api/v1/cache/bulkops"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"requestId\":\"req-1\",\"operationResponses\":[]}")));
+
+        BulkCacheOpsResponse response = client.bulkOps(BulkCacheOpsRequest.builder()
+                .requestId("req-1")
+                .operations(java.util.Collections.emptyList())
+                .build());
+        assertNotNull(response);
+        assertEquals("req-1", response.getRequestId());
     }
 
     @Test

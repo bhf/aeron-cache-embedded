@@ -128,4 +128,39 @@ public class AeronCacheClientIntegrationTest {
         assertEquals(0, getResp2.getItems().size());
     }
 
+    @Test
+    public void testBulkOperations() throws Exception {
+        String cacheId = "it-bulk-" + System.currentTimeMillis();
+        String requestId = "req-" + System.currentTimeMillis();
+
+        BulkCacheOpsRequest request = new BulkCacheOpsRequest.Builder()
+                .requestId(requestId)
+                .addOperation(new CacheOperationRequest.Builder()
+                        .operationType(BulkOperationType.CREATE_CACHE)
+                        .requestId("op-1")
+                        .cacheId(cacheId)
+                        .build())
+                .addOperation(new CacheOperationRequest.Builder()
+                        .operationType(BulkOperationType.ADD_ITEM)
+                        .requestId("op-2")
+                        .cacheId(cacheId)
+                        .key("bulk-key")
+                        .value("bulk-val")
+                        .build())
+                .addOperation(new CacheOperationRequest.Builder()
+                        .operationType(BulkOperationType.GET_ITEM)
+                        .requestId("op-3")
+                        .cacheId(cacheId)
+                        .key("bulk-key")
+                        .build())
+                .build();
+
+        BulkCacheOpsResponse response = client.bulkOps(request);
+        assertNotNull(response);
+        assertEquals(requestId, response.getRequestId());
+        assertEquals(3, response.getOperationResponses().size());
+
+        assertEquals("op-3", response.getOperationResponses().get(2).getRequestId());
+        assertEquals("bulk-val", response.getOperationResponses().get(2).getValue());
+    }
 }
