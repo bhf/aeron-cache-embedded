@@ -413,7 +413,15 @@ impl AeronCacheClient {
     // This helper connects and returns the stream.
     
     pub fn subscribe(&self, cache_id: &str) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
-        let url = format!("{}/api/ws/v1/cache/{}", self.ws_url, cache_id);
+        let mut final_ws_url = self.ws_url.clone();
+        if !final_ws_url.ends_with("/api/ws/v1/cache") {
+            if final_ws_url.ends_with('/') {
+                final_ws_url.push_str("api/ws/v1/cache");
+            } else {
+                final_ws_url.push_str("/api/ws/v1/cache");
+            }
+        }
+        let url = format!("{}/{}", final_ws_url, cache_id);
         let (socket, _) = connect(Url::parse(&url)?)?;
         Ok(socket)
     }
