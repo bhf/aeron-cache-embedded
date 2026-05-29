@@ -163,4 +163,27 @@ public class AeronCacheClientIntegrationTest {
         assertEquals("op-3", response.getOperationResponses().get(2).getRequestId());
         assertEquals("bulk-val", response.getOperationResponses().get(2).getValue());
     }
+
+    @Test
+    public void testPutTimedItem() throws Exception {
+        String cacheId = "it-timed-" + UUID.randomUUID().toString();
+        client.createCache(cacheId);
+        EmbeddedAeronCache embedded = client.getCache(cacheId);
+
+        // Put a timed item with 2 second TTL
+        PutItemResponse putResp = embedded.putTimed("timed-key", "timed-val", 2000);
+        assertNotNull(putResp);
+        assertEquals("timed-key", putResp.getKey());
+
+        // Get immediately - should exist
+        GetItemResponse getResp = embedded.get("timed-key");
+        assertEquals("timed-val", getResp.getValue());
+
+        // Wait for TTL to expire (3 seconds)
+        Thread.sleep(3000);
+
+        // Get again - should be gone
+        GetItemResponse getResp2 = embedded.get("timed-key");
+        assertTrue("UNKNOWN_KEY".equals(getResp2.getOperationStatus()) || getResp2.getValue() == null);
+    }
 }

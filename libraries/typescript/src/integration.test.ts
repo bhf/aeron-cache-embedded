@@ -145,4 +145,25 @@ if (shouldRun && !wsUrl) {
         expect(response.operationResponses[2].requestId).toBe('op-3');
         expect(response.operationResponses[2].value).toBe('bulk-val');
     });
+
+    it("should handle putTimedItem correctly", async () => {
+        const cacheId = `it-timed-${Date.now()}`;
+        await client.createCache(cacheId);
+        const embedded = client.getCache(cacheId);
+
+        // Put a timed item with 2 second TTL (2000 ms)
+        const putResp = await embedded.putTimed("timed-key", "timed-val", 2000);
+        expect(putResp.key).toBe("timed-key");
+
+        // Get immediately - should exist
+        const getResp = await embedded.get("timed-key");
+        expect(getResp.value).toBe("timed-val");
+
+        // Wait for TTL to expire (3 seconds)
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        // Get again - should be gone
+        const getResp2 = await embedded.get("timed-key");
+        expect(getResp2.operationStatus === "UNKNOWN_KEY" || !getResp2.value).toBeTruthy();
+    });
 });

@@ -147,3 +147,27 @@ def test_bulk_operations(client):
     get_resp2 = client.get_cache_items(cache_id)
     assert len(get_resp2.items) == 1
     assert get_resp2.items[0].key == "bulk-key"
+
+
+def test_put_timed_item(client):
+    import time
+    cache_id = f"it-timed-{uuid.uuid4().hex[:8]}"
+    client.create_cache(cache_id)
+    embedded = client.get_cache(cache_id)
+
+    # Put a timed item with 2 second TTL (2000 ms)
+    put_resp = embedded.put_timed("timed-key", "timed-val", 2000)
+    assert put_resp is not None
+    assert put_resp.key == "timed-key"
+
+    # Get immediately - should exist
+    get_resp = embedded.get("timed-key")
+    assert get_resp.value == "timed-val"
+
+    # Wait for TTL to expire (3 seconds)
+    time.sleep(3)
+
+    # Get again - should be gone
+    get_resp2 = embedded.get("timed-key")
+    assert get_resp2.operationStatus == "UNKNOWN_KEY" or get_resp2.value is None or get_resp2.value == ""
+

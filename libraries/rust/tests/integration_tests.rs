@@ -159,3 +159,34 @@ fn test_integration_bulk_operations() {
     assert_eq!(response.operation_responses[2].request_id, "op-3");
     assert_eq!(response.operation_responses[2].value, Some("bulk-val".to_string()));
 }
+
+
+#[test]
+fn test_integration_put_timed_item() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_put_timed_item: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-timed");
+
+    client.create_cache(&cache_id).expect("Failed to create cache");
+    let cache = client.get_cache(&cache_id);
+
+    // Put a timed item with 2 second TTL (2000 ms)
+    let put_resp = cache.insert_timed("timed-key", "timed-val", 2000).expect("Failed to put timed item");
+    assert_eq!(put_resp.key, "timed-key");
+
+    // Get immediately - should exist
+    let get_resp = cache.get("timed-key").expect("Failed to get item");
+    assert_eq!(get_resp.value, "timed-val");
+
+    // Wait for TTL to expire (3 seconds)
+    thread::sleep(Duration::from_secs(3));
+
+    // Get again - should be gone
+    let get_resp2 = cache.get("timed-key").expect("Failed to get item after expiry");
+    assert!(get_resp2.operation_status == "UNKNOWN_KEY" || get_resp2.value.is_empty());
+}
+

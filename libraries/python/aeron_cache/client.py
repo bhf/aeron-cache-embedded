@@ -236,7 +236,13 @@ class AeronCacheClient:
         return EmbeddedAeronCache(self, cache_id)
 
     async def subscribe(self, cache_id, callback):
-        uri = f"{self.ws_url}/api/ws/v1/cache/{cache_id}"
+        final_ws_url = self.ws_url
+        if not final_ws_url.endswith("/api/ws/v1/cache"):
+            if final_ws_url.endswith("/"):
+                final_ws_url += "api/ws/v1/cache"
+            else:
+                final_ws_url += "/api/ws/v1/cache"
+        uri = f"{final_ws_url}/{cache_id}"
         while True:
             try:
                 async with websockets.connect(uri) as websocket:
