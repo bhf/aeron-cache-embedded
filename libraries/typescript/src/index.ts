@@ -119,7 +119,15 @@ export class AeronCacheClient {
         let ws: WebSocket | null = null;
         let isClosed = false;
         let reconnectTimeout: any = null;
-        const wsUrl = `${this.wsUrl}/api/ws/v1/cache/${cacheId}`;
+        let finalWsUrl = this.wsUrl;
+        if (!finalWsUrl.endsWith("/api/ws/v1/cache")) {
+            if (finalWsUrl.endsWith("/")) {
+                finalWsUrl += "api/ws/v1/cache";
+            } else {
+                finalWsUrl += "/api/ws/v1/cache";
+            }
+        }
+        const wsUrl = `${finalWsUrl}/${cacheId}`;
 
         const connect = () => {
             if (isClosed) return;
