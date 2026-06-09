@@ -47,9 +47,16 @@ jobs:
               break
             fi
             echo "Waiting for $ENV_FILE..."
-            sleep 1
+            sleep 2
+            ps aux | grep aeron-cache | grep -v grep || echo "Process not running!"
           done
           
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "--- AERON CACHE LOG ---"
+            cat aeron-cache-log.txt || true
+            exit 1
+          fi
+
           if [ -f "$ENV_FILE" ]; then
             FULL_API=$(grep "^AERON_CACHE_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
             BASE_URL=$(echo "$FULL_API" | sed -E 's|(https?://[^/]+).*|\1|')
