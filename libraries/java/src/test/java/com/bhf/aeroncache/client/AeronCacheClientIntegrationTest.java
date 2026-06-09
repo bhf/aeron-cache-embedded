@@ -108,6 +108,38 @@ public class AeronCacheClientIntegrationTest {
     }
 
     @Test
+    public void testWebsocketHydration() throws Exception {
+        String cacheId = "it-hydrate-" + UUID.randomUUID().toString();
+        client.createCache(cacheId);
+        EmbeddedAeronCache preFill = client.getCache(cacheId);
+        preFill.put("hydrate-key", "hydrate-val");
+
+        CountDownLatch openLatch = new CountDownLatch(1);
+        
+        AeronCacheSubscriber subscriber = new AeronCacheSubscriber() {
+            @Override
+            public void onOpen(java.net.http.WebSocket webSocket) {
+                super.onOpen(webSocket);
+                openLatch.countDown();
+            }
+        };
+
+        EmbeddedAeronCache embedded = client.getCache(cacheId);
+        ReconnectingWebSocket ws = embedded.subscribe(subscriber, true);
+        
+        boolean opened = openLatch.await(5, TimeUnit.SECONDS);
+        assertTrue(opened, "Websocket failed to connect within timeout");
+
+        // Give it a moment to process hydration events
+        Thread.sleep(2000);
+
+        assertEquals("hydrate-val", embedded.getLocal("hydrate-key"), "Local cache should be hydrated with existing data");
+
+        embedded.clear();
+        ws.close();
+    }
+
+    @Test
     public void testGetAndClearCache() throws Exception {
         
         String cacheId = "it-cache2-" + System.currentTimeMillis();

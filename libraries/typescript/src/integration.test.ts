@@ -93,6 +93,42 @@ if (shouldRun && !wsUrl) {
         });
     }, 15000); // Give Jest 15s before failing
 
+    it('should hydrate existing data when subscribing', async () => {
+        const cacheId = `it-hydrate-${Math.random().toString(36).substring(7)}`;
+        await client.createCache(cacheId);
+        
+        const preFill = client.getCache(cacheId);
+        await preFill.put('hydrate-key', 'hydrate-val');
+
+        const embedded = client.getCache(cacheId);
+        
+        return new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                embedded.unsubscribe();
+                reject(new Error('Hydration event not received within timeout'));
+            }, 5000);
+
+            const onStatusChange = (status: 'Connected' | 'Disconnected') => {
+                if (status === 'Connected') {
+                    // Give it a moment to process hydration
+                    setTimeout(() => {
+                        try {
+                            const localVal = embedded.getLocal('hydrate-key');
+                            expect(localVal).toBe('hydrate-val');
+                            clearTimeout(timeout);
+                            embedded.unsubscribe();
+                            resolve();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    }, 2000);
+                }
+            };
+
+            embedded.subscribe(() => {}, () => {}, onStatusChange, true);
+        });
+    });
+
     test('get_and_clear_cache behaves correctly', async () => {
         const cacheId = `it-cache2-${Date.now()}`;
         

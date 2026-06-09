@@ -85,6 +85,34 @@ fn test_integration_websocket_subscription() {
 }
 
 #[test]
+fn test_integration_websocket_hydration() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_websocket_hydration: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-hydrate");
+    
+    client.create_cache(&cache_id).expect("Failed to create cache");
+    let pre_fill = client.get_cache(&cache_id);
+    pre_fill.insert("hydrate-key", "hydrate-val").unwrap();
+
+    let cache = client.get_cache(&cache_id);
+    let mut ws = cache.subscribe_ext(true).expect("Failed to subscribe with hydration");
+
+    // Rust needs manual polling. Hydration sends existing items.
+    // Usually one message per item or a batch. 
+    // We poll once to get the ADD_ITEM for hydrate-key.
+    ws.read_message().expect("Failed to read hydration message");
+
+    let local_val = cache.get_local("hydrate-key");
+    assert_eq!(local_val, Some("hydrate-val".to_string()));
+
+    cache.clear().unwrap();
+}
+
+#[test]
 fn test_get_and_clear_cache() {
     let Some((base_url, ws_url)) = get_urls() else {
         println!("Skipping test_get_and_clear_cache: AERON_CACHE_BASE_URL not set");

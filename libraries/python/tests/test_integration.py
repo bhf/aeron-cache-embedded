@@ -84,6 +84,28 @@ async def test_websocket_subscription(client):
     assert embedded.get_local("ws-key") == "ws-val"
     embedded.clear()
 
+@pytest.mark.asyncio
+async def test_websocket_hydration(client):
+    cache_id = f"it-hydrate-{uuid.uuid4().hex[:8]}"
+    client.create_cache(cache_id)
+    pre_fill = client.get_cache(cache_id)
+    pre_fill.put("hydrate-key", "hydrate-val")
+
+    embedded = client.get_cache(cache_id)
+    
+    # Subscribe with hydration
+    sub_task = asyncio.create_task(embedded.subscribe(None, hydrate=True))
+
+    # Give it a moment to connect and hydrate
+    await asyncio.sleep(2.0)
+
+    try:
+        assert embedded.get_local("hydrate-key") == "hydrate-val"
+    finally:
+        sub_task.cancel()
+
+    embedded.clear()
+
 def test_get_and_clear_cache(client):
     cache_id = f"it-cache2-{uuid.uuid4().hex[:8]}"
 
