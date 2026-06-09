@@ -141,3 +141,20 @@ fn test_bulk_ops() {
     assert_eq!(response.operation_responses.len(), 1);
     assert_eq!(response.operation_responses[0].status, "SUCCESS");
 }
+
+#[test]
+fn test_put_timed_item() {
+    let mut server = mockito::Server::new();
+    let url = server.url();
+
+    let _m = server.mock("POST", "/api/v1/cache/timed/test-cache")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"cacheId": "test-cache", "key": "k1", "operationStatus": "SUCCESS"}"#)
+        .create();
+
+    let client = AeronCacheClient::new(url, "ws://localhost".into());
+    let response = client.put_timed_item("test-cache", "k1", "v1", 1000).unwrap();
+
+    assert_eq!(response.operation_status, "SUCCESS");
+}

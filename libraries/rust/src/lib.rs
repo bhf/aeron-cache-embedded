@@ -412,17 +412,20 @@ impl AeronCacheClient {
     // Note: Rust websocket handling is often done in a loop in main application.
     // This helper connects and returns the stream.
     
-    pub fn subscribe(&self, cache_id: &str) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
-        let mut final_ws_url = self.ws_url.clone();
-        if !final_ws_url.ends_with("/api/ws/v1/cache") {
-            if final_ws_url.ends_with('/') {
-                final_ws_url.push_str("api/ws/v1/cache");
-            } else {
-                final_ws_url.push_str("/api/ws/v1/cache");
-            }
-        }
-        let url = format!("{}/{}", final_ws_url, cache_id);
-        let (socket, _) = connect(Url::parse(&url)?)?;
+    pub fn subscribe(&self, cache_ids: &str) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
+        self.subscribe_ext(cache_ids, false)
+    }
+
+    pub fn subscribe_ext(&self, cache_ids: &str, hydrate: bool) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
+        let prefix = if hydrate {
+            if cache_ids.contains(',') { "/api/ws/v1/caches/hydrate" } else { "/api/ws/v1/cache/hydrate" }
+        } else {
+            if cache_ids.contains(',') { "/api/ws/v1/caches" } else { "/api/ws/v1/cache" }
+        };
+
+        let url = format!("{}/{}", self.ws_url.trim_end_matches('/'), prefix.trim_start_matches('/'));
+        let final_url = format!("{}/{}", url, cache_ids);
+        let (socket, _) = connect(Url::parse(&final_url)?)?;
         Ok(socket)
     }
 }

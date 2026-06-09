@@ -23,19 +23,19 @@ public class StreamingSample {
         }
         EmbeddedAeronCache cache = new EmbeddedAeronCache(client, "streaming-sample-cache");
 
-        // Subscribe explicitly using AeronCacheSubscriber abstraction
+        // Subscribe explicitly using AeronCacheSubscriber abstraction with hydration
         cache.subscribe(new AeronCacheSubscriber() {
             @Override
             public void onOpen(WebSocket webSocket) {
                 super.onOpen(webSocket);
-                System.out.println("[Java] WebSocket subscription opened");
+                System.out.println("[Java] WebSocket subscription opened (with hydration)");
             }
 
             @Override
             public void onAfterUpdate(CacheUpdateEvent event) {
                 System.out.println("[Java] Received update: " + event.getEventType() + " for " + event.getItemKey());
             }
-        });
+        }, true);
 
         System.out.println("Listening for updates on 'streaming-sample-cache'.");
 

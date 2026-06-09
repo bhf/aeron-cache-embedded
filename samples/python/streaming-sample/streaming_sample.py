@@ -37,8 +37,9 @@ async def main():
 
     asyncio.create_task(poller())
 
-    # This will block forever receiving updates
-    await cache.subscribe(on_changes)
+    # This will block forever receiving updates, with initial hydration
+    print("Subscribing with hydration...")
+    await cache.subscribe(on_changes, hydrate=True)
 
 if __name__ == "__main__":
     try:

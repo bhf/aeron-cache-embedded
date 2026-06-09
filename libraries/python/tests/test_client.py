@@ -155,3 +155,16 @@ def test_clear_cache(client):
     response = client.clear_cache("test-cache")
     assert response.cacheId == "test-cache"
     assert response.operationStatus == "SUCCESS"
+
+@responses.activate
+def test_put_timed_item(client):
+    responses.add(
+        responses.POST,
+        "http://localhost:7070/api/v1/cache/timed/test-cache",
+        json={"cacheId": "test-cache", "key": "my-key", "operationStatus": "SUCCESS"},
+        status=200
+    )
+    
+    response = client.put_timed_item("test-cache", "my-key", "my-value", 1000)
+    assert response.cacheId == "test-cache"
+    assert response.operationStatus == "SUCCESS"

@@ -155,4 +155,34 @@ describe('AeronCacheClient', () => {
         expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache-clear', { method: 'PATCH' });
         expect(response.operationStatus).toBe('SUCCESS');
     });
+
+    it('should put timed item', async () => {
+        const mockResponse = { cacheId: 'test-cache', key: 'k1', operationStatus: 'SUCCESS' };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const response = await client.putTimedItem('test-cache', 'k1', 'v1', 1000);
+        
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/timed/test-cache', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'k1', value: 'v1', ttl: 1000 })
+        });
+        expect(response).toEqual(mockResponse);
+    });
+
+    test('clearCache makes correct request', async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({ cacheId: 'test-cache-clear', operationStatus: 'SUCCESS' })
+        });
+
+        const response = await client.clearCache('test-cache-clear');
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache-clear', { method: 'PATCH' });
+        expect(response.operationStatus).toBe('SUCCESS');
+    });
+
 });

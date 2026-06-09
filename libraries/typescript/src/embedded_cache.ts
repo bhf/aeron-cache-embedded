@@ -39,13 +39,14 @@ export class EmbeddedAeronCache {
     subscribe(
         onMessage: (data: CacheUpdateEvent) => void, 
         onError?: (err: any) => void,
-        onStatusChange?: (status: 'Connected' | 'Disconnected') => void
+        onStatusChange?: (status: 'Connected' | 'Disconnected') => void,
+        hydrate: boolean = false
     ): { close: () => void } {
         const wrappedOnMessage = (data: CacheUpdateEvent) => {
             this.updateLocalCache(data);
             onMessage(data);
         };
-        return this.client.subscribe(this.cacheId, wrappedOnMessage, onError, onStatusChange);
+        return this.client.subscribe(this.cacheId, wrappedOnMessage, onError, onStatusChange, hydrate);
     }
 
     private updateLocalCache(event: CacheUpdateEvent) {

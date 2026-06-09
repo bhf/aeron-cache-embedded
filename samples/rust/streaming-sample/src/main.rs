@@ -28,8 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Connected. Waiting for updates on '{}'...", cache_id);
 
-    // Subscribe to updates. This creates a new WebSocket connection.
-    let mut socket = cache.subscribe()?;
+    // Subscribe to updates with hydration. This creates a new WebSocket connection.
+    let mut socket = cache.subscribe_ext(true)?;
 
     // Spawn a blocking task to handle WebSocket updates
     task::spawn_blocking(move || {

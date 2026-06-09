@@ -29,9 +29,9 @@ async function main() {
         console.error('[TypeScript] Error in subscription', err);
     };
 
-    const subscription = cache.subscribe(onMessage, onError);
+    const subscription = cache.subscribe(onMessage, onError, undefined, true);
     try {
-        console.log("Subscription established. Reconnection is enabled. Waiting for updates on 'streaming-key'...");
+        console.log("Subscription established with hydration. Reconnection is enabled. Waiting for updates on 'streaming-key'...");
         
         let lastValue = "";
         // Loop forever checking for updates

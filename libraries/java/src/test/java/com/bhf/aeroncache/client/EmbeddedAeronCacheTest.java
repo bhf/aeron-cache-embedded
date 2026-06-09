@@ -48,20 +48,20 @@ public class EmbeddedAeronCacheTest {
     @Test
     public void testSubscribeDelegatesToClient() {
         ReconnectingWebSocket mockWebSocket = mock(ReconnectingWebSocket.class);
-        when(mockClient.subscribe(eq("test-cache"), any(AeronCacheSubscriber.class))).thenReturn(mockWebSocket);
+        when(mockClient.subscribe(eq("test-cache"), anyBoolean(), any(AeronCacheSubscriber.class))).thenReturn(mockWebSocket);
 
         AeronCacheSubscriber subscriber = mock(AeronCacheSubscriber.class);
         ReconnectingWebSocket returnedWs = cache.subscribe(subscriber);
 
         assertEquals(mockWebSocket, returnedWs);
-        verify(mockClient, times(1)).subscribe(eq("test-cache"), eq(subscriber));
+        verify(mockClient, times(1)).subscribe(eq("test-cache"), eq(false), eq(subscriber));
     }
     
     @Test
     public void testUpdatesLocalCacheViaSubscriptionAndReturnsLocalValue() {
         ReconnectingWebSocket mockWebSocket = mock(ReconnectingWebSocket.class);
         ArgumentCaptor<AeronCacheSubscriber> captor = ArgumentCaptor.forClass(AeronCacheSubscriber.class);
-        when(mockClient.subscribe(eq("test-cache"), captor.capture())).thenReturn(mockWebSocket);
+        when(mockClient.subscribe(eq("test-cache"), anyBoolean(), captor.capture())).thenReturn(mockWebSocket);
 
         cache.subscribe(new AeronCacheSubscriber() {});
 

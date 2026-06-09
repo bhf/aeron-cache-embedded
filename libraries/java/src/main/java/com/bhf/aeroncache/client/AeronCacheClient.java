@@ -277,15 +277,24 @@ public class AeronCacheClient {
     // --- WebSocket ---
     
     public ReconnectingWebSocket subscribe(String cacheId, WebSocket.Listener listener) {
+        return subscribe(cacheId, false, listener);
+    }
+
+    public ReconnectingWebSocket subscribe(String cacheIds, boolean hydrate, WebSocket.Listener listener) {
         String finalWsUrl = wsUrl;
-        if (!finalWsUrl.endsWith("/api/ws/v1/cache")) {
-            if (finalWsUrl.endsWith("/")) {
-                finalWsUrl += "api/ws/v1/cache";
-            } else {
-                finalWsUrl += "/api/ws/v1/cache";
-            }
+        String prefix = hydrate ? "/api/ws/v1/cache/hydrate" : "/api/ws/v1/cache";
+        
+        // Handle plural if comma-separated
+        if (cacheIds.contains(",")) {
+            prefix = hydrate ? "/api/ws/v1/caches/hydrate" : "/api/ws/v1/caches";
         }
-        return new ReconnectingWebSocket(httpClient, URI.create(finalWsUrl + "/" + cacheId), listener);
+
+        if (finalWsUrl.endsWith("/")) {
+            finalWsUrl = finalWsUrl.substring(0, finalWsUrl.length() - 1);
+        }
+        
+        URI uri = URI.create(finalWsUrl + prefix + "/" + cacheIds);
+        return new ReconnectingWebSocket(httpClient, uri, listener);
     }
 
     public EmbeddedAeronCache getCache(String cacheId) {
