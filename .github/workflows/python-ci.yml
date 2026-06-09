@@ -31,12 +31,13 @@ jobs:
           pip install poetry
           poetry install
           
-      - name: Set up and Install Aeron Cache Backend
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
-          HOMEBREW_NO_INSTALL_CLEANUP: 1
+      - name: Set up Homebrew
         run: |
+          echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+      
+      - name: Install Aeron Cache Backend
+        run: |
           brew tap bhf/aeroncache
           brew install aeron-cache
 
@@ -51,16 +52,9 @@ jobs:
               break
             fi
             echo "Waiting for $ENV_FILE..."
-            sleep 2
-            ps aux | grep aeron-cache | grep -v grep || echo "Process not running!"
+            sleep 1
           done
           
-          if [ ! -f "$ENV_FILE" ]; then
-            echo "--- AERON CACHE LOG ---"
-            cat aeron-cache-log.txt || true
-            exit 1
-          fi
-
           if [ -f "$ENV_FILE" ]; then
             FULL_API=$(grep "^AERON_CACHE_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
             BASE_URL=$(echo "$FULL_API" | sed -E 's|(https?://[^/]+).*|\1|')
