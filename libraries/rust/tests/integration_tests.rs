@@ -71,11 +71,20 @@ fn test_integration_websocket_subscription() {
 
     // Rust websocket implementation might be blocking during read.
     // Read one message from websocket stream.
-    ws.read_message().expect("Failed to read message");
-    
-    // Usually it starts with some message or our ADD_ITEM will arrive.
-    // In our rudimentary WebSocket impl, it parses incoming to cache immediately inside `read_message`.
-    // We check if cache has updated.
+    // We might need to skip some initial messages if there are any, 
+    // or wait for the ADD_ITEM specifically.
+    let mut found = false;
+    for _ in 0..5 {
+        if let Ok(msg) = ws.read_message() {
+            if let tungstenite::Message::Text(text) = msg {
+                if text.contains("ws-key") && text.contains("ADD_ITEM") {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
     
     // Attempt local cache assertion directly, since read_message should process and store it.
     let local_val = cache.get_local("ws-key");
@@ -103,8 +112,19 @@ fn test_integration_websocket_hydration() {
 
     // Rust needs manual polling. Hydration sends existing items.
     // Usually one message per item or a batch. 
-    // We poll once to get the ADD_ITEM for hydrate-key.
-    ws.read_message().expect("Failed to read hydration message");
+    // We poll and look for our key.
+    let mut found = false;
+    for _ in 0..10 {
+        if let Ok(msg) = ws.read_message() {
+            if let tungstenite::Message::Text(text) = msg {
+                if text.contains("hydrate-key") && text.contains("ADD_ITEM") {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
 
     let local_val = cache.get_local("hydrate-key");
     assert_eq!(local_val, Some("hydrate-val".to_string()));
