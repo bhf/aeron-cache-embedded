@@ -85,6 +85,7 @@ fn test_integration_websocket_subscription() {
         }
         thread::sleep(Duration::from_millis(500));
     }
+    assert!(found, "Should have received ADD_ITEM for ws-key through websocket");
     
     // Attempt local cache assertion directly, since read_message should process and store it.
     let local_val = cache.get_local("ws-key");
@@ -125,6 +126,7 @@ fn test_integration_websocket_hydration() {
         }
         thread::sleep(Duration::from_millis(500));
     }
+    assert!(found, "Should have received hydrated ADD_ITEM for hydrate-key");
 
     let local_val = cache.get_local("hydrate-key");
     assert_eq!(local_val, Some("hydrate-val".to_string()));
