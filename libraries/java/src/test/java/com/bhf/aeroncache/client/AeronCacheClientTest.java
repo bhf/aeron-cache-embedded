@@ -154,4 +154,18 @@ public class AeronCacheClientTest {
         assertEquals("SUCCESS", response.getOperationStatus());
     }
 
+    @Test
+    public void testSubscribeHydrate() {
+        ReconnectingWebSocket ws = client.subscribe("cache1", true, new java.net.http.WebSocket.Listener() {});
+        assertNotNull(ws);
+        ws.close();
+    }
+
+    @Test
+    public void testSubscribeMulti() {
+        ReconnectingWebSocket ws = client.subscribe("cache1,cache2", false, new java.net.http.WebSocket.Listener() {});
+        assertNotNull(ws);
+        ws.close();
+    }
+
 }

@@ -120,7 +120,11 @@ impl<'a> EmbeddedAeronCache<'a> {
     }
 
     pub fn subscribe(&self) -> Result<UpdatingWebSocket, Box<dyn Error>> {
-        let socket = self.client.subscribe(&self.cache_id)?;
+        self.subscribe_ext(false)
+    }
+
+    pub fn subscribe_ext(&self, hydrate: bool) -> Result<UpdatingWebSocket, Box<dyn Error>> {
+        let socket = self.client.subscribe_ext(&self.cache_id, hydrate)?;
         Ok(UpdatingWebSocket {
             socket,
             client_ws_url: self.client.ws_url.clone(),

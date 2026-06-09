@@ -67,8 +67,12 @@ public class EmbeddedAeronCache {
     }
 
     public ReconnectingWebSocket subscribe(AeronCacheSubscriber subscriber) {
+        return subscribe(subscriber, false);
+    }
+
+    public ReconnectingWebSocket subscribe(AeronCacheSubscriber subscriber, boolean hydrate) {
         subscriber.setInternalUpdater(this::updateLocalCache);
-        return client.subscribe(cacheId, subscriber);
+        return client.subscribe(cacheId, hydrate, subscriber);
     }
 
     private void updateLocalCache(CacheUpdateEvent event) {

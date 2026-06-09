@@ -46,11 +46,16 @@ class EmbeddedAeronCache:
     async def clear_async(self) -> DeleteCacheResponse:
         return await self.client.delete_cache_async(self.cache_id)
 
-    async def subscribe(self, callback):
+    async def subscribe(self, callback, hydrate: bool = False):
         async def wrapped_callback(event: CacheUpdateEvent):
             self._update_local_cache(event)
-            await callback(event)
-        return await self.client.subscribe(self.cache_id, wrapped_callback)
+            if callback:
+                import asyncio
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(event)
+                else:
+                    callback(event)
+        return await self.client.subscribe(self.cache_id, wrapped_callback, hydrate=hydrate)
 
     def _update_local_cache(self, event: CacheUpdateEvent):
         event_type = event.eventType

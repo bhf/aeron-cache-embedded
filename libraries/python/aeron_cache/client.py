@@ -98,6 +98,47 @@ class AeronCacheClient:
 
     def bulk_ops(self, request: BulkCacheOpsRequest) -> BulkCacheOpsResponse:
         url = f"{self.base_url}/api/v1/cache/bulkops"
+        payload = {
+            "requestId": request.requestId,
+            "operations": [
+                {k: (v.value if hasattr(v, 'value') else v) 
+                 for k, v in op.__dict__.items() if v is not None}
+                for op in request.operations
+            ]
+        }
+        response = requests.post(url, json=payload)
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
+             response.raise_for_status()
+        return BulkCacheOpsResponse.from_dict(response.json())
+
+    # --- WebSocket ---
+
+    async def subscribe(self, cache_ids: str, on_message, hydrate: bool = False):
+        """
+        Subscribe to updates for one or more caches.
+        :param cache_ids: Comma-separated list of cache IDs.
+        :param on_message: Callback for incoming messages.
+        :param hydrate: Whether to request initial hydration.
+        """
+        prefix = "/api/ws/v1/cache/hydrate" if hydrate else "/api/ws/v1/cache"
+        if "," in cache_ids:
+            prefix = "/api/ws/v1/caches/hydrate" if hydrate else "/api/ws/v1/caches"
+        
+        uri = f"{self.ws_url.rstrip('/')}{prefix}/{cache_ids}"
+        
+        while True:
+            try:
+                async with websockets.connect(uri) as websocket:
+                    async for message in websocket:
+                        data = json.loads(message)
+                        event = CacheUpdateEvent.from_dict(data)
+                        if asyncio.iscoroutinefunction(on_message):
+                            await on_message(event)
+                        else:
+                            on_message(event)
+            except Exception as e:
+                print(f"WebSocket error: {e}. Reconnecting in 5s...")
+                await asyncio.sleep(5)
         # Convert request to dict, handling Enum and Optional fields
         payload = {
             "requestId": request.requestId,
@@ -235,20 +276,29 @@ class AeronCacheClient:
     def get_cache(self, cache_id: str) -> EmbeddedAeronCache:
         return EmbeddedAeronCache(self, cache_id)
 
-    async def subscribe(self, cache_id, callback):
-        final_ws_url = self.ws_url
-        if not final_ws_url.endswith("/api/ws/v1/cache"):
-            if final_ws_url.endswith("/"):
-                final_ws_url += "api/ws/v1/cache"
-            else:
-                final_ws_url += "/api/ws/v1/cache"
-        uri = f"{final_ws_url}/{cache_id}"
+    async def subscribe(self, cache_ids: str, on_message, hydrate: bool = False):
+        """
+        Subscribe to updates for one or more caches.
+        :param cache_ids: Comma-separated list of cache IDs.
+        :param on_message: Callback for incoming messages.
+        :param hydrate: Whether to request initial hydration.
+        """
+        prefix = "/api/ws/v1/cache/hydrate" if hydrate else "/api/ws/v1/cache"
+        if "," in cache_ids:
+            prefix = "/api/ws/v1/caches/hydrate" if hydrate else "/api/ws/v1/caches"
+        
+        uri = f"{self.ws_url.rstrip('/')}{prefix}/{cache_ids}"
+        
         while True:
             try:
                 async with websockets.connect(uri) as websocket:
                     async for message in websocket:
                         data = json.loads(message)
                         event = CacheUpdateEvent.from_dict(data)
-                        await callback(event)
-            except (websockets.ConnectionClosed, Exception):
+                        if asyncio.iscoroutinefunction(on_message):
+                            await on_message(event)
+                        else:
+                            on_message(event)
+            except Exception as e:
+                print(f"WebSocket error: {e}. Reconnecting in 5s...")
                 await asyncio.sleep(5)
