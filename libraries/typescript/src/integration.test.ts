@@ -103,8 +103,10 @@ if (shouldRun && !wsUrl) {
         const embedded = client.getCache(cacheId);
         
         return new Promise<void>((resolve, reject) => {
+            let wsResult: { close: () => void } | undefined;
+
             const timeout = setTimeout(() => {
-                embedded.unsubscribe();
+                if (wsResult) wsResult.close();
                 reject(new Error('Hydration event not received within timeout'));
             }, 5000);
 
@@ -116,7 +118,7 @@ if (shouldRun && !wsUrl) {
                             const localVal = embedded.getLocal('hydrate-key');
                             expect(localVal).toBe('hydrate-val');
                             clearTimeout(timeout);
-                            embedded.unsubscribe();
+                            if (wsResult) wsResult.close();
                             resolve();
                         } catch (e) {
                             reject(e);
@@ -125,7 +127,7 @@ if (shouldRun && !wsUrl) {
                 }
             };
 
-            embedded.subscribe(() => {}, () => {}, onStatusChange, true);
+            wsResult = embedded.subscribe(() => {}, () => {}, onStatusChange, true);
         });
     });
 
