@@ -111,23 +111,22 @@ export class AeronCacheClient {
     }
 
     subscribe(
-        cacheId: string, 
+        cacheIds: string, 
         onMessage: (data: CacheUpdateEvent) => void, 
         onError?: (err: any) => void,
-        onStatusChange?: (status: 'Connected' | 'Disconnected') => void
+        onStatusChange?: (status: 'Connected' | 'Disconnected') => void,
+        hydrate: boolean = false
     ): { close: () => void } {
         let ws: WebSocket | null = null;
         let isClosed = false;
         let reconnectTimeout: any = null;
         let finalWsUrl = this.wsUrl;
-        if (!finalWsUrl.endsWith("/api/ws/v1/cache")) {
-            if (finalWsUrl.endsWith("/")) {
-                finalWsUrl += "api/ws/v1/cache";
-            } else {
-                finalWsUrl += "/api/ws/v1/cache";
-            }
-        }
-        const wsUrl = `${finalWsUrl}/${cacheId}`;
+        
+        const prefix = hydrate ? 
+            (cacheIds.includes(',') ? '/api/ws/v1/caches/hydrate' : '/api/ws/v1/cache/hydrate') :
+            (cacheIds.includes(',') ? '/api/ws/v1/caches' : '/api/ws/v1/cache');
+
+        const wsUrl = `${finalWsUrl.replace(/\/$/, '')}${prefix}/${cacheIds}`;
 
         const connect = () => {
             if (isClosed) return;
