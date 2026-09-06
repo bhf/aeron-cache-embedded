@@ -34,8 +34,7 @@ jobs:
       - name: Install Aeron Cache Backend
         run: |
           brew tap bhf/aeroncache
-          brew trust bhf/aeroncache
-          brew install aeron-cache
+          brew install bhf/aeroncache/aeron-cache
 
       - name: Start Aeron Cache Backend
         run: |
