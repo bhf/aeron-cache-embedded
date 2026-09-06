@@ -38,15 +38,22 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
           HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
-          # GitHub's runner leaves SIGPIPE ignored (SIG_IGN), and bash cannot
-          # reset a signal it inherited as ignored. Brew's internal pipelines
-          # then get EPIPE instead of a clean SIGPIPE and abort with
-          # "Error: Broken pipe". Run brew through a wrapper that restores the
-          # default SIGPIPE disposition.
-          run_brew() { perl -e '$SIG{PIPE} = "DEFAULT"; exec @ARGV or die $!' "$@"; }
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          run_brew brew tap bhf/aeroncache
-          run_brew brew install aeron-cache
+          # Homebrew (Ruby) aborts with "Error: Broken pipe" when it gets EPIPE
+          # writing progress to the runner's log pipe. Send its output to a
+          # regular file instead (a file never triggers EPIPE); surface the
+          # captured logs only if a command actually fails.
+          set +e
+          brew tap bhf/aeroncache > tap.log 2>&1
+          tap_rc=$?
+          brew install --verbose aeron-cache > install.log 2>&1
+          inst_rc=$?
+          if [ "$tap_rc" -ne 0 ] || [ "$inst_rc" -ne 0 ]; then
+            echo "::group::tap.log (exit $tap_rc)"; cat tap.log; echo "::endgroup::"
+            echo "::group::install.log (exit $inst_rc)"; cat install.log; echo "::endgroup::"
+            exit 1
+          fi
+          echo "Aeron Cache backend installed."
 
       - name: Start Aeron Cache Backend
         run: |
