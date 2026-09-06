@@ -2,6 +2,7 @@ name: Java CI
 
 on:
   push:
+    branches: [ main ]
     paths:
       - 'libraries/java/**'
       - '.github/workflows/java-ci.yml'
