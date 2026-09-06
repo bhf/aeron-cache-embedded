@@ -4,7 +4,7 @@ import WebSocket from 'ws';
 // @ts-ignore
 global.WebSocket = WebSocket;
 
-import {AeronCacheClient, EmbeddedAeronCache} from '@aeron-cache/embedded-client';
+import {AeronCacheClient, EmbeddedAeronCache, EmbeddedCounterCache} from '@aeron-cache/embedded-client';
 
 async function main() {
     const baseUrl = process.argv[2] || 'http://localhost:7070';
@@ -30,6 +30,29 @@ async function main() {
     };
 
     const subscription = cache.subscribe(onMessage, onError);
+
+    // --- Counter streaming ---
+    try {
+        const response = await cacheClient.createCounterCache('streaming-counter-cache');
+        console.log(`Created counter cache: ${response.cacheId}`);
+    } catch (e) {
+        console.error(e);
+    }
+
+    const counterCache = new EmbeddedCounterCache(cacheClient, 'streaming-counter-cache');
+    const onCounterMessage = (event: any) => {
+        console.info(`[TypeScript] Counter update: Type ${event.eventType}, Key ${event.itemKey}, Value ${event.itemValue}`);
+    };
+    const counterSubscription = counterCache.subscribe(onCounterMessage, onError);
+
+    // Periodically increment a counter to generate streaming updates.
+    setInterval(async () => {
+        try {
+            await counterCache.increment('tick', 1);
+        } catch (e) {
+        }
+    }, 2000);
+
     try {
         console.log("Subscription established. Reconnection is enabled. Waiting for updates on 'streaming-key'...");
         

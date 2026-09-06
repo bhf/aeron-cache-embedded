@@ -1,4 +1,4 @@
-import {AeronCacheClient, EmbeddedAeronCache} from '@aeron-cache/embedded-client';
+import {AeronCacheClient, EmbeddedAeronCache, EmbeddedCounterCache} from '@aeron-cache/embedded-client';
 
 async function main() {
     const baseUrl = process.argv[2] || 'http://localhost:7070';
@@ -25,6 +25,34 @@ async function main() {
         await new Promise(r => setTimeout(r, 100));
         const getResponse = await cache.get('streaming-key');
         console.log(`Read key 'streaming-key': ${getResponse.value || 'not found'}`);
+    } catch (err) {
+        console.error(err);
+    }
+
+    // --- Counter operations ---
+    try {
+        const createCounter = await cacheClient.createCounterCache('async-counter-cache');
+        console.log(`Created counter cache: ${createCounter.cacheId}`);
+    } catch (e) {
+        console.error(e);
+    }
+
+    const counters = new EmbeddedCounterCache(cacheClient, 'async-counter-cache');
+    try {
+        console.log("Putting counter 'requests' -> 10");
+        await counters.put('requests', 10);
+
+        const incResp = await counters.increment('requests', 5);
+        console.log(`Incremented 'requests' by 5 -> ${incResp.value}`);
+
+        const decResp = await counters.decrement('requests', 3);
+        console.log(`Decremented 'requests' by 3 -> ${decResp.value}`);
+
+        const setResp = await counters.set('requests', 100);
+        console.log(`Set 'requests' -> ${setResp.value}`);
+
+        const getResp = await counters.get('requests');
+        console.log(`Read counter 'requests': ${getResp.value}`);
     } catch (err) {
         console.error(err);
     }

@@ -44,6 +44,39 @@ if (shouldRun && !wsUrl) {
         expect(getResp2.operationStatus === 'UNKNOWN_KEY' || getResp2.value == null).toBeTruthy();
     });
 
+    it('should perform counter operations', async () => {
+        const cacheId = `it-counter-${Math.random().toString(36).substring(7)}`;
+
+        const createResp = await client.createCounterCache(cacheId);
+        expect(createResp).toBeDefined();
+        expect(createResp.cacheId).toBe(cacheId);
+
+        const counters = client.getCounterCache(cacheId);
+
+        // Put a counter
+        const putResp = await counters.put('hits', 10);
+        expect(putResp).toBeDefined();
+        expect(putResp.key).toBe('hits');
+
+        // Increment / decrement / set
+        const incResp = await counters.increment('hits', 5);
+        expect(incResp.value).toBe(15);
+
+        const decResp = await counters.decrement('hits', 3);
+        expect(decResp.value).toBe(12);
+
+        const setResp = await counters.set('hits', 100);
+        expect(setResp.value).toBe(100);
+
+        // Read it back
+        const getResp = await counters.get('hits');
+        expect(getResp.value).toBe(100);
+
+        // Remove and clean up
+        await counters.delete('hits');
+        await counters.clear();
+    });
+
     it('should handle websocket subscriptions', async () => {
         const cacheId = `it-ws-${Math.random().toString(36).substring(7)}`;
         await client.createCache(cacheId);

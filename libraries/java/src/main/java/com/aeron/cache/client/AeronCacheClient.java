@@ -166,14 +166,175 @@ public class AeronCacheClient {
                 });
     }
 
+    // --- Bulk Operations ---
+
+    public BulkCacheOpsResponse bulkOps(BulkCacheOpsRequest request) throws Exception {
+        String json = objectMapper.writeValueAsString(request);
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/v1/cache/bulkops"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+        checkStatus(response);
+        return objectMapper.readValue(response.body(), BulkCacheOpsResponse.class);
+    }
+
+    public CompletableFuture<BulkCacheOpsResponse> bulkOpsAsync(BulkCacheOpsRequest request) {
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(request);
+        } catch (Exception e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/v1/cache/bulkops"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+        return httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), BulkCacheOpsResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
+    // --- Counter Operations (Sync) ---
+
+    public CreateResponse createCounterCache(String cacheId) throws Exception {
+        String json = "{\"cacheId\":\"" + cacheId + "\"}";
+        return sendSync("/api/v1/counters/", "POST", json, CreateResponse.class);
+    }
+
+    public PutItemResponse putCounter(String cacheId, String key, long value) throws Exception {
+        String json = String.format("{\"key\":\"%s\",\"value\":%d}", key, value);
+        return sendSync("/api/v1/counters/" + cacheId, "POST", json, PutItemResponse.class);
+    }
+
+    public CounterResponse getCounter(String cacheId, String key) throws Exception {
+        return sendSync("/api/v1/counters/" + cacheId + "/" + key, "GET", null, CounterResponse.class);
+    }
+
+    public DeleteItemResponse deleteCounter(String cacheId, String key) throws Exception {
+        return sendSync("/api/v1/counters/" + cacheId + "/" + key, "DELETE", null, DeleteItemResponse.class);
+    }
+
+    public DeleteCacheResponse deleteCounterCache(String cacheId) throws Exception {
+        return sendSync("/api/v1/counters/" + cacheId, "DELETE", null, DeleteCacheResponse.class);
+    }
+
+    public CounterResponse incrementCounter(String cacheId, String key, long amount) throws Exception {
+        String json = String.format("{\"key\":\"%s\",\"amount\":%d}", key, amount);
+        return sendSync("/api/v1/counters/increment/" + cacheId, "POST", json, CounterResponse.class);
+    }
+
+    public CounterResponse decrementCounter(String cacheId, String key, long amount) throws Exception {
+        String json = String.format("{\"key\":\"%s\",\"amount\":%d}", key, amount);
+        return sendSync("/api/v1/counters/decrement/" + cacheId, "POST", json, CounterResponse.class);
+    }
+
+    public CounterResponse setCounter(String cacheId, String key, long value) throws Exception {
+        String json = String.format("{\"key\":\"%s\",\"value\":%d}", key, value);
+        return sendSync("/api/v1/counters/set/" + cacheId, "POST", json, CounterResponse.class);
+    }
+
+    // --- Counter Operations (Async) ---
+
+    public CompletableFuture<CreateResponse> createCounterCacheAsync(String cacheId) {
+        String json = "{\"cacheId\":\"" + cacheId + "\"}";
+        return sendAsync("/api/v1/counters/", "POST", json, CreateResponse.class);
+    }
+
+    public CompletableFuture<PutItemResponse> putCounterAsync(String cacheId, String key, long value) {
+        String json = String.format("{\"key\":\"%s\",\"value\":%d}", key, value);
+        return sendAsync("/api/v1/counters/" + cacheId, "POST", json, PutItemResponse.class);
+    }
+
+    public CompletableFuture<CounterResponse> getCounterAsync(String cacheId, String key) {
+        return sendAsync("/api/v1/counters/" + cacheId + "/" + key, "GET", null, CounterResponse.class);
+    }
+
+    public CompletableFuture<DeleteItemResponse> deleteCounterAsync(String cacheId, String key) {
+        return sendAsync("/api/v1/counters/" + cacheId + "/" + key, "DELETE", null, DeleteItemResponse.class);
+    }
+
+    public CompletableFuture<DeleteCacheResponse> deleteCounterCacheAsync(String cacheId) {
+        return sendAsync("/api/v1/counters/" + cacheId, "DELETE", null, DeleteCacheResponse.class);
+    }
+
+    public CompletableFuture<CounterResponse> incrementCounterAsync(String cacheId, String key, long amount) {
+        String json = String.format("{\"key\":\"%s\",\"amount\":%d}", key, amount);
+        return sendAsync("/api/v1/counters/increment/" + cacheId, "POST", json, CounterResponse.class);
+    }
+
+    public CompletableFuture<CounterResponse> decrementCounterAsync(String cacheId, String key, long amount) {
+        String json = String.format("{\"key\":\"%s\",\"amount\":%d}", key, amount);
+        return sendAsync("/api/v1/counters/decrement/" + cacheId, "POST", json, CounterResponse.class);
+    }
+
+    public CompletableFuture<CounterResponse> setCounterAsync(String cacheId, String key, long value) {
+        String json = String.format("{\"key\":\"%s\",\"value\":%d}", key, value);
+        return sendAsync("/api/v1/counters/set/" + cacheId, "POST", json, CounterResponse.class);
+    }
+
+    // --- Shared request helpers ---
+
+    private <T> T sendSync(String path, String method, String body, Class<T> type) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder().uri(URI.create(baseUrl + path));
+        if ("POST".equals(method)) {
+            builder.header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body));
+        } else if ("DELETE".equals(method)) {
+            builder.DELETE();
+        } else {
+            builder.GET();
+        }
+        HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        checkStatus(response);
+        return objectMapper.readValue(response.body(), type);
+    }
+
+    private <T> CompletableFuture<T> sendAsync(String path, String method, String body, Class<T> type) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder().uri(URI.create(baseUrl + path));
+        if ("POST".equals(method)) {
+            builder.header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body));
+        } else if ("DELETE".equals(method)) {
+            builder.DELETE();
+        } else {
+            builder.GET();
+        }
+        return httpClient.sendAsync(builder.build(), HttpResponse.BodyHandlers.ofString())
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), type);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
     // --- WebSocket ---
-    
+
     public ReconnectingWebSocket subscribe(String cacheId, WebSocket.Listener listener) {
         return new ReconnectingWebSocket(httpClient, URI.create(wsUrl + "/api/ws/v1/cache/" + cacheId), listener);
     }
 
+    public ReconnectingWebSocket subscribeCounter(String cacheId, WebSocket.Listener listener) {
+        return new ReconnectingWebSocket(httpClient, URI.create(wsUrl + "/api/ws/v1/counter/" + cacheId), listener);
+    }
+
     public EmbeddedAeronCache getCache(String cacheId) {
         return new EmbeddedAeronCache(this, cacheId);
+    }
+
+    public EmbeddedCounterCache getCounterCache(String cacheId) {
+        return new EmbeddedCounterCache(this, cacheId);
     }
 
 

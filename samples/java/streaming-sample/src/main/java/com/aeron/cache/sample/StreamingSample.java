@@ -3,8 +3,11 @@ package com.aeron.cache.sample;
 
 import com.aeron.cache.client.AeronCacheClient;
 import com.aeron.cache.client.AeronCacheSubscriber;
+import com.aeron.cache.client.CounterCacheSubscriber;
 import com.aeron.cache.client.EmbeddedAeronCache;
+import com.aeron.cache.client.EmbeddedCounterCache;
 import com.aeron.cache.models.CacheUpdateEvent;
+import com.aeron.cache.models.CounterUpdateEvent;
 import java.net.http.WebSocket;
 
 public class StreamingSample {
@@ -36,6 +39,36 @@ public class StreamingSample {
                 System.out.println("[Java] Received update: " + event.getEventType() + " for " + event.getItemKey());
             }
         });
+
+        // --- Counter streaming ---
+        try {
+            var response = client.createCounterCache("streaming-counter-cache");
+            System.out.println("Created counter cache: " + response.getCacheId());
+        } catch (Exception e) {
+            // Probably already exists
+        }
+        EmbeddedCounterCache counters = new EmbeddedCounterCache(client, "streaming-counter-cache");
+        counters.subscribe(new CounterCacheSubscriber() {
+            @Override
+            public void onAfterUpdate(CounterUpdateEvent event) {
+                System.out.println("[Java] Counter update: " + event.getEventType()
+                        + " for " + event.getItemKey() + " -> " + event.getItemValue());
+            }
+        });
+
+        // Periodically increment a counter to generate streaming updates.
+        Thread ticker = new Thread(() -> {
+            while (true) {
+                try {
+                    counters.increment("tick", 1);
+                    Thread.sleep(2000);
+                } catch (Exception e) {
+                    return;
+                }
+            }
+        });
+        ticker.setDaemon(true);
+        ticker.start();
 
         System.out.println("Listening for updates on 'streaming-sample-cache'.");
 

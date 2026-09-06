@@ -2,6 +2,7 @@ import asyncio
 import sys
 from aeron_cache.client import AeronCacheClient
 from aeron_cache.embedded_cache import EmbeddedAeronCache
+from aeron_cache.embedded_counter_cache import EmbeddedCounterCache
 
 async def main():
     base_url = "http://localhost:7070"
@@ -36,6 +37,28 @@ async def main():
             await asyncio.sleep(1)
 
     asyncio.create_task(poller())
+
+    # --- Counter streaming ---
+    try:
+        await client.create_counter_cache_async("streaming-counter-cache")
+    except Exception:
+        pass
+
+    counters = EmbeddedCounterCache(client, "streaming-counter-cache")
+
+    async def on_counter_change(event):
+        print(f"[Python] Counter update: {event.eventType} {event.itemKey} -> {event.itemValue}")
+
+    async def counter_ticker():
+        while True:
+            try:
+                await counters.increment_async("tick", 1)
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+
+    asyncio.create_task(counters.subscribe(on_counter_change))
+    asyncio.create_task(counter_ticker())
 
     # This will block forever receiving updates
     await cache.subscribe(on_changes)

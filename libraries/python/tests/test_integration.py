@@ -54,6 +54,27 @@ def test_cache_operations(client):
     assert get_resp2 is not None
     assert get_resp2.operationStatus == "UNKNOWN_KEY" or get_resp2.value is None
 
+def test_counter_operations(client):
+    cache_id = f"it-counter-{uuid.uuid4().hex[:8]}"
+
+    create_resp = client.create_counter_cache(cache_id)
+    assert create_resp is not None
+    assert create_resp.cacheId == cache_id
+
+    counters = client.get_counter_cache(cache_id)
+
+    put_resp = counters.put("hits", 10)
+    assert put_resp is not None
+    assert put_resp.key == "hits"
+
+    assert counters.increment("hits", 5).value == 15
+    assert counters.decrement("hits", 3).value == 12
+    assert counters.set("hits", 100).value == 100
+    assert counters.get("hits").value == 100
+
+    counters.remove("hits")
+    counters.clear()
+
 @pytest.mark.asyncio
 async def test_websocket_subscription(client):
     cache_id = f"it-ws-{uuid.uuid4().hex[:8]}"

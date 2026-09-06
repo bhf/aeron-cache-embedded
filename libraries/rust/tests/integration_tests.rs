@@ -48,6 +48,33 @@ fn test_integration_cache_operations() {
 }
 
 #[test]
+fn test_integration_counter_operations() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_counter_operations: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-counter");
+
+    let create_resp = client.create_counter_cache(&cache_id).expect("Failed to create counter cache");
+    assert_eq!(create_resp.cache_id, cache_id);
+
+    let counters = client.get_counter_cache(&cache_id);
+
+    let put_resp = counters.insert("hits", 10).unwrap();
+    assert_eq!(put_resp.key, "hits");
+
+    assert_eq!(counters.increment("hits", 5).unwrap().value, 15);
+    assert_eq!(counters.decrement("hits", 3).unwrap().value, 12);
+    assert_eq!(counters.set("hits", 100).unwrap().value, 100);
+    assert_eq!(counters.get("hits").unwrap().value, 100);
+
+    counters.remove("hits").unwrap();
+    counters.clear().unwrap();
+}
+
+#[test]
 fn test_integration_websocket_subscription() {
     let Some((base_url, ws_url)) = get_urls() else {
         println!("Skipping test_integration_websocket_subscription: AERON_CACHE_BASE_URL not set");

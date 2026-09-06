@@ -44,5 +44,19 @@ public class AsyncSample {
 
         }).join(); // Wait for completion for the sample
 
+        // --- Counter operations ---
+        try {
+            var response = client.createCounterCache("async-counter-cache");
+            System.out.println("Created counter cache: " + response.getCacheId());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        EmbeddedCounterCache counters = new EmbeddedCounterCache(client, "async-counter-cache");
+
+        System.out.println("Putting counter 'requests' -> 10 asynchronously");
+        counters.putAsync("requests", 10)
+                .thenCompose(r -> counters.incrementAsync("requests", 5))
+                .thenAccept(r -> System.out.println("Incremented 'requests' by 5 -> " + r.getValue()))
+                .join();
     }
 }

@@ -59,6 +59,29 @@ public class AeronCacheClientIntegrationTest {
     }
 
     @Test
+    public void testCounterOperations() throws Exception {
+        String cacheId = "it-counter-" + UUID.randomUUID().toString();
+
+        CreateResponse createResp = client.createCounterCache(cacheId);
+        assertNotNull(createResp);
+        assertEquals(cacheId, createResp.getCacheId());
+
+        EmbeddedCounterCache counters = client.getCounterCache(cacheId);
+
+        PutItemResponse putResp = counters.put("hits", 10);
+        assertNotNull(putResp);
+        assertEquals("hits", putResp.getKey());
+
+        assertEquals(15L, counters.increment("hits", 5).getValue());
+        assertEquals(12L, counters.decrement("hits", 3).getValue());
+        assertEquals(100L, counters.set("hits", 100).getValue());
+        assertEquals(100L, counters.get("hits").getValue());
+
+        counters.remove("hits");
+        counters.clear();
+    }
+
+    @Test
     public void testWebsocketSubscription() throws Exception {
         String cacheId = "it-ws-" + UUID.randomUUID().toString();
         client.createCache(cacheId);

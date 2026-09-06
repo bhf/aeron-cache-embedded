@@ -1,0 +1,20 @@
+package com.aeron.cache.models;
+
+public enum BulkOperationType {
+    NONE,
+    CREATE_CACHE,
+    ADD_ITEM,
+    REMOVE_ITEM,
+    CLEAR_CACHE,
+    GET_ITEM,
+    DELETE_CACHE,
+    CREATE_COUNTER_CACHE,
+    ADD_COUNTER,
+    REMOVE_COUNTER,
+    CLEAR_COUNTER_CACHE,
+    GET_COUNTER,
+    DELETE_COUNTER_CACHE,
+    INCREMENT_COUNTER,
+    DECREMENT_COUNTER,
+    SET_COUNTER
+}
