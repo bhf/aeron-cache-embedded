@@ -171,6 +171,69 @@ def test_bulk_operations(client):
     assert get_resp2.items[0].key == "bulk-key"
 
 
+def test_counter_operations(client):
+    cache_id = f"it-counter-{uuid.uuid4().hex[:8]}"
+
+    create_resp = client.create_counter_cache(cache_id)
+    assert create_resp is not None
+    assert create_resp.cacheId == cache_id
+
+    counters = client.get_counter_cache(cache_id)
+
+    put_resp = counters.put("hits", 10)
+    assert put_resp is not None
+    assert put_resp.key == "hits"
+
+    assert counters.increment("hits", 5).value == 15
+    assert counters.decrement("hits", 3).value == 12
+    assert counters.set("hits", 100).value == 100
+    assert counters.get("hits").value == 100
+
+    counters.remove("hits")
+    counters.clear()
+
+@pytest.mark.asyncio
+async def test_counter_websocket_subscription(client):
+    cache_id = f"it-counter-ws-{uuid.uuid4().hex[:8]}"
+    client.create_counter_cache(cache_id)
+    counters = client.get_counter_cache(cache_id)
+
+    event_received = asyncio.Event()
+
+    async def on_event(event):
+        if event.eventType == "ADD_ITEM" and event.itemKey == "ws-counter":
+            event_received.set()
+
+    sub_task = asyncio.create_task(counters.subscribe(on_event))
+    await asyncio.sleep(1.0)
+
+    counters.put("ws-counter", 7)
+
+    try:
+        await asyncio.wait_for(event_received.wait(), timeout=5.0)
+    finally:
+        sub_task.cancel()
+
+    assert counters.get_local("ws-counter") == 7
+    counters.clear()
+
+def test_put_timed_counter(client):
+    import time
+    cache_id = f"it-counter-timed-{uuid.uuid4().hex[:8]}"
+    client.create_counter_cache(cache_id)
+    counters = client.get_counter_cache(cache_id)
+
+    put_resp = counters.put_timed("timed-counter", 5, 2000)
+    assert put_resp is not None
+    assert put_resp.key == "timed-counter"
+
+    assert counters.get("timed-counter").value == 5
+
+    time.sleep(3)
+
+    get_resp2 = counters.get("timed-counter")
+    assert get_resp2.operationStatus == "UNKNOWN_KEY" or get_resp2.value in (None, 0)
+
 def test_put_timed_item(client):
     import time
     cache_id = f"it-timed-{uuid.uuid4().hex[:8]}"

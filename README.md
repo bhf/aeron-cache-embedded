@@ -104,6 +104,22 @@ const cache = new EmbeddedAeronCache(cacheClient, 'async-sample-cache');
 await cache.put("stay", "tuned");
 ```
 
+### Counters
+
+In addition to string caches, all clients support **counter caches** whose values are 64-bit integers. Counter caches expose the same lifecycle operations (create / put / timed put / get / delete / subscribe) plus counter-specific `increment`, `decrement`, and `set` operations, and an `EmbeddedCounterCache` that shadows values locally over the WebSocket stream.
+
+```typescript
+// TypeScript
+await cacheClient.createCounterCache('counter-cache');
+const counters = cacheClient.getCounterCache('counter-cache');
+await counters.put('requests', 10);
+await counters.increment('requests', 5); // -> 15
+await counters.decrement('requests', 3); // -> 12
+await counters.set('requests', 100);     // -> 100
+```
+
+Counter operations are also available through the bulk endpoint (`INCREMENT_COUNTER`, `SET_COUNTER`, `CREATE_COUNTER_CACHE`, … with a `counterValue` field).
+
 See the `samples/` directory for full code examples in all languages.
 
 [Back to top](#aeron-cache-embedded-clients)
@@ -131,6 +147,8 @@ This script runs the streaming (Embedded Cache) samples for all languages in **p
 
 -   **Business Status Mapping**: Responses include an `operationStatus` field (e.g., `SUCCESS`, `CACHE_EXISTS`, `UNKNOWN_KEY`) to handle business logic without throwing transport-level exceptions for HTTP 400 errors.
 -   **CRUD Operations**: Full support for Create, Get, Put, Delete items and caches.
+-   **Counter Caches**: Dedicated `int64` counter caches with `increment`, `decrement`, `set`, and timed-put operations, plus an `EmbeddedCounterCache` that shadows counter values locally.
+-   **Bulk Operations**: Submit multiple cache and counter operations in a single request via `bulkOps` / `bulk_ops`.
 -   **Sync & Async**: APIs available in both synchronous (blocking) and asynchronous (non-blocking) styles where appropriate.
 -   **Embedded Aeron Cache**: A specialized `EmbeddedAeronCache` object that maintains a local shadowed copy of the cache data. It subscribes to the cache's WebSocket stream and applies updates (`ADD_ITEM`, `REMOVE_ITEM`, `DELETE_CACHE`, `CLEAR_CACHE`) to the local map automatically.
 

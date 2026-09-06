@@ -43,5 +43,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => println!("Read key 'timed-key' error: {}", e),
     }
 
+    // --- Counter operations ---
+    let counter_cache_id = "sync-counter-sample";
+    let counter_create = client.create_counter_cache(counter_cache_id)?;
+    println!("Created counter cache: {}", counter_create.cache_id);
+
+    let counters = client.get_counter_cache(counter_cache_id);
+
+    println!("Putting counter 'requests' -> 10 synchronously");
+    counters.insert("requests", 10)?;
+    println!("Incremented 'requests' by 5 -> {}", counters.increment("requests", 5)?.value);
+    println!("Decremented 'requests' by 3 -> {}", counters.decrement("requests", 3)?.value);
+    println!("Set 'requests' -> {}", counters.set("requests", 100)?.value);
+    println!("Read counter 'requests': {}", counters.get("requests")?.value);
+
     Ok(())
 }

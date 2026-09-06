@@ -29,3 +29,23 @@ async function main() {
 
 main();
 ```
+
+## Counters
+
+Counter caches hold `int64` values and add `increment`, `decrement`, `set`, and timed-put operations:
+
+```typescript
+import { AeronCacheClient } from '@aeron-cache/embedded-client';
+
+const client = new AeronCacheClient('http://localhost:7070', 'ws://localhost:7071');
+await client.createCounterCache('counter-cache');
+const counters = client.getCounterCache('counter-cache');
+
+await counters.put('requests', 10);
+await counters.increment('requests', 5); // -> 15
+await counters.decrement('requests', 3); // -> 12
+await counters.set('requests', 100);     // -> 100
+console.log((await counters.get('requests')).value);
+```
+
+Counter operations are also available via `bulkOps` using the counter `BulkOperationType` values and the `counterValue` field on `CacheOperationRequest`.

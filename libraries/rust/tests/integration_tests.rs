@@ -181,6 +181,7 @@ fn test_integration_bulk_operations() {
                 key: None,
                 value: None,
                 ttl: None,
+                counter_value: None,
             },
             CacheOperationRequest {
                 operation_type: BulkOperationType::AddItem,
@@ -189,6 +190,7 @@ fn test_integration_bulk_operations() {
                 key: Some("bulk-key".to_string()),
                 value: Some("bulk-val".to_string()),
                 ttl: None,
+                counter_value: None,
             },
             CacheOperationRequest {
                 operation_type: BulkOperationType::GetItem,
@@ -197,6 +199,7 @@ fn test_integration_bulk_operations() {
                 key: Some("bulk-key".to_string()),
                 value: None,
                 ttl: None,
+                counter_value: None,
             },
         ],
     };
@@ -210,6 +213,80 @@ fn test_integration_bulk_operations() {
     assert_eq!(response.operation_responses[2].value, Some("bulk-val".to_string()));
 }
 
+
+#[test]
+fn test_integration_counter_operations() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_counter_operations: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-counter");
+
+    let create_resp = client.create_counter_cache(&cache_id).expect("Failed to create counter cache");
+    assert_eq!(create_resp.cache_id, cache_id);
+
+    let counters = client.get_counter_cache(&cache_id);
+
+    let put_resp = counters.insert("hits", 10).unwrap();
+    assert_eq!(put_resp.key, "hits");
+
+    assert_eq!(counters.increment("hits", 5).unwrap().value, 15);
+    assert_eq!(counters.decrement("hits", 3).unwrap().value, 12);
+    assert_eq!(counters.set("hits", 100).unwrap().value, 100);
+    assert_eq!(counters.get("hits").unwrap().value, 100);
+
+    counters.remove("hits").unwrap();
+    counters.clear().unwrap();
+}
+
+#[test]
+fn test_integration_counter_websocket_subscription() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_counter_websocket_subscription: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-counter-ws");
+
+    client.create_counter_cache(&cache_id).expect("Failed to create counter cache");
+    let counters = client.get_counter_cache(&cache_id);
+
+    let mut ws = counters.subscribe().expect("Failed to subscribe");
+    thread::sleep(Duration::from_secs(1));
+
+    counters.insert("ws-counter", 7).unwrap();
+    ws.read_message().expect("Failed to read message");
+
+    assert_eq!(counters.get_local("ws-counter"), Some(7));
+    counters.clear().unwrap();
+}
+
+#[test]
+fn test_integration_put_timed_counter() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_put_timed_counter: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-counter-timed");
+
+    client.create_counter_cache(&cache_id).expect("Failed to create counter cache");
+    let counters = client.get_counter_cache(&cache_id);
+
+    let put_resp = counters.insert_timed("timed-counter", 5, 2000).expect("Failed to put timed counter");
+    assert_eq!(put_resp.key, "timed-counter");
+
+    assert_eq!(counters.get("timed-counter").unwrap().value, 5);
+
+    thread::sleep(Duration::from_secs(3));
+
+    let get_resp2 = counters.get("timed-counter").expect("Failed to get counter after expiry");
+    assert!(get_resp2.operation_status == "UNKNOWN_KEY" || get_resp2.value == 0);
+}
 
 #[test]
 fn test_integration_put_timed_item() {

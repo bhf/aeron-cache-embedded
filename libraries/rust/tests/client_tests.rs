@@ -132,6 +132,7 @@ fn test_bulk_ops() {
                 key: Some("k1".to_string()),
                 value: Some("v1".to_string()),
                 ttl: None,
+                counter_value: None,
             }
         ],
     };

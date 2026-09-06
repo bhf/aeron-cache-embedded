@@ -7,6 +7,9 @@ use url::Url;
 pub mod embedded_cache;
 pub use embedded_cache::EmbeddedAeronCache;
 
+pub mod embedded_counter_cache;
+pub use embedded_counter_cache::EmbeddedCounterCache;
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CacheItem {
@@ -112,6 +115,51 @@ pub struct CacheUpdateEvent {
     pub request_id: String,
 }
 
+// --- Counters ---
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CounterResponse {
+    pub cache_id: String,
+    pub key: String,
+    #[serde(default)]
+    pub value: i64,
+    pub operation_status: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CounterUpdateEvent {
+    #[serde(rename = "cacheId")]
+    pub cache_id: String,
+    #[serde(rename = "eventType")]
+    pub event_type: String,
+    #[serde(rename = "itemKey")]
+    pub item_key: Option<String>,
+    #[serde(rename = "itemValue")]
+    pub item_value: Option<i64>,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PutCounterRequest {
+    pub key: String,
+    pub value: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PutTimedCounterRequest {
+    pub key: String,
+    pub value: i64,
+    pub ttl: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CounterAmountRequest {
+    pub key: String,
+    pub amount: i64,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum BulkOperationType {
@@ -122,6 +170,15 @@ pub enum BulkOperationType {
     ClearCache,
     GetItem,
     DeleteCache,
+    CreateCounterCache,
+    AddCounter,
+    RemoveCounter,
+    ClearCounterCache,
+    GetCounter,
+    DeleteCounterCache,
+    IncrementCounter,
+    DecrementCounter,
+    SetCounter,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -136,6 +193,8 @@ pub struct CacheOperationRequest {
     pub value: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ttl: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counter_value: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -408,10 +467,188 @@ impl AeronCacheClient {
         EmbeddedAeronCache::new(self, cache_id.to_string())
     }
 
+    // --- Counter Operations (Sync) ---
+
+    pub fn create_counter_cache(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/", self.base_url);
+        let req = CreateRequest { cache_id: cache_id.to_string() };
+        let resp = self.get_sync_client().post(&url).json(&req).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<CreateResponse>()?)
+    }
+
+    pub fn put_counter(&self, cache_id: &str, key: &str, value: i64) -> Result<PutItemResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}", self.base_url, cache_id);
+        let req = PutCounterRequest { key: key.to_string(), value };
+        let resp = self.get_sync_client().post(&url).json(&req).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<PutItemResponse>()?)
+    }
+
+    pub fn put_timed_counter(&self, cache_id: &str, key: &str, value: i64, ttl: i64) -> Result<PutItemResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/timed/{}", self.base_url, cache_id);
+        let req = PutTimedCounterRequest { key: key.to_string(), value, ttl };
+        let resp = self.get_sync_client().post(&url).json(&req).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<PutItemResponse>()?)
+    }
+
+    pub fn get_counter(&self, cache_id: &str, key: &str) -> Result<CounterResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}/{}", self.base_url, cache_id, key);
+        let resp = self.get_sync_client().get(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<CounterResponse>()?)
+    }
+
+    pub fn delete_counter(&self, cache_id: &str, key: &str) -> Result<DeleteItemResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}/{}", self.base_url, cache_id, key);
+        let resp = self.get_sync_client().delete(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<DeleteItemResponse>()?)
+    }
+
+    pub fn delete_counter_cache(&self, cache_id: &str) -> Result<DeleteCacheResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}", self.base_url, cache_id);
+        let resp = self.get_sync_client().delete(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<DeleteCacheResponse>()?)
+    }
+
+    pub fn increment_counter(&self, cache_id: &str, key: &str, amount: i64) -> Result<CounterResponse, Box<dyn Error>> {
+        self.counter_amount_op("increment", cache_id, key, amount)
+    }
+
+    pub fn decrement_counter(&self, cache_id: &str, key: &str, amount: i64) -> Result<CounterResponse, Box<dyn Error>> {
+        self.counter_amount_op("decrement", cache_id, key, amount)
+    }
+
+    fn counter_amount_op(&self, op: &str, cache_id: &str, key: &str, amount: i64) -> Result<CounterResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}/{}", self.base_url, op, cache_id);
+        let req = CounterAmountRequest { key: key.to_string(), amount };
+        let resp = self.get_sync_client().post(&url).json(&req).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<CounterResponse>()?)
+    }
+
+    pub fn set_counter(&self, cache_id: &str, key: &str, value: i64) -> Result<CounterResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/set/{}", self.base_url, cache_id);
+        let req = PutCounterRequest { key: key.to_string(), value };
+        let resp = self.get_sync_client().post(&url).json(&req).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<CounterResponse>()?)
+    }
+
+    // --- Counter Operations (Async) ---
+
+    pub async fn create_counter_cache_async(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/", self.base_url);
+        let req = CreateRequest { cache_id: cache_id.to_string() };
+        let resp = self.async_client.post(&url).json(&req).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<CreateResponse>().await?)
+    }
+
+    pub async fn put_counter_async(&self, cache_id: &str, key: &str, value: i64) -> Result<PutItemResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}", self.base_url, cache_id);
+        let req = PutCounterRequest { key: key.to_string(), value };
+        let resp = self.async_client.post(&url).json(&req).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<PutItemResponse>().await?)
+    }
+
+    pub async fn put_timed_counter_async(&self, cache_id: &str, key: &str, value: i64, ttl: i64) -> Result<PutItemResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/timed/{}", self.base_url, cache_id);
+        let req = PutTimedCounterRequest { key: key.to_string(), value, ttl };
+        let resp = self.async_client.post(&url).json(&req).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<PutItemResponse>().await?)
+    }
+
+    pub async fn get_counter_async(&self, cache_id: &str, key: &str) -> Result<CounterResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}/{}", self.base_url, cache_id, key);
+        let resp = self.async_client.get(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<CounterResponse>().await?)
+    }
+
+    pub async fn delete_counter_async(&self, cache_id: &str, key: &str) -> Result<DeleteItemResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}/{}", self.base_url, cache_id, key);
+        let resp = self.async_client.delete(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<DeleteItemResponse>().await?)
+    }
+
+    pub async fn delete_counter_cache_async(&self, cache_id: &str) -> Result<DeleteCacheResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}", self.base_url, cache_id);
+        let resp = self.async_client.delete(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<DeleteCacheResponse>().await?)
+    }
+
+    pub async fn increment_counter_async(&self, cache_id: &str, key: &str, amount: i64) -> Result<CounterResponse, Box<dyn Error>> {
+        self.counter_amount_op_async("increment", cache_id, key, amount).await
+    }
+
+    pub async fn decrement_counter_async(&self, cache_id: &str, key: &str, amount: i64) -> Result<CounterResponse, Box<dyn Error>> {
+        self.counter_amount_op_async("decrement", cache_id, key, amount).await
+    }
+
+    async fn counter_amount_op_async(&self, op: &str, cache_id: &str, key: &str, amount: i64) -> Result<CounterResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}/{}", self.base_url, op, cache_id);
+        let req = CounterAmountRequest { key: key.to_string(), amount };
+        let resp = self.async_client.post(&url).json(&req).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<CounterResponse>().await?)
+    }
+
+    pub async fn set_counter_async(&self, cache_id: &str, key: &str, value: i64) -> Result<CounterResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/set/{}", self.base_url, cache_id);
+        let req = PutCounterRequest { key: key.to_string(), value };
+        let resp = self.async_client.post(&url).json(&req).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<CounterResponse>().await?)
+    }
+
+    pub fn get_counter_cache(&self, cache_id: &str) -> EmbeddedCounterCache<'_> {
+        EmbeddedCounterCache::new(self, cache_id.to_string())
+    }
+
     // --- WebSocket ---
     // Note: Rust websocket handling is often done in a loop in main application.
     // This helper connects and returns the stream.
-    
+
     pub fn subscribe(&self, cache_ids: &str) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
         self.subscribe_ext(cache_ids, false)
     }
@@ -421,6 +658,23 @@ impl AeronCacheClient {
             if cache_ids.contains(',') { "/api/ws/v1/caches/hydrate" } else { "/api/ws/v1/cache/hydrate" }
         } else {
             if cache_ids.contains(',') { "/api/ws/v1/caches" } else { "/api/ws/v1/cache" }
+        };
+
+        let url = format!("{}/{}", self.ws_url.trim_end_matches('/'), prefix.trim_start_matches('/'));
+        let final_url = format!("{}/{}", url, cache_ids);
+        let (socket, _) = connect(Url::parse(&final_url)?)?;
+        Ok(socket)
+    }
+
+    pub fn subscribe_counter(&self, cache_ids: &str) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
+        self.subscribe_counter_ext(cache_ids, false)
+    }
+
+    pub fn subscribe_counter_ext(&self, cache_ids: &str, hydrate: bool) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
+        let prefix = if hydrate {
+            if cache_ids.contains(',') { "/api/ws/v1/counters/hydrate" } else { "/api/ws/v1/counter/hydrate" }
+        } else {
+            if cache_ids.contains(',') { "/api/ws/v1/counters" } else { "/api/ws/v1/counter" }
         };
 
         let url = format!("{}/{}", self.ws_url.trim_end_matches('/'), prefix.trim_start_matches('/'));
