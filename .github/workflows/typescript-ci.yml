@@ -43,9 +43,15 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
           HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
+          # GitHub's runner leaves SIGPIPE ignored (SIG_IGN), and bash cannot
+          # reset a signal it inherited as ignored. Brew's internal pipelines
+          # then get EPIPE instead of a clean SIGPIPE and abort with
+          # "Error: Broken pipe". Run brew through a wrapper that restores the
+          # default SIGPIPE disposition.
+          run_brew() { perl -e '$SIG{PIPE} = "DEFAULT"; exec @ARGV or die $!' "$@"; }
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          brew tap bhf/aeroncache
-          brew install aeron-cache
+          run_brew brew tap bhf/aeroncache
+          run_brew brew install aeron-cache
 
       - name: Start Aeron Cache Backend
         run: |
