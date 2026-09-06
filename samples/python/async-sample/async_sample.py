@@ -3,6 +3,7 @@ import sys
 
 from aeron_cache.client import AeronCacheClient
 from aeron_cache.embedded_cache import EmbeddedAeronCache
+from aeron_cache.embedded_counter_cache import EmbeddedCounterCache
 
 
 async def main():
@@ -18,7 +19,7 @@ async def main():
 
     try:
         response = await client.create_cache_async("async-sample-cache")
-        print(f"Created cache: {response.cache_id}")
+        print(f"Created cache: {response.cacheId}")
     except:
         pass
 
@@ -32,6 +33,24 @@ async def main():
 
     get_response = await cache.get_async("async-key")
     print(f"Read key 'async-key': {get_response.value or 'not found'}")
+
+    # --- Counter operations ---
+    try:
+        counter_resp = await client.create_counter_cache_async("async-counter-cache")
+        print(f"Created counter cache: {counter_resp.cacheId}")
+    except Exception:
+        pass
+
+    counters = EmbeddedCounterCache(client, "async-counter-cache")
+
+    print("Putting counter 'requests' -> 10 asynchronously")
+    await counters.put_async("requests", 10)
+    inc = await counters.increment_async("requests", 5)
+    print(f"Incremented 'requests' by 5 -> {inc.value}")
+    set_resp = await counters.set_async("requests", 100)
+    print(f"Set 'requests' -> {set_resp.value}")
+    get_counter = await counters.get_async("requests")
+    print(f"Read counter 'requests': {get_counter.value}")
 
 if __name__ == "__main__":
     asyncio.run(main())

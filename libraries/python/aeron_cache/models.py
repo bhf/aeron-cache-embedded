@@ -66,6 +66,31 @@ class CacheUpdateEvent:
         )
 
 @dataclass
+class CounterResponse:
+    cacheId: str
+    key: str
+    value: int = 0
+    operationStatus: Optional[str] = None
+
+@dataclass
+class CounterUpdateEvent:
+    cacheId: str
+    eventType: str
+    requestId: str
+    itemKey: Optional[str] = None
+    itemValue: Optional[int] = None
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            cacheId=data.get('cacheId'),
+            eventType=data.get('eventType'),
+            requestId=data.get('requestId'),
+            itemKey=data.get('itemKey'),
+            itemValue=data.get('itemValue')
+        )
+
+@dataclass
 class CacheItem:
     key: str
     value: str
@@ -100,6 +125,15 @@ class BulkOperationType(str, Enum):
     CLEAR_CACHE = "CLEAR_CACHE"
     GET_ITEM = "GET_ITEM"
     DELETE_CACHE = "DELETE_CACHE"
+    CREATE_COUNTER_CACHE = "CREATE_COUNTER_CACHE"
+    ADD_COUNTER = "ADD_COUNTER"
+    REMOVE_COUNTER = "REMOVE_COUNTER"
+    CLEAR_COUNTER_CACHE = "CLEAR_COUNTER_CACHE"
+    GET_COUNTER = "GET_COUNTER"
+    DELETE_COUNTER_CACHE = "DELETE_COUNTER_CACHE"
+    INCREMENT_COUNTER = "INCREMENT_COUNTER"
+    DECREMENT_COUNTER = "DECREMENT_COUNTER"
+    SET_COUNTER = "SET_COUNTER"
 
 @dataclass
 class CacheOperationRequest:
@@ -109,6 +143,7 @@ class CacheOperationRequest:
     key: Optional[str] = None
     value: Optional[str] = None
     ttl: Optional[int] = None
+    counterValue: Optional[int] = None
 
 @dataclass
 class BulkCacheOpsRequest:

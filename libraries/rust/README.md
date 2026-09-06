@@ -34,3 +34,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+## Counters
+
+Counter caches hold `i64` values and add `increment`, `decrement`, `set`, and timed-put operations:
+
+```rust
+use aeron_cache_embedded_client::AeronCacheClient;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = AeronCacheClient::new(
+        "http://localhost:7070".to_string(),
+        "ws://localhost:7071".to_string(),
+    );
+    client.create_counter_cache("counter-cache")?;
+    let counters = client.get_counter_cache("counter-cache");
+
+    counters.insert("requests", 10)?;
+    counters.increment("requests", 5)?; // -> 15
+    counters.decrement("requests", 3)?; // -> 12
+    counters.set("requests", 100)?;     // -> 100
+    println!("{}", counters.get("requests")?.value);
+
+    Ok(())
+}
+```
+
+Counter operations are also available via `bulk_ops` using the counter `BulkOperationType` variants and the `counter_value` field on `CacheOperationRequest`.

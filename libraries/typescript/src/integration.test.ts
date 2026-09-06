@@ -204,4 +204,65 @@ if (shouldRun && !wsUrl) {
         const getResp2 = await embedded.get("timed-key");
         expect(getResp2.operationStatus === "UNKNOWN_KEY" || !getResp2.value).toBeTruthy();
     });
+
+    it('should perform counter operations', async () => {
+        const cacheId = `it-counter-${Math.random().toString(36).substring(7)}`;
+
+        const createResp = await client.createCounterCache(cacheId);
+        expect(createResp.cacheId).toBe(cacheId);
+
+        const counters = client.getCounterCache(cacheId);
+
+        const putResp = await counters.put('hits', 10);
+        expect(putResp.key).toBe('hits');
+
+        expect((await counters.increment('hits', 5)).value).toBe(15);
+        expect((await counters.decrement('hits', 3)).value).toBe(12);
+        expect((await counters.set('hits', 100)).value).toBe(100);
+        expect((await counters.get('hits')).value).toBe(100);
+
+        await counters.delete('hits');
+        await counters.clear();
+    });
+
+    it('should handle counter websocket subscriptions', async () => {
+        const cacheId = `it-counter-ws-${Math.random().toString(36).substring(7)}`;
+        await client.createCounterCache(cacheId);
+        const counters = client.getCounterCache(cacheId);
+
+        return new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                ws.close();
+                reject(new Error('Counter websocket event not received within timeout'));
+            }, 10000);
+
+            let opened = false;
+
+            const onMessage = (event: any) => {
+                if (event.eventType === 'ADD_ITEM' && event.itemKey === 'ws-counter') {
+                    clearTimeout(timeout);
+                    try {
+                        expect(counters.getLocal('ws-counter')).toBe(7);
+                        ws.close();
+                        resolve();
+                    } catch (e) {
+                        reject(e);
+                    }
+                }
+            };
+
+            const onStatusChange = (status: 'Connected' | 'Disconnected') => {
+                if (status === 'Connected' && !opened) {
+                    opened = true;
+                    counters.put('ws-counter', 7).catch(err => {
+                        clearTimeout(timeout);
+                        ws.close();
+                        reject(err);
+                    });
+                }
+            };
+
+            const ws = counters.subscribe(onMessage, () => {}, onStatusChange);
+        });
+    }, 15000);
 });

@@ -25,6 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 key: None,
                 value: None,
                 ttl: None,
+                counter_value: None,
             },
             CacheOperationRequest {
                 operation_type: BulkOperationType::AddItem,
@@ -33,6 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 key: Some("rust-bulk-1".to_string()),
                 value: Some("value-1".to_string()),
                 ttl: None,
+                counter_value: None,
             },
             CacheOperationRequest {
                 operation_type: BulkOperationType::GetItem,
@@ -41,6 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 key: Some("rust-bulk-1".to_string()),
                 value: None,
                 ttl: None,
+                counter_value: None,
             },
         ],
     };

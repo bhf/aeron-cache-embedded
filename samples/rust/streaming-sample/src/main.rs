@@ -47,6 +47,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // --- Counter streaming (with hydration) ---
+    let counter_cache_id = "streaming-counter-cache";
+    let counter_create = client.create_counter_cache_async(counter_cache_id).await?;
+    println!("Created counter cache: {}", counter_create.cache_id);
+
+    let counters = client.get_counter_cache(counter_cache_id);
+    let mut counter_socket = counters.subscribe_ext(true)?;
+
+    // Spawn a blocking task to handle counter WebSocket updates.
+    task::spawn_blocking(move || {
+        loop {
+            match counter_socket.read_message() {
+                Ok(msg) => {
+                    if msg.is_text() {
+                        println!("[Rust] Received counter update message");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[Rust] Counter WebSocket error: {}", e);
+                }
+            }
+        }
+    });
+
     println!("[Rust] Poller started for 'streaming-key'...");
 
     let mut last_val = None;
@@ -57,6 +81,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 last_val = Some(current);
             }
         }
+
+        // Periodically increment a counter to generate streaming updates.
+        if let Err(e) = counters.increment_async("tick", 1).await {
+            eprintln!("[Rust] Counter increment error: {}", e);
+        }
+
         sleep(Duration::from_secs(1)).await;
     }
 }

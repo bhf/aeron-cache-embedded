@@ -197,6 +197,84 @@ public class AeronCacheClientIntegrationTest {
     }
 
     @Test
+    public void testCounterOperations() throws Exception {
+        String cacheId = "it-counter-" + UUID.randomUUID().toString();
+
+        CreateResponse createResp = client.createCounterCache(cacheId);
+        assertNotNull(createResp);
+        assertEquals(cacheId, createResp.getCacheId());
+
+        EmbeddedCounterCache counters = client.getCounterCache(cacheId);
+
+        PutItemResponse putResp = counters.put("hits", 10);
+        assertNotNull(putResp);
+        assertEquals("hits", putResp.getKey());
+
+        assertEquals(15L, counters.increment("hits", 5).getValue());
+        assertEquals(12L, counters.decrement("hits", 3).getValue());
+        assertEquals(100L, counters.set("hits", 100).getValue());
+        assertEquals(100L, counters.get("hits").getValue());
+
+        counters.remove("hits");
+        counters.clear();
+    }
+
+    @Test
+    public void testCounterWebsocketSubscription() throws Exception {
+        String cacheId = "it-counter-ws-" + UUID.randomUUID().toString();
+        client.createCounterCache(cacheId);
+        EmbeddedCounterCache counters = client.getCounterCache(cacheId);
+
+        CountDownLatch latch = new CountDownLatch(1);
+        CountDownLatch openLatch = new CountDownLatch(1);
+
+        CounterCacheSubscriber subscriber = new CounterCacheSubscriber() {
+            @Override
+            public void onOpen(java.net.http.WebSocket webSocket) {
+                super.onOpen(webSocket);
+                openLatch.countDown();
+            }
+
+            @Override
+            public void onAfterUpdate(CounterUpdateEvent event) {
+                if ("ADD_ITEM".equals(event.getEventType()) && "ws-counter".equals(event.getItemKey())) {
+                    latch.countDown();
+                }
+            }
+        };
+
+        ReconnectingWebSocket ws = counters.subscribe(subscriber);
+        assertTrue(openLatch.await(5, TimeUnit.SECONDS), "Websocket failed to connect within timeout");
+
+        counters.put("ws-counter", 7);
+
+        assertTrue(latch.await(5, TimeUnit.SECONDS), "Websocket event not received within timeout");
+        assertEquals(Long.valueOf(7L), counters.getLocal("ws-counter"));
+
+        counters.clear();
+        ws.close();
+    }
+
+    @Test
+    public void testPutTimedCounter() throws Exception {
+        String cacheId = "it-counter-timed-" + UUID.randomUUID().toString();
+        client.createCounterCache(cacheId);
+        EmbeddedCounterCache counters = client.getCounterCache(cacheId);
+
+        PutItemResponse putResp = counters.putTimed("timed-counter", 5, 2000);
+        assertNotNull(putResp);
+        assertEquals("timed-counter", putResp.getKey());
+
+        assertEquals(5L, counters.get("timed-counter").getValue());
+
+        // Wait for TTL to expire
+        Thread.sleep(3000);
+
+        CounterResponse getResp2 = counters.get("timed-counter");
+        assertTrue("UNKNOWN_KEY".equals(getResp2.getOperationStatus()) || getResp2.getValue() == 0L);
+    }
+
+    @Test
     public void testPutTimedItem() throws Exception {
         String cacheId = "it-timed-" + UUID.randomUUID().toString();
         client.createCache(cacheId);

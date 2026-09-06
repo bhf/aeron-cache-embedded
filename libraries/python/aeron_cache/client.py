@@ -4,15 +4,18 @@ import asyncio
 import aiohttp
 import websockets
 from .embedded_cache import EmbeddedAeronCache
+from .embedded_counter_cache import EmbeddedCounterCache
 from .models import (
-    CreateResponse, 
-    PutItemResponse, 
-    GetItemResponse, 
-    DeleteItemResponse, 
+    CreateResponse,
+    PutItemResponse,
+    GetItemResponse,
+    DeleteItemResponse,
     DeleteCacheResponse,
     GetCacheResponse,
     ClearCacheResponse,
     CacheUpdateEvent,
+    CounterResponse,
+    CounterUpdateEvent,
     BulkCacheOpsRequest,
     BulkCacheOpsResponse,
     BulkOperationType
@@ -111,47 +114,72 @@ class AeronCacheClient:
              response.raise_for_status()
         return BulkCacheOpsResponse.from_dict(response.json())
 
-    # --- WebSocket ---
+    # --- Counter Operations (Sync) ---
 
-    async def subscribe(self, cache_ids: str, on_message, hydrate: bool = False):
-        """
-        Subscribe to updates for one or more caches.
-        :param cache_ids: Comma-separated list of cache IDs.
-        :param on_message: Callback for incoming messages.
-        :param hydrate: Whether to request initial hydration.
-        """
-        prefix = "/api/ws/v1/cache/hydrate" if hydrate else "/api/ws/v1/cache"
-        if "," in cache_ids:
-            prefix = "/api/ws/v1/caches/hydrate" if hydrate else "/api/ws/v1/caches"
-        
-        uri = f"{self.ws_url.rstrip('/')}{prefix}/{cache_ids}"
-        
-        while True:
-            try:
-                async with websockets.connect(uri) as websocket:
-                    async for message in websocket:
-                        data = json.loads(message)
-                        event = CacheUpdateEvent.from_dict(data)
-                        if asyncio.iscoroutinefunction(on_message):
-                            await on_message(event)
-                        else:
-                            on_message(event)
-            except Exception as e:
-                print(f"WebSocket error: {e}. Reconnecting in 5s...")
-                await asyncio.sleep(5)
-        # Convert request to dict, handling Enum and Optional fields
-        payload = {
-            "requestId": request.requestId,
-            "operations": [
-                {k: (v.value if isinstance(v, BulkOperationType) else v) 
-                 for k, v in op.__dict__.items() if v is not None}
-                for op in request.operations
-            ]
-        }
-        response = requests.post(url, json=payload)
+    def create_counter_cache(self, cache_id) -> CreateResponse:
+        url = f"{self.base_url}/api/v1/counters/"
+        response = requests.post(url, json={"cacheId": cache_id})
         if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
              response.raise_for_status()
-        return BulkCacheOpsResponse.from_dict(response.json())
+        data = response.json()
+        return CreateResponse(cacheId=data.get('cacheId'), operationStatus=data.get('operationStatus'))
+
+    def put_counter(self, cache_id, key, value) -> PutItemResponse:
+        url = f"{self.base_url}/api/v1/counters/{cache_id}"
+        response = requests.post(url, json={"key": key, "value": value})
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
+             response.raise_for_status()
+        data = response.json()
+        return PutItemResponse(cacheId=data.get('cacheId'), key=data.get('key'), operationStatus=data.get('operationStatus'))
+
+    def put_timed_counter(self, cache_id, key, value, ttl) -> PutItemResponse:
+        url = f"{self.base_url}/api/v1/counters/timed/{cache_id}"
+        response = requests.post(url, json={"key": key, "value": value, "ttl": ttl})
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
+             response.raise_for_status()
+        data = response.json()
+        return PutItemResponse(cacheId=data.get('cacheId'), key=data.get('key'), operationStatus=data.get('operationStatus'))
+
+    def get_counter(self, cache_id, key) -> CounterResponse:
+        url = f"{self.base_url}/api/v1/counters/{cache_id}/{key}"
+        response = requests.get(url)
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
+             response.raise_for_status()
+        data = response.json()
+        return CounterResponse(cacheId=data.get('cacheId'), key=data.get('key'), value=data.get('value'), operationStatus=data.get('operationStatus'))
+
+    def delete_counter(self, cache_id, key) -> DeleteItemResponse:
+        url = f"{self.base_url}/api/v1/counters/{cache_id}/{key}"
+        response = requests.delete(url)
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
+             response.raise_for_status()
+        data = response.json()
+        return DeleteItemResponse(cacheId=data.get('cacheId'), key=data.get('key'), operationStatus=data.get('operationStatus'))
+
+    def delete_counter_cache(self, cache_id) -> DeleteCacheResponse:
+        url = f"{self.base_url}/api/v1/counters/{cache_id}"
+        response = requests.delete(url)
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
+             response.raise_for_status()
+        data = response.json()
+        return DeleteCacheResponse(cacheId=data.get('cacheId'), operationStatus=data.get('operationStatus'))
+
+    def increment_counter(self, cache_id, key, amount) -> CounterResponse:
+        return self._counter_op("increment", cache_id, {"key": key, "amount": amount})
+
+    def decrement_counter(self, cache_id, key, amount) -> CounterResponse:
+        return self._counter_op("decrement", cache_id, {"key": key, "amount": amount})
+
+    def set_counter(self, cache_id, key, value) -> CounterResponse:
+        return self._counter_op("set", cache_id, {"key": key, "value": value})
+
+    def _counter_op(self, op, cache_id, body) -> CounterResponse:
+        url = f"{self.base_url}/api/v1/counters/{op}/{cache_id}"
+        response = requests.post(url, json=body)
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
+             response.raise_for_status()
+        data = response.json()
+        return CounterResponse(cacheId=data.get('cacheId'), key=data.get('key'), value=data.get('value'), operationStatus=data.get('operationStatus'))
 
     # --- Async Operations ---
 
@@ -271,10 +299,87 @@ class AeronCacheClient:
                 data = await response.json()
                 return BulkCacheOpsResponse.from_dict(data)
 
+    # --- Counter Operations (Async) ---
+
+    async def create_counter_cache_async(self, cache_id) -> CreateResponse:
+        url = f"{self.base_url}/api/v1/counters/"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json={"cacheId": cache_id}) as response:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
+                    response.raise_for_status()
+                data = await response.json()
+                return CreateResponse(cacheId=data.get('cacheId'), operationStatus=data.get('operationStatus'))
+
+    async def put_counter_async(self, cache_id, key, value) -> PutItemResponse:
+        url = f"{self.base_url}/api/v1/counters/{cache_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json={"key": key, "value": value}) as response:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
+                    response.raise_for_status()
+                data = await response.json()
+                return PutItemResponse(cacheId=data.get('cacheId'), key=data.get('key'), operationStatus=data.get('operationStatus'))
+
+    async def put_timed_counter_async(self, cache_id, key, value, ttl) -> PutItemResponse:
+        url = f"{self.base_url}/api/v1/counters/timed/{cache_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json={"key": key, "value": value, "ttl": ttl}) as response:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
+                    response.raise_for_status()
+                data = await response.json()
+                return PutItemResponse(cacheId=data.get('cacheId'), key=data.get('key'), operationStatus=data.get('operationStatus'))
+
+    async def get_counter_async(self, cache_id, key) -> CounterResponse:
+        url = f"{self.base_url}/api/v1/counters/{cache_id}/{key}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
+                    response.raise_for_status()
+                data = await response.json()
+                return CounterResponse(cacheId=data.get('cacheId'), key=data.get('key'), value=data.get('value'), operationStatus=data.get('operationStatus'))
+
+    async def delete_counter_async(self, cache_id, key) -> DeleteItemResponse:
+        url = f"{self.base_url}/api/v1/counters/{cache_id}/{key}"
+        async with aiohttp.ClientSession() as session:
+            async with session.delete(url) as response:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
+                    response.raise_for_status()
+                data = await response.json()
+                return DeleteItemResponse(cacheId=data.get('cacheId'), key=data.get('key'), operationStatus=data.get('operationStatus'))
+
+    async def delete_counter_cache_async(self, cache_id) -> DeleteCacheResponse:
+        url = f"{self.base_url}/api/v1/counters/{cache_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.delete(url) as response:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
+                    response.raise_for_status()
+                data = await response.json()
+                return DeleteCacheResponse(cacheId=data.get('cacheId'), operationStatus=data.get('operationStatus'))
+
+    async def increment_counter_async(self, cache_id, key, amount) -> CounterResponse:
+        return await self._counter_op_async("increment", cache_id, {"key": key, "amount": amount})
+
+    async def decrement_counter_async(self, cache_id, key, amount) -> CounterResponse:
+        return await self._counter_op_async("decrement", cache_id, {"key": key, "amount": amount})
+
+    async def set_counter_async(self, cache_id, key, value) -> CounterResponse:
+        return await self._counter_op_async("set", cache_id, {"key": key, "value": value})
+
+    async def _counter_op_async(self, op, cache_id, body) -> CounterResponse:
+        url = f"{self.base_url}/api/v1/counters/{op}/{cache_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=body) as response:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
+                    response.raise_for_status()
+                data = await response.json()
+                return CounterResponse(cacheId=data.get('cacheId'), key=data.get('key'), value=data.get('value'), operationStatus=data.get('operationStatus'))
+
     # --- WebSocket ---
 
     def get_cache(self, cache_id: str) -> EmbeddedAeronCache:
         return EmbeddedAeronCache(self, cache_id)
+
+    def get_counter_cache(self, cache_id: str) -> EmbeddedCounterCache:
+        return EmbeddedCounterCache(self, cache_id)
 
     async def subscribe(self, cache_ids: str, on_message, hydrate: bool = False):
         """
@@ -295,6 +400,33 @@ class AeronCacheClient:
                     async for message in websocket:
                         data = json.loads(message)
                         event = CacheUpdateEvent.from_dict(data)
+                        if asyncio.iscoroutinefunction(on_message):
+                            await on_message(event)
+                        else:
+                            on_message(event)
+            except Exception as e:
+                print(f"WebSocket error: {e}. Reconnecting in 5s...")
+                await asyncio.sleep(5)
+
+    async def subscribe_counter(self, cache_ids: str, on_message, hydrate: bool = False):
+        """
+        Subscribe to updates for one or more counter caches.
+        :param cache_ids: Comma-separated list of counter cache IDs.
+        :param on_message: Callback for incoming messages.
+        :param hydrate: Whether to request initial hydration.
+        """
+        prefix = "/api/ws/v1/counter/hydrate" if hydrate else "/api/ws/v1/counter"
+        if "," in cache_ids:
+            prefix = "/api/ws/v1/counters/hydrate" if hydrate else "/api/ws/v1/counters"
+
+        uri = f"{self.ws_url.rstrip('/')}{prefix}/{cache_ids}"
+
+        while True:
+            try:
+                async with websockets.connect(uri) as websocket:
+                    async for message in websocket:
+                        data = json.loads(message)
+                        event = CounterUpdateEvent.from_dict(data)
                         if asyncio.iscoroutinefunction(on_message):
                             await on_message(event)
                         else:

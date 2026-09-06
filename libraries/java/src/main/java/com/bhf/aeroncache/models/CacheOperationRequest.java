@@ -3,6 +3,7 @@ package com.bhf.aeroncache.models;
 public class CacheOperationRequest {
     private BulkOperationType operationType;
     private Long ttl;
+    private Long counterValue;
     private String requestId;
     private String cacheId;
     private String key;
@@ -13,6 +14,9 @@ public class CacheOperationRequest {
 
     public Long getTtl() { return ttl; }
     public void setTtl(Long ttl) { this.ttl = ttl; }
+
+    public Long getCounterValue() { return counterValue; }
+    public void setCounterValue(Long counterValue) { this.counterValue = counterValue; }
 
     public String getRequestId() { return requestId; }
     public void setRequestId(String requestId) { this.requestId = requestId; }
@@ -32,6 +36,7 @@ public class CacheOperationRequest {
         private CacheOperationRequest request = new CacheOperationRequest();
         public Builder operationType(BulkOperationType type) { request.setOperationType(type); return this; }
         public Builder ttl(Long ttl) { request.setTtl(ttl); return this; }
+        public Builder counterValue(Long counterValue) { request.setCounterValue(counterValue); return this; }
         public Builder requestId(String id) { request.setRequestId(id); return this; }
         public Builder cacheId(String id) { request.setCacheId(id); return this; }
         public Builder key(String key) { request.setKey(key); return this; }

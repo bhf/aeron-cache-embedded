@@ -39,5 +39,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => println!("Read key 'async-key' error: {}", e),
     }
 
+    // --- Counter operations ---
+    let counter_cache_id = "async-counter-sample";
+    let counter_create = client.create_counter_cache_async(counter_cache_id).await?;
+    println!("Created counter cache: {}", counter_create.cache_id);
+
+    let counters = client.get_counter_cache(counter_cache_id);
+
+    println!("Putting counter 'requests' -> 10 asynchronously");
+    counters.insert_async("requests", 10).await?;
+    println!("Incremented 'requests' by 5 -> {}", counters.increment_async("requests", 5).await?.value);
+    println!("Set 'requests' -> {}", counters.set_async("requests", 100).await?.value);
+    println!("Read counter 'requests': {}", counters.get_async("requests").await?.value);
+
     Ok(())
 }

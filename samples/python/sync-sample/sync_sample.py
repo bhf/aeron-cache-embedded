@@ -1,6 +1,7 @@
 import sys
 from aeron_cache.client import AeronCacheClient
 from aeron_cache.embedded_cache import EmbeddedAeronCache
+from aeron_cache.embedded_counter_cache import EmbeddedCounterCache
 
 
 def main():
@@ -16,7 +17,7 @@ def main():
 
     try:
         response = client.create_cache("sync-sample-cache")
-        print(f"Created cache: {response.cache_id}")
+        print(f"Created cache: {response.cacheId}")
     except Exception:
         pass
 
@@ -35,6 +36,22 @@ def main():
 
     timed_get_response = cache.get("timed-key")
     print(f"Read key 'timed-key': {timed_get_response.value or 'not found'}")
+
+    # --- Counter operations ---
+    try:
+        counter_resp = client.create_counter_cache("sync-counter-cache")
+        print(f"Created counter cache: {counter_resp.cacheId}")
+    except Exception:
+        pass
+
+    counters = EmbeddedCounterCache(client, "sync-counter-cache")
+
+    print("Putting counter 'requests' -> 10")
+    counters.put("requests", 10)
+    print(f"Incremented 'requests' by 5 -> {counters.increment('requests', 5).value}")
+    print(f"Decremented 'requests' by 3 -> {counters.decrement('requests', 3).value}")
+    print(f"Set 'requests' -> {counters.set('requests', 100).value}")
+    print(f"Read counter 'requests': {counters.get('requests').value}")
 
 
 if __name__ == "__main__":
