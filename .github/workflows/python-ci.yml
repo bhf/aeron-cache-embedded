@@ -37,9 +37,11 @@ jobs:
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
       
       - name: Install Aeron Cache Backend
+        env:
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
           brew tap bhf/aeroncache
-          brew install bhf/aeroncache/aeron-cache
+          brew install aeron-cache
 
       - name: Start Aeron Cache Backend
         run: |
