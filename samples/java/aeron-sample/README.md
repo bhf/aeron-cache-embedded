@@ -2,8 +2,14 @@
 
 Demonstrates the **Aeron transport** for Aeron Cache using
 [`AeronGatewayClient`](../../../libraries/java/src/main/java/com/bhf/aeroncache/client/gateway/AeronGatewayClient.java) —
-the low-latency, bidirectional alternative to the HTTP+WS client. It covers cache CRUD, a streaming
-subscription, and counter operations, all over a single Aeron connection.
+the low-latency, bidirectional alternative to the HTTP+WS client. It covers:
+
+- cache CRUD and a streaming subscription,
+- an **embedded cache** (`EmbeddedAeronCache`) whose local map is kept in sync from streaming updates,
+  so writes go to the gateway while reads are served locally with no network round-trip,
+- counter operations,
+
+all over a single Aeron connection.
 
 ## Prerequisites
 

@@ -48,16 +48,45 @@ public class AeronSample {
                 Thread.sleep(1000);
             }
 
-            // --- Embedded local-mirror cache (transport-neutral: same API over HTTP+WS or Aeron) ---
-            final EmbeddedAeronCache embedded = client.getCache(cacheId);
-            try (AutoCloseable subscription = embedded.subscribe(event -> { })) {
+            // --- Embedded cache over the gateway ---
+            // An EmbeddedAeronCache keeps a local map in sync with the cache by subscribing to streaming
+            // updates over the same Aeron connection. Writes go to the gateway; reads are served locally
+            // with no network round-trip. The API is transport-neutral: identical over HTTP+WS or Aeron.
+            System.out.println();
+            System.out.println("--- Embedded cache ---");
+            final String embeddedCacheId = "aeron-sample-embedded";
+            client.createCache(embeddedCacheId);
+            final EmbeddedAeronCache embedded = client.getCache(embeddedCacheId);
+
+            // subscribe() wires the local mirror and forwards each event to the listener below.
+            try (AutoCloseable subscription = embedded.subscribe(event ->
+                    System.out.println("  [mirror] " + event.getEventType() + " " + event.getItemKey() + "=" + event.getItemValue()))) {
+
+                // Let the subscription establish before writing, so we observe our own updates.
                 Thread.sleep(500);
-                embedded.put("mirrored-key", "mirrored-value");
+
+                // Write through the embedded cache (goes to the gateway)...
+                embedded.put("user:1", "Ada");
+                embedded.put("user:2", "Alan");
+
+                // ...and wait for the streamed updates to populate the local mirror.
                 Thread.sleep(1000);
-                System.out.println("Embedded local value for 'mirrored-key' -> " + embedded.getLocal("mirrored-key"));
+
+                // Local reads — served from the in-memory mirror, no network call.
+                System.out.println("Local read user:1 -> " + embedded.getLocal("user:1"));
+                System.out.println("Local read user:2 -> " + embedded.getLocal("user:2"));
+                System.out.println("Local mirror snapshot -> " + embedded.getLocalCache());
+
+                // Removals are mirrored too.
+                embedded.remove("user:1");
+                Thread.sleep(1000);
+                System.out.println("After remove, local read user:1 -> " + embedded.getLocal("user:1"));
+                System.out.println("Local mirror snapshot -> " + embedded.getLocalCache());
             }
 
             // --- Counter operations ---
+            System.out.println();
+            System.out.println("--- Counters ---");
             final String counterCache = "aeron-sample-counters";
             System.out.println("Created counter cache: " + client.createCounterCache(counterCache).getCacheId());
             client.putCounter(counterCache, "hits", 10);
@@ -66,6 +95,7 @@ public class AeronSample {
             System.out.println("set hits = 100 -> " + client.setCounter(counterCache, "hits", 100).getValue());
 
             client.deleteCache(cacheId);
+            client.deleteCache(embeddedCacheId);
             client.deleteCounterCache(counterCache);
             System.out.println("Done.");
         }
