@@ -11,6 +11,8 @@ Embedded cache client SDKs for Aeron Cache in multiple languages: Java, TypeScri
 
 The goal of these libraries is to provide an "Embedded Cache" mode across languages. In this mode, the client maintains a local copy of the cache data which is kept in sync with the server via WebSocket updates, allowing for fast local reads.
 
+Aeron transport is supported for BIDI communication in the Java and Rust libraries.
+
 ## Table of Contents
 - [Functionality and Samples By Language](#functionality-and-samples-by-language)
 - [Installation](#installation)
