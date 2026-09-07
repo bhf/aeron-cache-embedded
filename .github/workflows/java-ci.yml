@@ -44,18 +44,28 @@ jobs:
           # regular file instead (a file never triggers EPIPE); surface the
           # captured logs only if a command actually fails.
           set +e
+          # `brew tap` can exit non-zero with "Broken pipe" (Homebrew EPIPE) even when the tap is
+          # fetched successfully, so it is best-effort here; the install below is the real gate and
+          # auto-taps if needed. Only the install's exit code fails the step.
           brew tap bhf/aeroncache > tap.log 2>&1
           tap_rc=$?
           brew install --verbose aeron-cache > install.log 2>&1
           inst_rc=$?
-          if [ "$tap_rc" -ne 0 ] || [ "$inst_rc" -ne 0 ]; then
+          if [ "$inst_rc" -ne 0 ]; then
             echo "::group::tap.log (exit $tap_rc)"; cat tap.log; echo "::endgroup::"
             echo "::group::install.log (exit $inst_rc)"; cat install.log; echo "::endgroup::"
             exit 1
           fi
-          echo "Aeron Cache backend installed."
+          echo "Aeron Cache backend installed (tap exit $tap_rc, install exit $inst_rc)."
 
       - name: Start Aeron Cache Backend
+        env:
+          # Enable the Aeron SBE gateway so the Aeron transport integration tests can connect.
+          AERON_TRANSPORT_GATEWAY_ENABLED: "true"
+          # The gateway's response-control endpoint defaults to the machine hostname; the integration
+          # tests connect over loopback, so pin both gateway endpoints to 127.0.0.1 to match.
+          GATEWAY_REQUEST_ENDPOINT: "127.0.0.1:7075"
+          GATEWAY_RESPONSE_CONTROL_ENDPOINT: "127.0.0.1:7076"
         run: |
           nohup aeron-cache > aeron-cache-log.txt 2>&1 &
           ENV_FILE="$HOME/.aeron-cache/aeron-cache-ui.env"
@@ -88,6 +98,14 @@ jobs:
             echo "Error: $ENV_FILE not found after timeout"
             exit 1
           fi
+
+          # Give the gateway a moment to bind, then surface its status for diagnostics.
+          sleep 5
+          echo "::group::Aeron Gateway status (from backend log)"
+          grep -iE "gateway" aeron-cache-log.txt || echo "(no gateway lines in backend log)"
+          echo "::endgroup::"
           
       - name: Build and test
-        run: ./gradlew build
+        # -Daeron.gateway.it=true enables the Aeron gateway integration tests against the gateway
+        # started above (default host 127.0.0.1, ports 7075/7076).
+        run: ./gradlew build -Daeron.gateway.it=true

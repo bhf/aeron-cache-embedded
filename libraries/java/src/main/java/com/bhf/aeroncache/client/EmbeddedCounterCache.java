@@ -5,14 +5,33 @@ import com.bhf.aeroncache.models.*;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
+/**
+ * A counter cache view that mirrors remote updates into a local map. It works over either transport via
+ * {@link CacheTransport}: the HTTP+WS {@link AeronCacheClient} or the Aeron
+ * {@link com.bhf.aeroncache.client.gateway.AeronGatewayClient}.
+ * <p>
+ * Two subscription styles are offered: the transport-neutral {@link #subscribe(Consumer)} (works over
+ * both transports), and the WebSocket-listener {@link #subscribe(CounterCacheSubscriber)} (HTTP only,
+ * retained for backwards compatibility).
+ */
 public class EmbeddedCounterCache {
-    private final AeronCacheClient client;
+    private final CacheTransport transport;
+    /** Non-null only when backed by the HTTP client; enables the legacy WebSocket-listener subscribe API. */
+    private final AeronCacheClient httpClient;
     private final String cacheId;
     private final Map<String, Long> localCache = new ConcurrentHashMap<>();
 
     public EmbeddedCounterCache(AeronCacheClient client, String cacheId) {
-        this.client = client;
+        this.transport = client;
+        this.httpClient = client;
+        this.cacheId = cacheId;
+    }
+
+    public EmbeddedCounterCache(CacheTransport transport, String cacheId) {
+        this.transport = transport;
+        this.httpClient = transport instanceof AeronCacheClient ac ? ac : null;
         this.cacheId = cacheId;
     }
 
@@ -25,76 +44,104 @@ public class EmbeddedCounterCache {
     }
 
     public PutItemResponse put(String key, long value) throws Exception {
-        return client.putCounter(cacheId, key, value);
+        return transport.putCounter(cacheId, key, value);
     }
 
     public PutItemResponse putTimed(String key, long value, long ttl) throws Exception {
-        return client.putTimedCounter(cacheId, key, value, ttl);
+        return transport.putTimedCounter(cacheId, key, value, ttl);
     }
 
     public CounterResponse get(String key) throws Exception {
-        return client.getCounter(cacheId, key);
+        return transport.getCounter(cacheId, key);
     }
 
     public CounterResponse increment(String key, long amount) throws Exception {
-        return client.incrementCounter(cacheId, key, amount);
+        return transport.incrementCounter(cacheId, key, amount);
     }
 
     public CounterResponse decrement(String key, long amount) throws Exception {
-        return client.decrementCounter(cacheId, key, amount);
+        return transport.decrementCounter(cacheId, key, amount);
     }
 
     public CounterResponse set(String key, long value) throws Exception {
-        return client.setCounter(cacheId, key, value);
+        return transport.setCounter(cacheId, key, value);
     }
 
     public DeleteItemResponse remove(String key) throws Exception {
-        return client.deleteCounter(cacheId, key);
+        return transport.deleteCounter(cacheId, key);
     }
 
     public DeleteCacheResponse clear() throws Exception {
-        return client.deleteCounterCache(cacheId);
+        return transport.deleteCounterCache(cacheId);
     }
 
     public CompletableFuture<PutItemResponse> putAsync(String key, long value) {
-        return client.putCounterAsync(cacheId, key, value);
+        return transport.putCounterAsync(cacheId, key, value);
     }
 
     public CompletableFuture<PutItemResponse> putTimedAsync(String key, long value, long ttl) {
-        return client.putTimedCounterAsync(cacheId, key, value, ttl);
+        return transport.putTimedCounterAsync(cacheId, key, value, ttl);
     }
 
     public CompletableFuture<CounterResponse> getAsync(String key) {
-        return client.getCounterAsync(cacheId, key);
+        return transport.getCounterAsync(cacheId, key);
     }
 
     public CompletableFuture<CounterResponse> incrementAsync(String key, long amount) {
-        return client.incrementCounterAsync(cacheId, key, amount);
+        return transport.incrementCounterAsync(cacheId, key, amount);
     }
 
     public CompletableFuture<CounterResponse> decrementAsync(String key, long amount) {
-        return client.decrementCounterAsync(cacheId, key, amount);
+        return transport.decrementCounterAsync(cacheId, key, amount);
     }
 
     public CompletableFuture<CounterResponse> setAsync(String key, long value) {
-        return client.setCounterAsync(cacheId, key, value);
+        return transport.setCounterAsync(cacheId, key, value);
     }
 
     public CompletableFuture<DeleteItemResponse> removeAsync(String key) {
-        return client.deleteCounterAsync(cacheId, key);
+        return transport.deleteCounterAsync(cacheId, key);
     }
 
     public CompletableFuture<DeleteCacheResponse> clearAsync() {
-        return client.deleteCounterCacheAsync(cacheId);
+        return transport.deleteCounterCacheAsync(cacheId);
     }
+
+    // --- Transport-neutral subscription (works over HTTP+WS and Aeron) ---
+
+    /**
+     * Subscribe to counter updates, mirroring them into the local map and forwarding each event to
+     * {@code listener}.
+     *
+     * @return a handle that unsubscribes when {@link AutoCloseable#close() closed}.
+     */
+    public AutoCloseable subscribe(Consumer<CounterUpdateEvent> listener) {
+        return subscribe(listener, false);
+    }
+
+    public AutoCloseable subscribe(Consumer<CounterUpdateEvent> listener, boolean hydrate) {
+        return transport.subscribeCounterUpdates(cacheId, hydrate, event -> {
+            updateLocalCache(event);
+            if (listener != null) {
+                listener.accept(event);
+            }
+        });
+    }
+
+    // --- WebSocket-listener subscription (HTTP transport only, retained for compatibility) ---
 
     public ReconnectingWebSocket subscribe(CounterCacheSubscriber subscriber) {
         return subscribe(subscriber, false);
     }
 
     public ReconnectingWebSocket subscribe(CounterCacheSubscriber subscriber, boolean hydrate) {
+        if (httpClient == null) {
+            throw new UnsupportedOperationException(
+                    "The WebSocket-listener subscribe API requires the HTTP transport; "
+                            + "use subscribe(Consumer<CounterUpdateEvent>) with the Aeron transport.");
+        }
         subscriber.setInternalUpdater(this::updateLocalCache);
-        return client.subscribeCounter(cacheId, hydrate, subscriber);
+        return httpClient.subscribeCounter(cacheId, hydrate, subscriber);
     }
 
     private void updateLocalCache(CounterUpdateEvent event) {

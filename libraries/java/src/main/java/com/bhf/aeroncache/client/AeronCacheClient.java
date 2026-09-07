@@ -9,8 +9,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
-public class AeronCacheClient {
+public class AeronCacheClient implements CacheTransport {
     private final String baseUrl;
     private final String wsUrl;
     private final HttpClient httpClient;
@@ -489,6 +490,36 @@ public class AeronCacheClient {
 
     public EmbeddedAeronCache getCache(String cacheId) {
         return new EmbeddedAeronCache(this, cacheId);
+    }
+
+    // --- Transport-neutral subscriptions (CacheTransport) ---
+
+    @Override
+    public AutoCloseable subscribeCacheUpdates(String cacheId, boolean hydrate, Consumer<CacheUpdateEvent> listener) {
+        AeronCacheSubscriber subscriber = new AeronCacheSubscriber() {
+            @Override
+            public void onAfterUpdate(CacheUpdateEvent event) {
+                if (listener != null) {
+                    listener.accept(event);
+                }
+            }
+        };
+        ReconnectingWebSocket ws = subscribe(cacheId, hydrate, subscriber);
+        return ws::close;
+    }
+
+    @Override
+    public AutoCloseable subscribeCounterUpdates(String cacheId, boolean hydrate, Consumer<CounterUpdateEvent> listener) {
+        CounterCacheSubscriber subscriber = new CounterCacheSubscriber() {
+            @Override
+            public void onAfterUpdate(CounterUpdateEvent event) {
+                if (listener != null) {
+                    listener.accept(event);
+                }
+            }
+        };
+        ReconnectingWebSocket ws = subscribeCounter(cacheId, hydrate, subscriber);
+        return ws::close;
     }
 
 
