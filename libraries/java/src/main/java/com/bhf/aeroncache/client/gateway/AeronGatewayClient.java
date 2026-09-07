@@ -142,10 +142,17 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     }
 
     /**
-     * Block until the underlying request publication and response subscription are both connected, or the
-     * timeout elapses.
+     * Block until both the request publication and response subscription are connected, or the timeout
+     * elapses.
+     * <p>
+     * The gateway creates each client's response publication lazily, on receipt of that client's first
+     * request frame, so the response subscription cannot connect until the client sends something.
+     * This repeatedly sends a harmless warmup probe ({@code getStats}, whose response is ignored) until
+     * both channels are up — matching the gateway's reference client. Callers should await this before
+     * issuing real commands, otherwise the first commands may be sent before the response channel is up
+     * and their responses dropped.
      *
-     * @return {@code true} if connected within the timeout.
+     * @return {@code true} if fully connected within the timeout.
      */
     public boolean awaitConnected(long timeout, TimeUnit unit) {
         final long deadline = System.nanoTime() + unit.toNanos(timeout);
@@ -153,13 +160,26 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
             if (gatewayClient.isConnected()) {
                 return true;
             }
-            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
+            // Fire-and-forget probe; its response has no pending entry and is ignored by the dispatcher.
+            gatewayClient.getStats("connection-warmup");
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(250));
         }
         return gatewayClient.isConnected();
     }
 
+    /**
+     * @return {@code true} once the request publication and response subscription are both fully
+     * connected (the latter after the first command has been sent).
+     */
     public boolean isConnected() {
         return gatewayClient.isConnected();
+    }
+
+    /**
+     * @return {@code true} once the client can send requests (request publication connected).
+     */
+    public boolean isReadyToSend() {
+        return gatewayClient.isReadyToSend();
     }
 
     // ------------------------------------------------------------------ cache commands

@@ -166,10 +166,23 @@ public class GatewayClient implements Agent, AutoCloseable {
 
     /**
      * @return {@code true} once both the response subscription and request publication are connected.
+     * Note the response subscription only connects after the first command is sent, because the gateway
+     * creates the per-session response publication lazily on the first received request. Use
+     * {@link #isReadyToSend()} to gate initial readiness.
      */
     public boolean isConnected() {
         final ExclusivePublication pub = publication;
         return subscription != null && subscription.isConnected() && pub != null && pub.isConnected();
+    }
+
+    /**
+     * @return {@code true} once the request publication is connected, i.e. commands can be sent. The
+     * response subscription connects shortly after the first command, so this is the correct signal for
+     * initial readiness.
+     */
+    public boolean isReadyToSend() {
+        final ExclusivePublication pub = publication;
+        return pub != null && pub.isConnected();
     }
 
     // ------------------------------------------------------------------ cache commands
