@@ -21,9 +21,11 @@ jobs:
       - uses: actions/checkout@v4
 
       # rusteron-client builds the Aeron C client via cmake and generates bindings with bindgen,
-      # so a C toolchain, cmake and libclang are required.
+      # so a C toolchain, cmake and libclang are required. rusteron-media-driver (used by the
+      # gateway integration tests) additionally builds the Aeron media driver, which links libbsd
+      # and libuuid.
       - name: Install native build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake libbsd-dev uuid-dev
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
