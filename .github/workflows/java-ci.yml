@@ -44,16 +44,19 @@ jobs:
           # regular file instead (a file never triggers EPIPE); surface the
           # captured logs only if a command actually fails.
           set +e
+          # `brew tap` can exit non-zero with "Broken pipe" (Homebrew EPIPE) even when the tap is
+          # fetched successfully, so it is best-effort here; the install below is the real gate and
+          # auto-taps if needed. Only the install's exit code fails the step.
           brew tap bhf/aeroncache > tap.log 2>&1
           tap_rc=$?
           brew install --verbose aeron-cache > install.log 2>&1
           inst_rc=$?
-          if [ "$tap_rc" -ne 0 ] || [ "$inst_rc" -ne 0 ]; then
+          if [ "$inst_rc" -ne 0 ]; then
             echo "::group::tap.log (exit $tap_rc)"; cat tap.log; echo "::endgroup::"
             echo "::group::install.log (exit $inst_rc)"; cat install.log; echo "::endgroup::"
             exit 1
           fi
-          echo "Aeron Cache backend installed."
+          echo "Aeron Cache backend installed (tap exit $tap_rc, install exit $inst_rc)."
 
       - name: Start Aeron Cache Backend
         env:
