@@ -1,0 +1,9 @@
+[package]
+name = "aeron-sample"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aeron-cache-embedded-client = { path = "../../../libraries/rust" }
+# Embedded Aeron media driver so the sample is self-contained; the gateway is reached over UDP.
+rusteron-media-driver = "0.2"

@@ -19,20 +19,25 @@ jobs:
         working-directory: libraries/rust
     steps:
       - uses: actions/checkout@v4
-      
+
+      # rusteron-client builds the Aeron C client via cmake and generates bindings with bindgen,
+      # so a C toolchain, cmake and libclang are required.
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake
+
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          
+
       - name: Build
         run: cargo build --verbose
-        
+
       - name: Set up Homebrew
         run: |
           echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-      
+
       - name: Install Aeron Cache Backend
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
@@ -40,27 +45,31 @@ jobs:
           HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
         run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          # Homebrew (Ruby) aborts with "Error: Broken pipe" when it gets EPIPE
-          # writing progress to the runner's log pipe. Send its output to a
-          # regular file instead (a file never triggers EPIPE); surface the
-          # captured logs only if a command actually fails.
+          # `brew tap` can exit non-zero with "Broken pipe" (Homebrew EPIPE) even when the tap is
+          # fetched successfully, so it is best-effort here; the install below is the real gate.
           set +e
           brew tap bhf/aeroncache > tap.log 2>&1
           tap_rc=$?
           brew install --verbose aeron-cache > install.log 2>&1
           inst_rc=$?
-          if [ "$tap_rc" -ne 0 ] || [ "$inst_rc" -ne 0 ]; then
+          if [ "$inst_rc" -ne 0 ]; then
             echo "::group::tap.log (exit $tap_rc)"; cat tap.log; echo "::endgroup::"
             echo "::group::install.log (exit $inst_rc)"; cat install.log; echo "::endgroup::"
             exit 1
           fi
-          echo "Aeron Cache backend installed."
+          echo "Aeron Cache backend installed (tap exit $tap_rc, install exit $inst_rc)."
 
       - name: Start Aeron Cache Backend
+        env:
+          # Enable the Aeron SBE gateway and pin its endpoints to loopback for the gateway
+          # integration tests.
+          AERON_TRANSPORT_GATEWAY_ENABLED: "true"
+          GATEWAY_REQUEST_ENDPOINT: "127.0.0.1:7075"
+          GATEWAY_RESPONSE_CONTROL_ENDPOINT: "127.0.0.1:7076"
         run: |
           nohup aeron-cache > aeron-cache-log.txt 2>&1 &
           ENV_FILE="$HOME/.aeron-cache/aeron-cache-ui.env"
-          
+
           for i in {1..30}; do
             if [ -f "$ENV_FILE" ]; then
               echo "Environment file found"
@@ -69,17 +78,17 @@ jobs:
             echo "Waiting for $ENV_FILE..."
             sleep 1
           done
-          
+
           if [ -f "$ENV_FILE" ]; then
             FULL_API=$(grep "^AERON_CACHE_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
             BASE_URL=$(echo "$FULL_API" | sed -E 's|(https?://[^/]+).*|\1|')
-            
+
             FULL_WS=$(grep "^AERON_CACHE_WS_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
             if [[ "$FULL_WS" == ws:* && "$FULL_WS" != ws://* ]]; then
               FULL_WS="${FULL_WS/ws:/ws:\/\/}"
             fi
             WS_URL=$(echo "$FULL_WS" | sed -E 's|(wss?://[^/]+).*|\1|')
-            
+
             echo "Found Base API URL: $BASE_URL"
             echo "Found Base WS URL: $WS_URL"
             echo "AERON_CACHE_BASE_URL=$BASE_URL" >> $GITHUB_ENV
@@ -91,3 +100,10 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose
+
+      - name: Run Aeron gateway integration tests
+        # Each test launches its own embedded media driver; run them sequentially.
+        env:
+          AERON_GATEWAY_IT: "true"
+          AERON_GATEWAY_HOST: "127.0.0.1"
+        run: cargo test --test gateway_integration_tests -- --test-threads=1

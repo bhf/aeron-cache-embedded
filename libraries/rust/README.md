@@ -62,3 +62,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 Counter operations are also available via `bulk_ops` using the counter `BulkOperationType` variants and the `counter_value` field on `CacheOperationRequest`.
+
+## Transports: HTTP+WS or Aeron
+
+The library offers two transports for the same cache and counter operations:
+
+- **HTTP + WebSocket** — [`AeronCacheClient`](src/lib.rs): REST for commands, WebSocket for streaming updates. Pure Rust, no native dependencies.
+- **Aeron gateway** — [`AeronGatewayClient`](src/gateway.rs): a single low-latency, bidirectional Aeron connection carrying both commands and streaming updates, using the shared SBE wire protocol (`sbe/gateway-schema.xml`).
+
+Enable the Aeron gateway on the backend with `AERON_TRANSPORT_GATEWAY_ENABLED=true`. By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`).
+
+> **Native build dependency:** the Aeron transport uses [`rusteron-client`](https://crates.io/crates/rusteron-client), which builds the Aeron C client. Building the crate therefore requires a C compiler, `cmake`, and `libclang` (for bindgen). The SBE codecs are pre-generated from the schema and vendored under `src/gateway_messages/`.
+
+### Aeron usage
+
+```rust
+use aeron_cache_embedded_client::AeronGatewayClient;
+use rusteron_media_driver::testing::EmbeddedDriver;
+use std::time::Duration;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // An embedded media driver keeps the example self-contained; the gateway is reached over UDP.
+    let driver = EmbeddedDriver::launch()?;
+    let client = AeronGatewayClient::connect(driver.dir(), "127.0.0.1")?;
+    client.await_connected(Duration::from_secs(10));
+
+    client.create_cache("my-cache")?;
+    client.put_item("my-cache", "key", "value")?;
+    println!("{}", client.get_item("my-cache", "key")?.value);
+
+    // Streaming updates over the same connection; dropping the handle unsubscribes.
+    let sub = client.subscribe("my-cache", |e| println!("{} {:?}", e.event_type, e.item_key))?;
+    client.put_item("my-cache", "streamed", "value")?;
+    std::thread::sleep(Duration::from_millis(500));
+    drop(sub);
+
+    // Counters ride the same transport.
+    client.create_counter_cache("counters")?;
+    client.increment_counter("counters", "hits", 5)?;
+    Ok(())
+}
+```
+
+The Aeron transport also exposes operations not available over HTTP+WS: `get_cache_items` (full snapshot) and `get_stats`.
