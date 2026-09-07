@@ -1,7 +1,7 @@
-use aeron_cache_embedded_client::{AeronCacheClient};
+use aeron_cache_embedded_client::{AeronCacheClient, CacheTransport};
 use std::env;
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn generate_id(prefix: &str) -> String {
     let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros();
@@ -14,6 +14,34 @@ fn get_urls() -> Option<(String, String)> {
     let ws_url = env::var("AERON_CACHE_WS_URL")
         .unwrap_or_else(|_| base_url.replace("http://", "ws://").replace("https://", "wss://"));
     Some((base_url, ws_url))
+}
+
+#[test]
+fn test_unified_embedded_cache_mirrors_over_http() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_unified_embedded_cache_mirrors_over_http: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    // The transport-neutral embedded cache (CacheTransport::embedded_cache) drives a background
+    // WebSocket reader over the HTTP transport, keeping the local mirror in sync.
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-unified");
+    client.create_cache(&cache_id).expect("create cache");
+
+    let embedded = client.embedded_cache(&cache_id);
+    let sub = embedded.subscribe().expect("subscribe");
+    thread::sleep(Duration::from_millis(500));
+    embedded.insert("uk", "uv").expect("insert");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while embedded.get_local("uk").is_none() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(embedded.get_local("uk").as_deref(), Some("uv"));
+
+    drop(sub);
+    client.delete_cache(&cache_id).ok();
 }
 
 #[test]

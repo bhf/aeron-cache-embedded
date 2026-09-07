@@ -10,6 +10,21 @@ pub use embedded_cache::EmbeddedAeronCache;
 pub mod embedded_counter_cache;
 pub use embedded_counter_cache::EmbeddedCounterCache;
 
+// Generated SBE codecs for the Aeron gateway wire protocol (from sbe/gateway-schema.xml).
+#[allow(dead_code)]
+pub mod gateway_messages;
+
+// Aeron gateway transport (SBE over Aeron response channels).
+pub mod gateway;
+pub use gateway::AeronGatewayClient;
+
+// Transport-neutral abstraction + embedded caches that work over HTTP+WS or Aeron.
+pub mod transport;
+pub use transport::{CacheSubscription, CacheTransport};
+
+pub mod unified_cache;
+pub use unified_cache::{EmbeddedCache, EmbeddedCounters};
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CacheItem {
