@@ -62,6 +62,10 @@ jobs:
         env:
           # Enable the Aeron SBE gateway so the Aeron transport integration tests can connect.
           AERON_TRANSPORT_GATEWAY_ENABLED: "true"
+          # The gateway's response-control endpoint defaults to the machine hostname; the integration
+          # tests connect over loopback, so pin both gateway endpoints to 127.0.0.1 to match.
+          GATEWAY_REQUEST_ENDPOINT: "127.0.0.1:7075"
+          GATEWAY_RESPONSE_CONTROL_ENDPOINT: "127.0.0.1:7076"
         run: |
           nohup aeron-cache > aeron-cache-log.txt 2>&1 &
           ENV_FILE="$HOME/.aeron-cache/aeron-cache-ui.env"
@@ -94,6 +98,12 @@ jobs:
             echo "Error: $ENV_FILE not found after timeout"
             exit 1
           fi
+
+          # Give the gateway a moment to bind, then surface its status for diagnostics.
+          sleep 5
+          echo "::group::Aeron Gateway status (from backend log)"
+          grep -iE "gateway" aeron-cache-log.txt || echo "(no gateway lines in backend log)"
+          echo "::endgroup::"
           
       - name: Build and test
         # -Daeron.gateway.it=true enables the Aeron gateway integration tests against the gateway
