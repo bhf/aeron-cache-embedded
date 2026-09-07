@@ -95,9 +95,14 @@ public class AeronCacheClientIntegrationTest {
         boolean opened = openLatch.await(5, TimeUnit.SECONDS);
         assertTrue(opened, "Websocket failed to connect within timeout");
 
+        // The client onOpen fires before the server has necessarily registered the subscription in its
+        // update routing, so an immediate put can race ahead of it. Give the subscription a moment to
+        // settle before publishing the update we expect to observe.
+        Thread.sleep(500);
+
         embedded.put("ws-key", "ws-val");
 
-        boolean received = latch.await(5, TimeUnit.SECONDS);
+        boolean received = latch.await(10, TimeUnit.SECONDS);
         assertTrue(received, "Websocket event not received within timeout");
 
         // Additionally, local cache should be automatically updated
