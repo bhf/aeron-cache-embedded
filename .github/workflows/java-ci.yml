@@ -56,6 +56,9 @@ jobs:
           echo "Aeron Cache backend installed."
 
       - name: Start Aeron Cache Backend
+        env:
+          # Enable the Aeron SBE gateway so the Aeron transport integration tests can connect.
+          AERON_TRANSPORT_GATEWAY_ENABLED: "true"
         run: |
           nohup aeron-cache > aeron-cache-log.txt 2>&1 &
           ENV_FILE="$HOME/.aeron-cache/aeron-cache-ui.env"
@@ -90,4 +93,6 @@ jobs:
           fi
           
       - name: Build and test
-        run: ./gradlew build
+        # -Daeron.gateway.it=true enables the Aeron gateway integration tests against the gateway
+        # started above (default host 127.0.0.1, ports 7075/7076).
+        run: ./gradlew build -Daeron.gateway.it=true
