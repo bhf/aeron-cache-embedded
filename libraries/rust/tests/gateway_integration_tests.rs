@@ -8,7 +8,7 @@
 //!
 //! Each test launches its own embedded media driver and talks to the gateway over UDP.
 
-use aeron_cache_embedded_client::AeronGatewayClient;
+use aeron_cache_embedded_client::{AeronGatewayClient, CacheTransport};
 use rusteron_media_driver::testing::EmbeddedDriver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -134,6 +134,48 @@ fn streaming_updates() {
 
     drop(sub);
     client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn embedded_cache_mirrors_over_aeron() {
+    let Some((_driver, client)) = connect() else { return };
+    let cache_name = unique("rs-it-embedded");
+    client.create_cache(&cache_name).unwrap();
+
+    let embedded = client.embedded_cache(&cache_name);
+    let sub = embedded.subscribe().unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    embedded.insert("ek", "ev").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while embedded.get_local("ek").is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(embedded.get_local("ek").as_deref(), Some("ev"));
+
+    drop(sub);
+    client.delete_cache(&cache_name).unwrap();
+}
+
+#[test]
+fn embedded_counter_mirrors_over_aeron() {
+    let Some((_driver, client)) = connect() else { return };
+    let cache_name = unique("rs-it-embedded-counter");
+    client.create_counter_cache(&cache_name).unwrap();
+
+    let embedded = client.embedded_counter_cache(&cache_name);
+    let sub = embedded.subscribe().unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    embedded.insert("ec", 42).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while embedded.get_local("ec").is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(embedded.get_local("ec"), Some(42));
+
+    drop(sub);
+    client.delete_counter_cache(&cache_name).unwrap();
 }
 
 #[test]

@@ -105,3 +105,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The Aeron transport also exposes operations not available over HTTP+WS: `get_cache_items` (full snapshot) and `get_stats`.
+
+### Transport-neutral embedded caches
+
+Both clients implement the [`CacheTransport`](src/transport.rs) trait, so the local-mirroring
+`EmbeddedCache` / `EmbeddedCounters` work identically over either transport. Call `embedded_cache(..)`
+on either client; `subscribe()` starts a background reader (a WebSocket reader over HTTP, an Aeron
+subscription over the gateway) that keeps the local mirror in sync. Reads are served locally with no
+network round-trip.
+
+```rust
+use aeron_cache_embedded_client::CacheTransport;
+
+// `client` may be an AeronCacheClient (HTTP+WS) or an AeronGatewayClient (Aeron).
+let cache = client.embedded_cache("my-cache");
+let _sub = cache.subscribe()?;            // mirror updates in the background until `_sub` is dropped
+cache.insert("key", "value")?;
+std::thread::sleep(std::time::Duration::from_millis(500));
+println!("{:?}", cache.get_local("key")); // Some("value") — from the local mirror
+```
+
+The HTTP-specific `EmbeddedAeronCache` / `EmbeddedCounterCache` (with `subscribe()` returning a
+user-polled `UpdatingWebSocket`, plus async methods) remain available via `get_cache` / `get_counter_cache`.

@@ -5,7 +5,7 @@
 //! backend with `AERON_TRANSPORT_GATEWAY_ENABLED=true`. Override the host with the first CLI argument
 //! (default `127.0.0.1`).
 
-use aeron_cache_embedded_client::AeronGatewayClient;
+use aeron_cache_embedded_client::{AeronGatewayClient, CacheTransport};
 use rusteron_media_driver::testing::EmbeddedDriver;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -42,6 +42,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.put_item(cache_id, "streamed-key", "streamed-value")?;
     std::thread::sleep(Duration::from_millis(1000));
     drop(subscription);
+
+    // --- Embedded cache over the gateway (transport-neutral: same API over HTTP+WS or Aeron) ---
+    println!("\n--- Embedded cache ---");
+    let embedded = client.embedded_cache("aeron-sample-embedded");
+    client.create_cache("aeron-sample-embedded")?;
+    let subscription = embedded.subscribe()?; // local mirror now updates in the background
+    std::thread::sleep(Duration::from_millis(500));
+    embedded.insert("user:1", "Ada")?;
+    embedded.insert("user:2", "Alan")?;
+    std::thread::sleep(Duration::from_millis(1000));
+    println!("Local read user:1 -> {:?}", embedded.get_local("user:1"));
+    println!("Local mirror snapshot -> {:?}", embedded.local_snapshot());
+    drop(subscription);
+    client.delete_cache("aeron-sample-embedded")?;
 
     // --- Counter operations ---
     println!("\n--- Counters ---");

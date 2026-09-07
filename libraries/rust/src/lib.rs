@@ -18,6 +18,13 @@ pub mod gateway_messages;
 pub mod gateway;
 pub use gateway::AeronGatewayClient;
 
+// Transport-neutral abstraction + embedded caches that work over HTTP+WS or Aeron.
+pub mod transport;
+pub use transport::{CacheSubscription, CacheTransport};
+
+pub mod unified_cache;
+pub use unified_cache::{EmbeddedCache, EmbeddedCounters};
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CacheItem {
