@@ -86,3 +86,48 @@ const counterCaches = await client.getCounterCaches();  // CacheDetails[]
 // Server-wide counter statistics
 const counterStats = await client.getCounterStats();    // CacheStatsResponse
 ```
+
+## Bidirectional WebSocket transport
+
+`AeronBidiClient` runs the entire cache + counter command surface, plus dynamic
+subscribe/unsubscribe, over a single persistent WebSocket to `/api/ws/v1/bidi`.
+It is the JSON/WebSocket analogue of the Aeron gateway transport and an alternative
+to the HTTP-based `AeronCacheClient`. Every method returns a `Promise`; commands are
+multiplexed by a client-minted `correlationId` that the server echoes back.
+
+```typescript
+import { AeronBidiClient } from '@aeron-cache/embedded-client';
+
+async function main() {
+    const client = new AeronBidiClient('ws://localhost:7071');
+    await client.connect();
+
+    // Cache commands (mirror the HTTP client)
+    await client.createCache('my-cache');
+    await client.putItem('my-cache', 'key', 'value');
+    console.log((await client.getItem('my-cache', 'key')).value);   // 'value'
+    console.log(await client.getCacheItems('my-cache'));            // GetCacheResponse
+    console.log(await client.getStats());                          // StatEntry[] (per-cache)
+
+    // Counter commands
+    await client.createCounterCache('counters');
+    await client.putCounter('counters', 'hits', 10);
+    console.log((await client.incrementCounter('counters', 'hits', 5)).value); // 15
+
+    // Live subscriptions — updates route by cacheId. Values are strings for caches
+    // (CacheUpdateEvent) and numbers for counters (CounterUpdateEvent).
+    const sub = await client.subscribe('my-cache', (ev) => {
+        console.log(ev.eventType, ev.itemKey, ev.itemValue);
+    });
+    // ...later:
+    await sub.close();   // alias: sub.unsubscribe()
+
+    await client.close();
+}
+
+main();
+```
+
+Optional subscription selectors: `subscribe(cacheId, onEvent, { sendSnapshot, key, mode })`
+(`mode` is `'full'` or `'patch'`, cache-only) and `subscribeCounter(cacheId, onEvent, { sendSnapshot, key })`.
+The client uses the runtime global `WebSocket` (browsers and Node.js >= 22).

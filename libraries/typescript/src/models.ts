@@ -183,6 +183,16 @@ export interface CounterItem {
     value: number;
 }
 
+// Per-cache statistics returned by the bidi transport's getStats / getCounterStats.
+// This is the per-cache breakdown, distinct from the HTTP aggregate CacheStatsResponse.
+export interface StatEntry {
+    cacheId: string;
+    addedCount: number;
+    removedCount: number;
+    clearedCount: number;
+    size: number;
+}
+
 export interface GetCountersResponse {
     cacheId: string;
     operationStatus: string;

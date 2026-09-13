@@ -114,9 +114,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Transports: HTTP+WS or Aeron
 
-The library offers two transports for the same cache and counter operations:
+The library offers three transports for the same cache and counter operations:
 
 - **HTTP + WebSocket** — [`AeronCacheClient`](src/lib.rs): REST for commands, WebSocket for streaming updates. Pure Rust, no native dependencies.
+- **Bidirectional WebSocket** — [`AeronBidiClient`](src/bidi.rs): a single WebSocket connection to `/api/ws/v1/bidi` carrying both commands and streaming updates as JSON frames. Pure Rust, no native dependencies.
 - **Aeron gateway** — [`AeronGatewayClient`](src/gateway.rs): a single low-latency, bidirectional Aeron connection carrying both commands and streaming updates, using the shared SBE wire protocol (`sbe/gateway-schema.xml`).
 
 Enable the Aeron gateway on the backend with `AERON_TRANSPORT_GATEWAY_ENABLED=true`. By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`).
@@ -154,6 +155,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The Aeron transport also exposes operations not available over HTTP+WS: `get_cache_items` (full snapshot) and `get_stats`.
+
+### Bidirectional WebSocket usage
+
+[`AeronBidiClient`](src/bidi.rs) multiplexes the full cache + counter command surface plus dynamic
+subscribe/unsubscribe over a single WebSocket connection, correlated by a client-minted
+`correlationId`. It is a pure-Rust alternative to the Aeron gateway (no native build dependencies),
+with a synchronous API mirroring the HTTP client: a background reader thread dispatches frames and
+correlates single responses over mpsc channels. Stream updates are routed to listeners **by
+`cacheId`** (the server stamps `streamUpdate` with the causing command's id, not the subscription's).
+
+```rust
+use aeron_cache_embedded_client::AeronBidiClient;
+use std::time::Duration;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Connects to {ws_url}/api/ws/v1/bidi.
+    let client = AeronBidiClient::connect("ws://localhost:7071")?;
+
+    client.create_cache("my-cache")?;
+    client.put_item("my-cache", "key", "value")?;
+    println!("{}", client.get_item("my-cache", "key")?.value);
+
+    // Streaming updates over the same connection; dropping (or closing) the handle unsubscribes.
+    let sub = client.subscribe("my-cache", |e| println!("{} {:?}", e.event_type, e.item_key))?;
+    client.put_item("my-cache", "streamed", "value")?;
+    std::thread::sleep(Duration::from_millis(500));
+    sub.close()?;
+
+    // Counters ride the same connection.
+    client.create_counter_cache("counters")?;
+    client.increment_counter("counters", "hits", 5)?;
+    Ok(())
+}
+```
+
+Like the Aeron transport, the bidi client also exposes `get_cache_items` / `get_counter_items`
+(full snapshots) and `get_stats` / `get_counter_stats`, which return a `Vec<StatEntry>` (one entry
+per cache) rather than the HTTP aggregate `CacheStatsResponse`.
 
 ### Transport-neutral embedded caches
 

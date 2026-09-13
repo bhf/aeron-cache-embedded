@@ -77,3 +77,23 @@ await client.subscribe("my-cache", on_event, keys="key1", mode="patch")
 # Counter subscriptions support keys (patch mode is cache-only):
 await client.subscribe_counter("counter-cache", on_event, keys=["counter-cache:hits"])
 ```
+
+## Bidirectional WebSocket transport
+
+`AeronBidiClient` carries the full cache + counter command surface plus subscribe/unsubscribe over a
+single WebSocket connection to `/api/ws/v1/bidi`, multiplexed by a client-minted correlation id. It is
+an alternative to the HTTP+WS `AeronCacheClient`; the method names and response models match, and the
+API is async (the connection is persistent).
+
+```python
+from aeron_cache.bidi_client import AeronBidiClient
+
+async with AeronBidiClient("ws://localhost:7071") as client:
+    await client.create_cache("my-cache")
+    await client.put_item("my-cache", "key", "value")
+    print((await client.get_item("my-cache", "key")).value)
+
+    sub = await client.subscribe("my-cache", lambda e: print(e.eventType, e.itemKey, e.itemValue))
+    await client.put_item("my-cache", "k2", "v2")   # -> streamed to the listener
+    await sub.close()
+```

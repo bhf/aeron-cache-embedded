@@ -75,6 +75,7 @@ The library offers two transports for the same operations. Pick whichever suits 
 
 - **HTTP + WebSocket** — [`AeronCacheClient`](src/main/java/com/bhf/aeroncache/client/AeronCacheClient.java): REST for commands, WebSocket for streaming updates. No media driver required.
 - **Aeron gateway** — [`AeronGatewayClient`](src/main/java/com/bhf/aeroncache/client/gateway/AeronGatewayClient.java): a single low-latency, bidirectional Aeron connection carrying both commands and streaming updates, using the shared SBE wire protocol (`gateway-schema.xml`).
+- **Bidirectional WebSocket** — [`AeronBidiClient`](src/main/java/com/bhf/aeroncache/client/bidi/AeronBidiClient.java): a single WebSocket connection to `/api/ws/v1/bidi` carrying the full cache + counter command surface plus dynamic subscribe/unsubscribe as JSON frames. The JSON/WebSocket analogue of the Aeron gateway, with no media driver required.
 
 Enable the Aeron gateway on the backend with `-Daeron.transport.gateway.enabled=true` (or `AERON_TRANSPORT_GATEWAY_ENABLED=true`). By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`).
 
@@ -113,6 +114,39 @@ try (MediaDriver driver = MediaDriver.launchEmbedded();
 ```
 
 The Aeron transport also exposes operations not available over HTTP+WS: `getCacheItems` (full snapshot), `getStats`, and `clearCache`.
+
+### Bidirectional WebSocket usage
+
+`AeronBidiClient` multiplexes every command and subscription over one persistent WebSocket connection, correlating each request/response by a client-minted `correlationId`. Like the gateway client, each operation has a `CompletableFuture` variant and a synchronous variant that blocks on it. The connection is established lazily on first use (or eagerly via `connect()`).
+
+```java
+import com.bhf.aeroncache.client.bidi.AeronBidiClient;
+import com.bhf.aeroncache.client.bidi.BidiSubscription;
+
+// Derive the ws URL from your backend (http -> ws); the client appends /api/ws/v1/bidi.
+try (AeronBidiClient client = new AeronBidiClient("ws://localhost:7071")) {
+
+    client.createCache("my-cache");
+    client.putItem("my-cache", "key", "value");
+    System.out.println(client.getItem("my-cache", "key").getValue());
+
+    // Streaming updates over the same connection; closing the handle unsubscribes.
+    try (BidiSubscription sub = client.subscribe("my-cache",
+            e -> System.out.println(e.getEventType() + " " + e.getItemKey() + "=" + e.getItemValue()))) {
+        client.putItem("my-cache", "streamed", "value");
+        Thread.sleep(1000);
+    }
+
+    // Counters ride the same transport; counter stream values are numeric.
+    client.createCounterCache("counters");
+    client.incrementCounter("counters", "hits", 5);
+    client.subscribeCounter("counters", e -> System.out.println("hits=" + e.getItemValue()));
+}
+```
+
+Like the Aeron gateway, this transport exposes `getCacheItems` / `getCounterItems` (full snapshots) and `clearCache`. Its `getStats()` / `getCounterStats()` return per-cache `List<StatEntry>` (added/removed/cleared counts and size), not the HTTP aggregate `CacheStatsResponse`.
+
+> **Note:** the server stamps each `streamUpdate` with the correlation id of the *command that caused it* (the update's `requestId`), so updates are routed to subscription listeners by `cacheId` and that causing-command id is surfaced as `getRequestId()` on the event.
 
 ### Transport-neutral embedded caches
 

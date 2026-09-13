@@ -18,6 +18,10 @@ pub mod gateway_messages;
 pub mod gateway;
 pub use gateway::AeronGatewayClient;
 
+// Bidirectional WebSocket transport (JSON over a single /api/ws/v1/bidi connection).
+pub mod bidi;
+pub use bidi::{AeronBidiClient, BidiSubscription, StatEntry};
+
 // Transport-neutral abstraction + embedded caches that work over HTTP+WS or Aeron.
 pub mod transport;
 pub use transport::{CacheSubscription, CacheTransport};

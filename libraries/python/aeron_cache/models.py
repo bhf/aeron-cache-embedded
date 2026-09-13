@@ -205,6 +205,14 @@ class CounterItem:
     value: int
 
 @dataclass
+class StatEntry:
+    cacheId: str
+    addedCount: int = 0
+    removedCount: int = 0
+    clearedCount: int = 0
+    size: int = 0
+
+@dataclass
 class GetCountersResponse:
     cacheId: str
     operationStatus: str
