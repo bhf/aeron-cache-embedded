@@ -256,3 +256,127 @@ def test_put_timed_item(client):
     get_resp2 = embedded.get("timed-key")
     assert get_resp2.operationStatus == "UNKNOWN_KEY" or get_resp2.value is None or get_resp2.value == ""
 
+
+def test_patch_item(client):
+    cache_id = f"it-patch-{uuid.uuid4().hex[:8]}"
+    client.create_cache(cache_id)
+
+    client.put_item(cache_id, "doc", '{"a":1}')
+    patch_resp = client.patch_item(cache_id, "doc", '{"b":2}')
+    assert patch_resp.cacheId == cache_id
+    assert patch_resp.key == "doc"
+
+    get_resp = client.get_item(cache_id, "doc")
+    # deep-merge should retain both fields
+    assert "\"a\"" in get_resp.value and "\"b\"" in get_resp.value
+
+def test_cancel_item_removal(client):
+    import time
+    cache_id = f"it-cancel-{uuid.uuid4().hex[:8]}"
+    client.create_cache(cache_id)
+
+    client.put_timed_item(cache_id, "keep", "val", 2000)
+    cancel_resp = client.cancel_item_removal(cache_id, "keep")
+    assert cancel_resp.cacheId == cache_id
+    assert cancel_resp.key == "keep"
+
+    time.sleep(3)
+    get_resp = client.get_item(cache_id, "keep")
+    assert get_resp.value == "val"
+
+def test_get_caches_and_stats(client):
+    cache_id = f"it-caches-{uuid.uuid4().hex[:8]}"
+    client.create_cache(cache_id)
+    client.put_item(cache_id, "k", "v")
+
+    caches = client.get_caches()
+    assert any(c.cacheId == cache_id for c in caches)
+
+    stats = client.get_stats()
+    assert stats.totalCachesCount >= 1
+    assert stats.totalItemsCount >= 1
+
+def test_get_counter_items_and_clear(client):
+    cache_id = f"it-citems-{uuid.uuid4().hex[:8]}"
+    client.create_counter_cache(cache_id)
+    client.put_counter(cache_id, "a", 1)
+    client.put_counter(cache_id, "b", 2)
+
+    resp = client.get_counter_items(cache_id)
+    assert resp.cacheId == cache_id
+    assert len(resp.items) == 2
+
+    clear_resp = client.clear_counter_cache(cache_id)
+    assert clear_resp.operationStatus == "SUCCESS"
+
+def test_cancel_counter_item_removal(client):
+    import time
+    cache_id = f"it-ccancel-{uuid.uuid4().hex[:8]}"
+    client.create_counter_cache(cache_id)
+
+    client.put_timed_counter(cache_id, "keep", 9, 2000)
+    cancel_resp = client.cancel_counter_item_removal(cache_id, "keep")
+    assert cancel_resp.cacheId == cache_id
+    assert cancel_resp.key == "keep"
+
+    time.sleep(3)
+    assert client.get_counter(cache_id, "keep").value == 9
+
+def test_get_counter_caches_and_stats(client):
+    cache_id = f"it-ccaches-{uuid.uuid4().hex[:8]}"
+    client.create_counter_cache(cache_id)
+    client.put_counter(cache_id, "k", 1)
+
+    caches = client.get_counter_caches()
+    assert any(c.cacheId == cache_id for c in caches)
+
+    stats = client.get_counter_stats()
+    assert stats.totalCachesCount >= 1
+
+@pytest.mark.asyncio
+async def test_websocket_key_filter(client):
+    cache_id = f"it-ws-keys-{uuid.uuid4().hex[:8]}"
+    client.create_cache(cache_id)
+
+    received = []
+
+    async def on_event(event):
+        if event.eventType == "ADD_ITEM" and event.itemKey:
+            received.append(event.itemKey)
+
+    # Subscribe filtered to only "key1"
+    sub_task = asyncio.create_task(client.subscribe(cache_id, on_event, keys="key1"))
+    await asyncio.sleep(1.0)
+
+    client.put_item(cache_id, "key1", "v1")
+    client.put_item(cache_id, "key2", "v2")
+
+    await asyncio.sleep(2.0)
+    sub_task.cancel()
+
+    assert "key1" in received, f"Expected key1 event, got {received}"
+    assert "key2" not in received, f"key2 should be filtered out, got {received}"
+    client.delete_cache(cache_id)
+
+@pytest.mark.asyncio
+async def test_websocket_patch_mode(client):
+    cache_id = f"it-ws-patch-{uuid.uuid4().hex[:8]}"
+    client.create_cache(cache_id)
+    client.put_item(cache_id, "doc", '{"a":1}')
+
+    patch_event = asyncio.Event()
+
+    async def on_event(event):
+        if event.eventType == "PATCH_ITEM" and event.itemKey == "doc":
+            patch_event.set()
+
+    sub_task = asyncio.create_task(client.subscribe(cache_id, on_event, mode="patch"))
+    await asyncio.sleep(1.0)
+
+    client.patch_item(cache_id, "doc", '{"b":2}')
+
+    try:
+        await asyncio.wait_for(patch_event.wait(), timeout=5.0)
+    finally:
+        sub_task.cancel()
+    client.delete_cache(cache_id)

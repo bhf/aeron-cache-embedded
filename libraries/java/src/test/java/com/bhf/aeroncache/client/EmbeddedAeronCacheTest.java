@@ -8,6 +8,7 @@ import java.net.http.WebSocket;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 public class EmbeddedAeronCacheTest {
@@ -48,20 +49,20 @@ public class EmbeddedAeronCacheTest {
     @Test
     public void testSubscribeDelegatesToClient() {
         ReconnectingWebSocket mockWebSocket = mock(ReconnectingWebSocket.class);
-        when(mockClient.subscribe(eq("test-cache"), anyBoolean(), any(AeronCacheSubscriber.class))).thenReturn(mockWebSocket);
+        when(mockClient.subscribe(eq("test-cache"), anyBoolean(), isNull(), isNull(), any(AeronCacheSubscriber.class))).thenReturn(mockWebSocket);
 
         AeronCacheSubscriber subscriber = mock(AeronCacheSubscriber.class);
         ReconnectingWebSocket returnedWs = cache.subscribe(subscriber);
 
         assertEquals(mockWebSocket, returnedWs);
-        verify(mockClient, times(1)).subscribe(eq("test-cache"), eq(false), eq(subscriber));
+        verify(mockClient, times(1)).subscribe(eq("test-cache"), eq(false), isNull(), isNull(), eq(subscriber));
     }
-    
+
     @Test
     public void testUpdatesLocalCacheViaSubscriptionAndReturnsLocalValue() {
         ReconnectingWebSocket mockWebSocket = mock(ReconnectingWebSocket.class);
         ArgumentCaptor<AeronCacheSubscriber> captor = ArgumentCaptor.forClass(AeronCacheSubscriber.class);
-        when(mockClient.subscribe(eq("test-cache"), anyBoolean(), captor.capture())).thenReturn(mockWebSocket);
+        when(mockClient.subscribe(eq("test-cache"), anyBoolean(), isNull(), isNull(), captor.capture())).thenReturn(mockWebSocket);
 
         cache.subscribe(new AeronCacheSubscriber() {});
 

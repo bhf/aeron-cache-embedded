@@ -53,6 +53,27 @@ def main():
     print(f"Set 'requests' -> {counters.set('requests', 100).value}")
     print(f"Read counter 'requests': {counters.get('requests').value}")
 
+    # --- Inspection & management operations ---
+    print("Patching 'sync-key' (deep-merge)")
+    client.put_item("sync-sample-cache", "doc", '{"a":1}')
+    patch_resp = client.patch_item("sync-sample-cache", "doc", '{"b":2}')
+    print(f"Patch status: {patch_resp.operationStatus}")
+    print(f"Doc after patch: {client.get_item('sync-sample-cache', 'doc').value}")
+
+    print("Listing all caches:")
+    for details in client.get_caches():
+        print(f"  - {details.cacheId} ({details.itemCount} items)")
+
+    stats = client.get_stats()
+    print(f"Cache stats: caches={stats.totalCachesCount} items={stats.totalItemsCount} ops={stats.totalOpsCount} errors={stats.errorCount}")
+
+    print("Listing all counters in 'sync-counter-cache':")
+    for item in client.get_counter_items("sync-counter-cache").items:
+        print(f"  - {item.key} = {item.value}")
+
+    counter_stats = client.get_counter_stats()
+    print(f"Counter stats: caches={counter_stats.totalCachesCount} items={counter_stats.totalItemsCount}")
+
 
 if __name__ == "__main__":
     main()

@@ -181,6 +181,76 @@ public class CounterClientTest {
     }
 
     @Test
+    public void testGetCounterItems() throws Exception {
+        stubFor(get(urlEqualTo("/api/v1/counters/test-counter"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"cacheId\":\"test-counter\",\"operationStatus\":\"SUCCESS\",\"items\":[{\"key\":\"hits\",\"value\":42},{\"key\":\"misses\",\"value\":7}]}")));
+
+        GetCountersResponse response = client.getCounterItems("test-counter");
+        assertNotNull(response);
+        assertEquals("test-counter", response.getCacheId());
+        assertEquals(2, response.getItems().size());
+        assertEquals("hits", response.getItems().get(0).getKey());
+        assertEquals(42L, response.getItems().get(0).getValue());
+        assertEquals(7L, response.getItems().get(1).getValue());
+    }
+
+    @Test
+    public void testClearCounterCache() throws Exception {
+        stubFor(patch(urlEqualTo("/api/v1/counters/test-counter"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"cacheId\":\"test-counter\",\"operationStatus\":\"SUCCESS\"}")));
+
+        ClearCacheResponse response = client.clearCounterCache("test-counter");
+        assertNotNull(response);
+        assertEquals("SUCCESS", response.getOperationStatus());
+    }
+
+    @Test
+    public void testCancelCounterItemRemoval() throws Exception {
+        stubFor(post(urlEqualTo("/api/v1/counters/test-counter/hits/cancel-removal"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"cacheId\":\"test-counter\",\"key\":\"hits\",\"operationStatus\":\"SUCCESS\"}")));
+
+        CancelItemRemovalResponse response = client.cancelCounterItemRemoval("test-counter", "hits");
+        assertNotNull(response);
+        assertEquals("hits", response.getKey());
+        assertEquals("SUCCESS", response.getOperationStatus());
+    }
+
+    @Test
+    public void testGetCounterCaches() throws Exception {
+        stubFor(get(urlEqualTo("/api/v1/counters-caches"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("[{\"cacheId\":\"c1\",\"itemCount\":3}]")));
+
+        java.util.List<CacheDetails> caches = client.getCounterCaches();
+        assertNotNull(caches);
+        assertEquals(1, caches.size());
+        assertEquals("c1", caches.get(0).getCacheId());
+        assertEquals(3L, caches.get(0).getItemCount());
+    }
+
+    @Test
+    public void testGetCounterStats() throws Exception {
+        stubFor(get(urlEqualTo("/api/v1/counters-stats"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"totalOpsCount\":4,\"totalCachesCount\":1,\"totalItemsCount\":3,\"errorCount\":0}")));
+
+        CacheStatsResponse stats = client.getCounterStats();
+        assertNotNull(stats);
+        assertEquals(4, stats.getTotalOpsCount());
+        assertEquals(1, stats.getTotalCachesCount());
+        assertEquals(3, stats.getTotalItemsCount());
+        assertEquals(0, stats.getErrorCount());
+    }
+
+    @Test
     public void testSubscribeCounterHydrateAndMulti() {
         ReconnectingWebSocket ws1 = client.subscribeCounter("counter1", true, new java.net.http.WebSocket.Listener() {});
         assertNotNull(ws1);

@@ -77,5 +77,36 @@ public class SyncSample {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+
+        // --- Inspection & management operations ---
+        try {
+            System.out.println("Patching 'doc' (deep-merge)");
+            client.putItem("sync-test-cache", "doc", "{\"a\":1}");
+            var patchResp = client.patchItem("sync-test-cache", "doc", "{\"b\":2}");
+            System.out.println("Patch status: " + patchResp.getOperationStatus());
+            System.out.println("Doc after patch: " + client.getItem("sync-test-cache", "doc").getValue());
+
+            System.out.println("Listing all caches:");
+            for (var details : client.getCaches()) {
+                System.out.println("  - " + details.getCacheId() + " (" + details.getItemCount() + " items)");
+            }
+
+            var stats = client.getStats();
+            System.out.println("Cache stats: caches=" + stats.getTotalCachesCount()
+                    + " items=" + stats.getTotalItemsCount()
+                    + " ops=" + stats.getTotalOpsCount()
+                    + " errors=" + stats.getErrorCount());
+
+            System.out.println("Listing all counters in 'sync-counter-cache':");
+            for (var item : client.getCounterItems("sync-counter-cache").getItems()) {
+                System.out.println("  - " + item.getKey() + " = " + item.getValue());
+            }
+
+            var counterStats = client.getCounterStats();
+            System.out.println("Counter stats: caches=" + counterStats.getTotalCachesCount()
+                    + " items=" + counterStats.getTotalItemsCount());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 }

@@ -144,6 +144,89 @@ fn test_bulk_ops() {
 }
 
 #[test]
+fn test_patch_item() {
+    let mut server = mockito::Server::new();
+    let url = server.url();
+
+    let _m = server.mock("PATCH", "/api/v1/cache/test-cache/my-key")
+        .match_body(mockito::Matcher::PartialJsonString(r#"{"value":"{\"field\":\"newValue\"}"}"#.to_string()))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"cacheId": "test-cache", "key": "my-key", "operationStatus": "SUCCESS"}"#)
+        .create();
+
+    let client = AeronCacheClient::new(url, "ws://localhost".into());
+    let response = client.patch_item("test-cache", "my-key", r#"{"field":"newValue"}"#).unwrap();
+
+    assert_eq!(response.cache_id, "test-cache");
+    assert_eq!(response.key, "my-key");
+    assert_eq!(response.operation_status, "SUCCESS");
+    _m.assert();
+}
+
+#[test]
+fn test_cancel_item_removal() {
+    let mut server = mockito::Server::new();
+    let url = server.url();
+
+    let _m = server.mock("POST", "/api/v1/cache/test-cache/my-key/cancel-removal")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"cacheId": "test-cache", "key": "my-key", "operationStatus": "SUCCESS"}"#)
+        .create();
+
+    let client = AeronCacheClient::new(url, "ws://localhost".into());
+    let response = client.cancel_item_removal("test-cache", "my-key").unwrap();
+
+    assert_eq!(response.cache_id, "test-cache");
+    assert_eq!(response.key, "my-key");
+    assert_eq!(response.operation_status, "SUCCESS");
+    _m.assert();
+}
+
+#[test]
+fn test_get_caches() {
+    let mut server = mockito::Server::new();
+    let url = server.url();
+
+    let _m = server.mock("GET", "/api/v1/caches")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"[{"cacheId": "c1", "itemCount": 3}, {"cacheId": "c2", "itemCount": 0}]"#)
+        .create();
+
+    let client = AeronCacheClient::new(url, "ws://localhost".into());
+    let caches = client.get_caches().unwrap();
+
+    assert_eq!(caches.len(), 2);
+    assert_eq!(caches[0].cache_id, "c1");
+    assert_eq!(caches[0].item_count, 3);
+    assert_eq!(caches[1].cache_id, "c2");
+    _m.assert();
+}
+
+#[test]
+fn test_get_stats() {
+    let mut server = mockito::Server::new();
+    let url = server.url();
+
+    let _m = server.mock("GET", "/api/v1/stats")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"totalOpsCount": 10, "totalCachesCount": 2, "totalItemsCount": 5, "errorCount": 1}"#)
+        .create();
+
+    let client = AeronCacheClient::new(url, "ws://localhost".into());
+    let stats = client.get_stats().unwrap();
+
+    assert_eq!(stats.total_ops_count, 10);
+    assert_eq!(stats.total_caches_count, 2);
+    assert_eq!(stats.total_items_count, 5);
+    assert_eq!(stats.error_count, 1);
+    _m.assert();
+}
+
+#[test]
 fn test_put_timed_item() {
     let mut server = mockito::Server::new();
     let url = server.url();

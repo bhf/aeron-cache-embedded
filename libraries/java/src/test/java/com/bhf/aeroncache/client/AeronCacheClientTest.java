@@ -7,6 +7,10 @@ import com.bhf.aeroncache.models.ClearCacheResponse;
 import com.bhf.aeroncache.models.GetCacheResponse;
 import com.bhf.aeroncache.models.BulkCacheOpsRequest;
 import com.bhf.aeroncache.models.BulkCacheOpsResponse;
+import com.bhf.aeroncache.models.PatchItemResponse;
+import com.bhf.aeroncache.models.CancelItemRemovalResponse;
+import com.bhf.aeroncache.models.CacheDetails;
+import com.bhf.aeroncache.models.CacheStatsResponse;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
@@ -155,6 +159,64 @@ public class AeronCacheClientTest {
     }
 
     @Test
+    public void testPatchItem() throws Exception {
+        stubFor(patch(urlEqualTo("/api/v1/cache/test-cache/doc"))
+                .withRequestBody(matchingJsonPath("$.value", equalTo("{\"b\":2}")))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"cacheId\":\"test-cache\",\"key\":\"doc\",\"operationStatus\":\"SUCCESS\"}")));
+
+        PatchItemResponse response = client.patchItem("test-cache", "doc", "{\"b\":2}");
+        assertNotNull(response);
+        assertEquals("test-cache", response.getCacheId());
+        assertEquals("doc", response.getKey());
+        assertEquals("SUCCESS", response.getOperationStatus());
+    }
+
+    @Test
+    public void testCancelItemRemoval() throws Exception {
+        stubFor(post(urlEqualTo("/api/v1/cache/test-cache/my-key/cancel-removal"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"cacheId\":\"test-cache\",\"key\":\"my-key\",\"operationStatus\":\"SUCCESS\"}")));
+
+        CancelItemRemovalResponse response = client.cancelItemRemoval("test-cache", "my-key");
+        assertNotNull(response);
+        assertEquals("my-key", response.getKey());
+        assertEquals("SUCCESS", response.getOperationStatus());
+    }
+
+    @Test
+    public void testGetCaches() throws Exception {
+        stubFor(get(urlEqualTo("/api/v1/caches"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("[{\"cacheId\":\"c1\",\"itemCount\":2},{\"cacheId\":\"c2\",\"itemCount\":5}]")));
+
+        java.util.List<CacheDetails> caches = client.getCaches();
+        assertNotNull(caches);
+        assertEquals(2, caches.size());
+        assertEquals("c1", caches.get(0).getCacheId());
+        assertEquals(2L, caches.get(0).getItemCount());
+        assertEquals(5L, caches.get(1).getItemCount());
+    }
+
+    @Test
+    public void testGetStats() throws Exception {
+        stubFor(get(urlEqualTo("/api/v1/stats"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"totalOpsCount\":10,\"totalCachesCount\":2,\"totalItemsCount\":7,\"errorCount\":1}")));
+
+        CacheStatsResponse stats = client.getStats();
+        assertNotNull(stats);
+        assertEquals(10, stats.getTotalOpsCount());
+        assertEquals(2, stats.getTotalCachesCount());
+        assertEquals(7, stats.getTotalItemsCount());
+        assertEquals(1, stats.getErrorCount());
+    }
+
+    @Test
     public void testSubscribeHydrate() {
         ReconnectingWebSocket ws = client.subscribe("cache1", true, new java.net.http.WebSocket.Listener() {});
         assertNotNull(ws);
@@ -166,6 +228,27 @@ public class AeronCacheClientTest {
         ReconnectingWebSocket ws = client.subscribe("cache1,cache2", false, new java.net.http.WebSocket.Listener() {});
         assertNotNull(ws);
         ws.close();
+    }
+
+    @Test
+    public void testWsQueryBuilder() {
+        // No params -> empty query string
+        assertEquals("", AeronCacheClient.wsQuery(null, null));
+
+        // keys only -> comma URL-encoded
+        assertEquals("?keys=a%2Cb", AeronCacheClient.wsQuery("a,b", null));
+
+        // keys with cacheId:key tokens -> colon and comma URL-encoded
+        assertEquals("?keys=c1%3Ak1%2Ck2", AeronCacheClient.wsQuery("c1:k1,k2", null));
+
+        // mode only
+        assertEquals("?mode=patch", AeronCacheClient.wsQuery(null, "patch"));
+
+        // both keys and mode
+        String q = AeronCacheClient.wsQuery("k", "full");
+        assertTrue(q.startsWith("?"));
+        assertTrue(q.contains("keys=k"));
+        assertTrue(q.contains("mode=full"));
     }
 
 }

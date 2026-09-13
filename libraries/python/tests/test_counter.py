@@ -121,3 +121,49 @@ def test_bulk_ops_with_counter(client):
     assert sent["operations"][1]["counterValue"] == 5
     assert "value" not in sent["operations"][1]
     assert "ttl" not in sent["operations"][1]
+
+@responses.activate
+def test_get_counter_items(client):
+    responses.add(responses.GET, "http://localhost:7070/api/v1/counters/test-counter",
+                  json={"cacheId": "test-counter", "operationStatus": "SUCCESS",
+                        "items": [{"key": "hits", "value": 42}, {"key": "misses", "value": 7}]}, status=200)
+    response = client.get_counter_items("test-counter")
+    assert response.cacheId == "test-counter"
+    assert response.operationStatus == "SUCCESS"
+    assert len(response.items) == 2
+    assert response.items[0].key == "hits"
+    assert response.items[0].value == 42
+
+@responses.activate
+def test_clear_counter_cache(client):
+    responses.add(responses.PATCH, "http://localhost:7070/api/v1/counters/test-counter",
+                  json={"cacheId": "test-counter", "operationStatus": "SUCCESS"}, status=200)
+    response = client.clear_counter_cache("test-counter")
+    assert response.cacheId == "test-counter"
+    assert response.operationStatus == "SUCCESS"
+
+@responses.activate
+def test_cancel_counter_item_removal(client):
+    responses.add(responses.POST, "http://localhost:7070/api/v1/counters/test-counter/hits/cancel-removal",
+                  json={"cacheId": "test-counter", "key": "hits", "operationStatus": "SUCCESS"}, status=200)
+    response = client.cancel_counter_item_removal("test-counter", "hits")
+    assert response.cacheId == "test-counter"
+    assert response.key == "hits"
+    assert response.operationStatus == "SUCCESS"
+
+@responses.activate
+def test_get_counter_caches(client):
+    responses.add(responses.GET, "http://localhost:7070/api/v1/counters-caches",
+                  json=[{"cacheId": "cc1", "itemCount": 4}], status=200)
+    caches = client.get_counter_caches()
+    assert len(caches) == 1
+    assert caches[0].cacheId == "cc1"
+    assert caches[0].itemCount == 4
+
+@responses.activate
+def test_get_counter_stats(client):
+    responses.add(responses.GET, "http://localhost:7070/api/v1/counters-stats",
+                  json={"totalOpsCount": 3, "totalCachesCount": 1, "totalItemsCount": 4, "errorCount": 0}, status=200)
+    stats = client.get_counter_stats()
+    assert stats.totalOpsCount == 3
+    assert stats.totalItemsCount == 4

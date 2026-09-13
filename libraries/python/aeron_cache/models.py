@@ -170,3 +170,51 @@ class BulkCacheOpsResponse:
             requestId=data.get('requestId'),
             operationResponses=ops
         )
+
+@dataclass
+class PatchItemRequest:
+    value: str
+
+@dataclass
+class PatchItemResponse:
+    cacheId: str
+    key: str
+    operationStatus: str
+
+@dataclass
+class CancelItemRemovalResponse:
+    cacheId: str
+    key: str
+    operationStatus: str
+
+@dataclass
+class CacheDetails:
+    cacheId: str
+    itemCount: int
+
+@dataclass
+class CacheStatsResponse:
+    totalOpsCount: int
+    totalCachesCount: int
+    totalItemsCount: int
+    errorCount: int
+
+@dataclass
+class CounterItem:
+    key: str
+    value: int
+
+@dataclass
+class GetCountersResponse:
+    cacheId: str
+    operationStatus: str
+    items: list[CounterItem]
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        items = [CounterItem(**item) for item in data.get('items', [])]
+        return cls(
+            cacheId=data.get('cacheId'),
+            operationStatus=data.get('operationStatus'),
+            items=items
+        )

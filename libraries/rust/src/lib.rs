@@ -238,6 +238,59 @@ pub struct BulkCacheOpsResponse {
     pub operation_responses: Vec<CacheOperationResponse>,
 }
 
+// --- Inspection & management models ---
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PatchItemRequest {
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchItemResponse {
+    pub cache_id: String,
+    pub key: String,
+    pub operation_status: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelItemRemovalResponse {
+    pub cache_id: String,
+    pub key: String,
+    pub operation_status: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheDetails {
+    pub cache_id: String,
+    pub item_count: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheStatsResponse {
+    pub total_ops_count: i32,
+    pub total_caches_count: i32,
+    pub total_items_count: i32,
+    pub error_count: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CounterItem {
+    pub key: String,
+    pub value: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GetCountersResponse {
+    pub cache_id: String,
+    pub operation_status: String,
+    pub items: Vec<CounterItem>,
+}
+
 pub struct AeronCacheClient {
     pub base_url: String,
     pub ws_url: String,
@@ -478,6 +531,84 @@ impl AeronCacheClient {
         Ok(resp_body)
     }
 
+    // --- Additional Cache Operations (Sync) ---
+
+    pub fn patch_item(&self, cache_id: &str, key: &str, value: &str) -> Result<PatchItemResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/{}/{}", self.base_url, cache_id, key);
+        let req = PatchItemRequest { value: value.to_string() };
+        let resp = self.get_sync_client().patch(&url).json(&req).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<PatchItemResponse>()?)
+    }
+
+    pub fn cancel_item_removal(&self, cache_id: &str, key: &str) -> Result<CancelItemRemovalResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/{}/{}/cancel-removal", self.base_url, cache_id, key);
+        let resp = self.get_sync_client().post(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<CancelItemRemovalResponse>()?)
+    }
+
+    pub fn get_caches(&self) -> Result<Vec<CacheDetails>, Box<dyn Error>> {
+        let url = format!("{}/api/v1/caches", self.base_url);
+        let resp = self.get_sync_client().get(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<Vec<CacheDetails>>()?)
+    }
+
+    pub fn get_stats(&self) -> Result<CacheStatsResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/stats", self.base_url);
+        let resp = self.get_sync_client().get(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<CacheStatsResponse>()?)
+    }
+
+    // --- Additional Cache Operations (Async) ---
+
+    pub async fn patch_item_async(&self, cache_id: &str, key: &str, value: &str) -> Result<PatchItemResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/{}/{}", self.base_url, cache_id, key);
+        let req = PatchItemRequest { value: value.to_string() };
+        let resp = self.async_client.patch(&url).json(&req).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<PatchItemResponse>().await?)
+    }
+
+    pub async fn cancel_item_removal_async(&self, cache_id: &str, key: &str) -> Result<CancelItemRemovalResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/cache/{}/{}/cancel-removal", self.base_url, cache_id, key);
+        let resp = self.async_client.post(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<CancelItemRemovalResponse>().await?)
+    }
+
+    pub async fn get_caches_async(&self) -> Result<Vec<CacheDetails>, Box<dyn Error>> {
+        let url = format!("{}/api/v1/caches", self.base_url);
+        let resp = self.async_client.get(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<Vec<CacheDetails>>().await?)
+    }
+
+    pub async fn get_stats_async(&self) -> Result<CacheStatsResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/stats", self.base_url);
+        let resp = self.async_client.get(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<CacheStatsResponse>().await?)
+    }
+
     pub fn get_cache(&self, cache_id: &str) -> EmbeddedAeronCache<'_> {
         EmbeddedAeronCache::new(self, cache_id.to_string())
     }
@@ -656,6 +787,100 @@ impl AeronCacheClient {
         Ok(resp.json::<CounterResponse>().await?)
     }
 
+    // --- Additional Counter Operations (Sync) ---
+
+    pub fn get_counter_items(&self, cache_id: &str) -> Result<GetCountersResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}", self.base_url, cache_id);
+        let resp = self.get_sync_client().get(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<GetCountersResponse>()?)
+    }
+
+    pub fn clear_counter_cache(&self, cache_id: &str) -> Result<ClearCacheResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}", self.base_url, cache_id);
+        let resp = self.get_sync_client().patch(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<ClearCacheResponse>()?)
+    }
+
+    pub fn cancel_counter_item_removal(&self, cache_id: &str, key: &str) -> Result<CancelItemRemovalResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}/{}/cancel-removal", self.base_url, cache_id, key);
+        let resp = self.get_sync_client().post(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<CancelItemRemovalResponse>()?)
+    }
+
+    pub fn get_counter_caches(&self) -> Result<Vec<CacheDetails>, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters-caches", self.base_url);
+        let resp = self.get_sync_client().get(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<Vec<CacheDetails>>()?)
+    }
+
+    pub fn get_counter_stats(&self) -> Result<CacheStatsResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters-stats", self.base_url);
+        let resp = self.get_sync_client().get(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<CacheStatsResponse>()?)
+    }
+
+    // --- Additional Counter Operations (Async) ---
+
+    pub async fn get_counter_items_async(&self, cache_id: &str) -> Result<GetCountersResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}", self.base_url, cache_id);
+        let resp = self.async_client.get(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<GetCountersResponse>().await?)
+    }
+
+    pub async fn clear_counter_cache_async(&self, cache_id: &str) -> Result<ClearCacheResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}", self.base_url, cache_id);
+        let resp = self.async_client.patch(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<ClearCacheResponse>().await?)
+    }
+
+    pub async fn cancel_counter_item_removal_async(&self, cache_id: &str, key: &str) -> Result<CancelItemRemovalResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters/{}/{}/cancel-removal", self.base_url, cache_id, key);
+        let resp = self.async_client.post(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<CancelItemRemovalResponse>().await?)
+    }
+
+    pub async fn get_counter_caches_async(&self) -> Result<Vec<CacheDetails>, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters-caches", self.base_url);
+        let resp = self.async_client.get(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<Vec<CacheDetails>>().await?)
+    }
+
+    pub async fn get_counter_stats_async(&self) -> Result<CacheStatsResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/counters-stats", self.base_url);
+        let resp = self.async_client.get(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<CacheStatsResponse>().await?)
+    }
+
     pub fn get_counter_cache(&self, cache_id: &str) -> EmbeddedCounterCache<'_> {
         EmbeddedCounterCache::new(self, cache_id.to_string())
     }
@@ -669,6 +894,16 @@ impl AeronCacheClient {
     }
 
     pub fn subscribe_ext(&self, cache_ids: &str, hydrate: bool) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
+        self.subscribe_filtered(cache_ids, hydrate, None, None)
+    }
+
+    /// Subscribe to one or more caches with optional key filters and subscription mode.
+    ///
+    /// * `keys` — optional comma-separated key filter(s); each token is `cacheId:key` or a bare
+    ///   `key`. When set, the subscription is restricted to those keys.
+    /// * `mode` — optional subscription mode, `"full"` (default, emits `ADD_ITEM` events) or
+    ///   `"patch"` (emits `PATCH_ITEM` events carrying only changed fields). Cache-only.
+    pub fn subscribe_filtered(&self, cache_ids: &str, hydrate: bool, keys: Option<&str>, mode: Option<&str>) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
         let prefix = if hydrate {
             if cache_ids.contains(',') { "/api/ws/v1/caches/hydrate" } else { "/api/ws/v1/cache/hydrate" }
         } else {
@@ -676,7 +911,7 @@ impl AeronCacheClient {
         };
 
         let url = format!("{}/{}", self.ws_url.trim_end_matches('/'), prefix.trim_start_matches('/'));
-        let final_url = format!("{}/{}", url, cache_ids);
+        let final_url = format!("{}/{}{}", url, cache_ids, ws_query(keys, mode));
         let (socket, _) = connect(Url::parse(&final_url)?)?;
         Ok(socket)
     }
@@ -686,6 +921,14 @@ impl AeronCacheClient {
     }
 
     pub fn subscribe_counter_ext(&self, cache_ids: &str, hydrate: bool) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
+        self.subscribe_counter_filtered(cache_ids, hydrate, None)
+    }
+
+    /// Subscribe to one or more counter caches with optional key filters.
+    ///
+    /// * `keys` — optional comma-separated key filter(s); each token is `cacheId:key` or a bare
+    ///   `key`. (Patch `mode` is cache-only and is not supported for counter subscriptions.)
+    pub fn subscribe_counter_filtered(&self, cache_ids: &str, hydrate: bool, keys: Option<&str>) -> Result<tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>, Box<dyn Error>> {
         let prefix = if hydrate {
             if cache_ids.contains(',') { "/api/ws/v1/counters/hydrate" } else { "/api/ws/v1/counter/hydrate" }
         } else {
@@ -693,8 +936,61 @@ impl AeronCacheClient {
         };
 
         let url = format!("{}/{}", self.ws_url.trim_end_matches('/'), prefix.trim_start_matches('/'));
-        let final_url = format!("{}/{}", url, cache_ids);
+        let final_url = format!("{}/{}{}", url, cache_ids, ws_query(keys, None));
         let (socket, _) = connect(Url::parse(&final_url)?)?;
         Ok(socket)
+    }
+}
+
+/// Build the optional WebSocket query string for key filters and subscription mode.
+///
+/// Returns `""` when neither is set, otherwise `"?keys=...&mode=..."` with values properly
+/// percent-encoded (e.g. `:` -> `%3A`, `,` -> `%2C`). Mirrors the Python client's `_ws_query`.
+pub(crate) fn ws_query(keys: Option<&str>, mode: Option<&str>) -> String {
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    let mut any = false;
+    if let Some(k) = keys {
+        serializer.append_pair("keys", k);
+        any = true;
+    }
+    if let Some(m) = mode {
+        serializer.append_pair("mode", m);
+        any = true;
+    }
+    if any {
+        format!("?{}", serializer.finish())
+    } else {
+        String::new()
+    }
+}
+
+#[cfg(test)]
+mod ws_query_tests {
+    use super::ws_query;
+
+    #[test]
+    fn test_ws_query_neither() {
+        assert_eq!(ws_query(None, None), "");
+    }
+
+    #[test]
+    fn test_ws_query_keys_only() {
+        assert_eq!(ws_query(Some("key1"), None), "?keys=key1");
+    }
+
+    #[test]
+    fn test_ws_query_mode_only() {
+        assert_eq!(ws_query(None, Some("patch")), "?mode=patch");
+    }
+
+    #[test]
+    fn test_ws_query_both() {
+        assert_eq!(ws_query(Some("key1"), Some("patch")), "?keys=key1&mode=patch");
+    }
+
+    #[test]
+    fn test_ws_query_encodes_colon_and_comma() {
+        // cacheId:key tokens and comma separators must be percent-encoded.
+        assert_eq!(ws_query(Some("c1:key1,c1:key2"), None), "?keys=c1%3Akey1%2Cc1%3Akey2");
     }
 }

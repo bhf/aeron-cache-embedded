@@ -147,3 +147,44 @@ export interface BulkCacheOpsResponse {
     requestId: string;
     operationResponses: CacheOperationResponse[];
 }
+
+// --- Inspection & management ---
+
+export interface PatchItemRequest {
+    value: string;
+}
+
+export interface PatchItemResponse {
+    cacheId: string;
+    key: string;
+    operationStatus: string;
+}
+
+export interface CancelItemRemovalResponse {
+    cacheId: string;
+    key: string;
+    operationStatus: string;
+}
+
+export interface CacheDetails {
+    cacheId: string;
+    itemCount: number;
+}
+
+export interface CacheStatsResponse {
+    totalOpsCount: number;
+    totalCachesCount: number;
+    totalItemsCount: number;
+    errorCount: number;
+}
+
+export interface CounterItem {
+    key: string;
+    value: number;
+}
+
+export interface GetCountersResponse {
+    cacheId: string;
+    operationStatus: string;
+    items: CounterItem[];
+}

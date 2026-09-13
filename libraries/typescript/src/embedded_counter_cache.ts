@@ -52,13 +52,14 @@ export class EmbeddedCounterCache {
         onMessage: (data: CounterUpdateEvent) => void,
         onError?: (err: any) => void,
         onStatusChange?: (status: 'Connected' | 'Disconnected') => void,
-        hydrate: boolean = false
+        hydrate: boolean = false,
+        keys?: string
     ): { close: () => void } {
         const wrappedOnMessage = (data: CounterUpdateEvent) => {
             this.updateLocalCache(data);
             onMessage(data);
         };
-        return this.client.subscribeCounter(this.cacheId, wrappedOnMessage, onError, onStatusChange, hydrate);
+        return this.client.subscribeCounter(this.cacheId, wrappedOnMessage, onError, onStatusChange, hydrate, keys);
     }
 
     private updateLocalCache(event: CounterUpdateEvent) {

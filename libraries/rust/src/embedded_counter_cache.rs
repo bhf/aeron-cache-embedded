@@ -148,7 +148,12 @@ impl<'a> EmbeddedCounterCache<'a> {
     }
 
     pub fn subscribe_ext(&self, hydrate: bool) -> Result<UpdatingCounterWebSocket, Box<dyn Error>> {
-        let socket = self.client.subscribe_counter_ext(&self.cache_id, hydrate)?;
+        self.subscribe_filtered(hydrate, None)
+    }
+
+    /// Subscribe with optional key filters. (Patch `mode` is cache-only, so counters take `keys` only.)
+    pub fn subscribe_filtered(&self, hydrate: bool, keys: Option<&str>) -> Result<UpdatingCounterWebSocket, Box<dyn Error>> {
+        let socket = self.client.subscribe_counter_filtered(&self.cache_id, hydrate, keys)?;
         Ok(UpdatingCounterWebSocket {
             socket,
             client_ws_url: self.client.ws_url.clone(),

@@ -12,7 +12,12 @@ import {
     BulkCacheOpsRequest,
     BulkCacheOpsResponse,
     CounterResponse,
-    CounterUpdateEvent
+    CounterUpdateEvent,
+    PatchItemResponse,
+    CancelItemRemovalResponse,
+    CacheDetails,
+    CacheStatsResponse,
+    GetCountersResponse
 } from './models';
 
 export { EmbeddedAeronCache };
@@ -110,6 +115,34 @@ export class AeronCacheClient {
         return this.handleResponse(response);
     }
 
+    // --- Additional Cache Operations ---
+
+    async patchItem(cacheId: string, key: string, value: string): Promise<PatchItemResponse> {
+        const response = await fetch(`${this.baseUrl}/api/v1/cache/${cacheId}/${key}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value })
+        });
+        return this.handleResponse(response);
+    }
+
+    async cancelItemRemoval(cacheId: string, key: string): Promise<CancelItemRemovalResponse> {
+        const response = await fetch(`${this.baseUrl}/api/v1/cache/${cacheId}/${key}/cancel-removal`, {
+            method: 'POST'
+        });
+        return this.handleResponse(response);
+    }
+
+    async getCaches(): Promise<CacheDetails[]> {
+        const response = await fetch(`${this.baseUrl}/api/v1/caches`);
+        return this.handleResponse(response);
+    }
+
+    async getStats(): Promise<CacheStatsResponse> {
+        const response = await fetch(`${this.baseUrl}/api/v1/stats`);
+        return this.handleResponse(response);
+    }
+
     getCache(cacheId: string): EmbeddedAeronCache {
         return new EmbeddedAeronCache(this, cacheId);
     }
@@ -188,34 +221,99 @@ export class AeronCacheClient {
         return this.handleResponse(response);
     }
 
+    // --- Additional Counter Operations ---
+
+    async getCounterItems(cacheId: string): Promise<GetCountersResponse> {
+        const response = await fetch(`${this.baseUrl}/api/v1/counters/${cacheId}`);
+        return this.handleResponse(response);
+    }
+
+    async clearCounterCache(cacheId: string): Promise<ClearCacheResponse> {
+        const response = await fetch(`${this.baseUrl}/api/v1/counters/${cacheId}`, {
+            method: 'PATCH'
+        });
+        return this.handleResponse(response);
+    }
+
+    async cancelCounterItemRemoval(cacheId: string, key: string): Promise<CancelItemRemovalResponse> {
+        const response = await fetch(`${this.baseUrl}/api/v1/counters/${cacheId}/${key}/cancel-removal`, {
+            method: 'POST'
+        });
+        return this.handleResponse(response);
+    }
+
+    async getCounterCaches(): Promise<CacheDetails[]> {
+        const response = await fetch(`${this.baseUrl}/api/v1/counters-caches`);
+        return this.handleResponse(response);
+    }
+
+    async getCounterStats(): Promise<CacheStatsResponse> {
+        const response = await fetch(`${this.baseUrl}/api/v1/counters-stats`);
+        return this.handleResponse(response);
+    }
+
     getCounterCache(cacheId: string): EmbeddedCounterCache {
         return new EmbeddedCounterCache(this, cacheId);
     }
 
+    /**
+     * Build the optional WebSocket query string for key filters and subscription mode.
+     * Mirrors the Python client's `_ws_query`. Each provided value is URL-encoded and only
+     * the params that are supplied are included.
+     * @param keys Optional comma-separated key filters; each token is `cacheId:key` or a bare `key`.
+     * @param mode Optional subscription mode, `'full'` (default) or `'patch'` (cache-only).
+     */
+    static wsQuery(keys?: string, mode?: 'full' | 'patch'): string {
+        const parts: string[] = [];
+        if (keys !== undefined && keys !== null) {
+            parts.push(`keys=${encodeURIComponent(keys)}`);
+        }
+        if (mode !== undefined && mode !== null) {
+            parts.push(`mode=${encodeURIComponent(mode)}`);
+        }
+        return parts.length ? `?${parts.join('&')}` : '';
+    }
+
+    /**
+     * Subscribe to updates for one or more caches.
+     * @param keys Optional key filter(s) — a comma-separated string of `cacheId:key` / bare `key` tokens.
+     * @param mode Optional subscription mode, `'full'` (default, ADD_ITEM events) or `'patch'`
+     *   (only changed fields, PATCH_ITEM events).
+     */
     subscribe(
         cacheIds: string,
         onMessage: (data: CacheUpdateEvent) => void,
         onError?: (err: any) => void,
         onStatusChange?: (status: 'Connected' | 'Disconnected') => void,
-        hydrate: boolean = false
+        hydrate: boolean = false,
+        keys?: string,
+        mode?: 'full' | 'patch'
     ): { close: () => void } {
         const prefix = hydrate ?
             (cacheIds.includes(',') ? '/api/ws/v1/caches/hydrate' : '/api/ws/v1/cache/hydrate') :
             (cacheIds.includes(',') ? '/api/ws/v1/caches' : '/api/ws/v1/cache');
-        return this.openSocket<CacheUpdateEvent>(`${prefix}/${cacheIds}`, onMessage, onError, onStatusChange);
+        const query = AeronCacheClient.wsQuery(keys, mode);
+        return this.openSocket<CacheUpdateEvent>(`${prefix}/${cacheIds}${query}`, onMessage, onError, onStatusChange);
     }
 
+    /**
+     * Subscribe to updates for one or more counter caches.
+     * @param keys Optional key filter(s) — a comma-separated string of `cacheId:key` / bare `key` tokens.
+     *   (Patch `mode` is cache-only and is not supported for counter subscriptions.)
+     */
     subscribeCounter(
         cacheIds: string,
         onMessage: (data: CounterUpdateEvent) => void,
         onError?: (err: any) => void,
         onStatusChange?: (status: 'Connected' | 'Disconnected') => void,
-        hydrate: boolean = false
+        hydrate: boolean = false,
+        keys?: string
     ): { close: () => void } {
         const prefix = hydrate ?
             (cacheIds.includes(',') ? '/api/ws/v1/counters/hydrate' : '/api/ws/v1/counter/hydrate') :
             (cacheIds.includes(',') ? '/api/ws/v1/counters' : '/api/ws/v1/counter');
-        return this.openSocket<CounterUpdateEvent>(`${prefix}/${cacheIds}`, onMessage, onError, onStatusChange);
+        const query = AeronCacheClient.wsQuery(keys);
+        return this.openSocket<CounterUpdateEvent>(`${prefix}/${cacheIds}${query}`, onMessage, onError, onStatusChange);
     }
 
     private openSocket<T>(

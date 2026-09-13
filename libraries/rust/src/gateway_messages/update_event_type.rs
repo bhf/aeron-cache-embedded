@@ -5,6 +5,7 @@ pub enum UpdateEventType {
     REMOVE_ITEM = 0x1_u8, 
     CLEAR_CACHE = 0x2_u8, 
     DELETE_CACHE = 0x3_u8, 
+    PATCH_ITEM = 0x4_u8, 
     #[default]
     NullVal = 0xff_u8, 
 }
@@ -16,6 +17,7 @@ impl From<u8> for UpdateEventType {
             0x1_u8 => Self::REMOVE_ITEM, 
             0x2_u8 => Self::CLEAR_CACHE, 
             0x3_u8 => Self::DELETE_CACHE, 
+            0x4_u8 => Self::PATCH_ITEM, 
             _ => Self::NullVal,
         }
     }
