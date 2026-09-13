@@ -22,6 +22,8 @@ import {
 
 export { EmbeddedAeronCache };
 export { EmbeddedCounterCache };
+export { AeronBidiClient, BidiError } from './bidi';
+export type { BidiSubscription, WsOp, SubscriptionMode } from './bidi';
 export * from './models';
 
 export class AeronCacheClient {
