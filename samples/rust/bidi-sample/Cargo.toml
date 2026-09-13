@@ -1,0 +1,7 @@
+[package]
+name = "bidi-sample"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aeron-cache-embedded-client = { path = "../../../libraries/rust" }
