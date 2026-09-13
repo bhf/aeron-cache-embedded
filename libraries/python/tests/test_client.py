@@ -1,3 +1,4 @@
+import json
 import pytest
 import responses
 from requests.exceptions import HTTPError
@@ -168,3 +169,71 @@ def test_put_timed_item(client):
     response = client.put_timed_item("test-cache", "my-key", "my-value", 1000)
     assert response.cacheId == "test-cache"
     assert response.operationStatus == "SUCCESS"
+
+@responses.activate
+def test_patch_item(client):
+    responses.add(
+        responses.PATCH,
+        "http://localhost:7070/api/v1/cache/test-cache/my-key",
+        json={"cacheId": "test-cache", "key": "my-key", "operationStatus": "SUCCESS"},
+        status=200
+    )
+
+    response = client.patch_item("test-cache", "my-key", '{"field":"newValue"}')
+    assert response.cacheId == "test-cache"
+    assert response.key == "my-key"
+    assert response.operationStatus == "SUCCESS"
+    body = json.loads(responses.calls[0].request.body)
+    assert body == {"value": '{"field":"newValue"}'}
+
+@responses.activate
+def test_cancel_item_removal(client):
+    responses.add(
+        responses.POST,
+        "http://localhost:7070/api/v1/cache/test-cache/my-key/cancel-removal",
+        json={"cacheId": "test-cache", "key": "my-key", "operationStatus": "SUCCESS"},
+        status=200
+    )
+
+    response = client.cancel_item_removal("test-cache", "my-key")
+    assert response.cacheId == "test-cache"
+    assert response.key == "my-key"
+    assert response.operationStatus == "SUCCESS"
+
+@responses.activate
+def test_get_caches(client):
+    responses.add(
+        responses.GET,
+        "http://localhost:7070/api/v1/caches",
+        json=[{"cacheId": "c1", "itemCount": 3}, {"cacheId": "c2", "itemCount": 0}],
+        status=200
+    )
+
+    caches = client.get_caches()
+    assert len(caches) == 2
+    assert caches[0].cacheId == "c1"
+    assert caches[0].itemCount == 3
+    assert caches[1].cacheId == "c2"
+
+@responses.activate
+def test_get_stats(client):
+    responses.add(
+        responses.GET,
+        "http://localhost:7070/api/v1/stats",
+        json={"totalOpsCount": 10, "totalCachesCount": 2, "totalItemsCount": 5, "errorCount": 1},
+        status=200
+    )
+
+    stats = client.get_stats()
+    assert stats.totalOpsCount == 10
+    assert stats.totalCachesCount == 2
+    assert stats.totalItemsCount == 5
+    assert stats.errorCount == 1
+
+def test_ws_query_builder():
+    assert AeronCacheClient._ws_query() == ""
+    assert AeronCacheClient._ws_query(keys="a,b") == "?keys=a%2Cb"
+    assert AeronCacheClient._ws_query(keys=["c1:k1", "k2"]) == "?keys=c1%3Ak1%2Ck2"
+    assert AeronCacheClient._ws_query(mode="patch") == "?mode=patch"
+    q = AeronCacheClient._ws_query(keys="k", mode="full")
+    assert q.startswith("?") and "keys=k" in q and "mode=full" in q

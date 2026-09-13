@@ -26,7 +26,7 @@ impl UpdatingWebSocket {
                         if let Ok(event) = serde_json::from_str::<CacheUpdateEvent>(text) {
                             if let Ok(mut cache) = self.local_cache.write() {
                                 match event.event_type.as_str() {
-                                    "ADD_ITEM" => {
+                                    "ADD_ITEM" | "PATCH_ITEM" => {
                                         if let (Some(k), Some(v)) = (event.item_key, event.item_value) {
                                             cache.insert(k, v);
                                         }
@@ -124,7 +124,13 @@ impl<'a> EmbeddedAeronCache<'a> {
     }
 
     pub fn subscribe_ext(&self, hydrate: bool) -> Result<UpdatingWebSocket, Box<dyn Error>> {
-        let socket = self.client.subscribe_ext(&self.cache_id, hydrate)?;
+        self.subscribe_filtered(hydrate, None, None)
+    }
+
+    /// Subscribe with optional key filters and subscription mode (`"full"` / `"patch"`).
+    /// `PATCH_ITEM` events update the local mirror just like `ADD_ITEM`.
+    pub fn subscribe_filtered(&self, hydrate: bool, keys: Option<&str>, mode: Option<&str>) -> Result<UpdatingWebSocket, Box<dyn Error>> {
+        let socket = self.client.subscribe_filtered(&self.cache_id, hydrate, keys, mode)?;
         Ok(UpdatingWebSocket {
             socket,
             client_ws_url: self.client.ws_url.clone(),

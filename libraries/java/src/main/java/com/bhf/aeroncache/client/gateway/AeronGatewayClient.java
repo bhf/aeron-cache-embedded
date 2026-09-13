@@ -2,8 +2,13 @@ package com.bhf.aeroncache.client.gateway;
 
 import com.bhf.aeroncache.client.CacheTransport;
 import com.bhf.aeroncache.gateway.messages.OperationStatus;
+import com.bhf.aeroncache.gateway.messages.SubscriptionMode;
 import com.bhf.aeroncache.gateway.messages.UpdateEventType;
+import com.bhf.aeroncache.models.BulkCacheOpsRequest;
+import com.bhf.aeroncache.models.BulkCacheOpsResponse;
 import com.bhf.aeroncache.models.CacheItem;
+import com.bhf.aeroncache.models.CacheOperationRequest;
+import com.bhf.aeroncache.models.CacheOperationResponse;
 import com.bhf.aeroncache.models.CacheUpdateEvent;
 import com.bhf.aeroncache.models.CounterUpdateEvent;
 import com.bhf.aeroncache.models.CreateResponse;
@@ -14,6 +19,8 @@ import com.bhf.aeroncache.models.GetItemResponse;
 import com.bhf.aeroncache.models.CounterResponse;
 import com.bhf.aeroncache.models.ClearCacheResponse;
 import com.bhf.aeroncache.models.PutItemResponse;
+import com.bhf.aeroncache.models.PatchItemResponse;
+import com.bhf.aeroncache.models.CancelItemRemovalResponse;
 import io.aeron.Aeron;
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.AgentRunner;
@@ -49,6 +56,8 @@ import java.util.function.Consumer;
  */
 public class AeronGatewayClient implements CacheTransport, AutoCloseable {
 
+    private static final System.Logger LOG = System.getLogger(AeronGatewayClient.class.getName());
+
     /** Default gateway request endpoint port (see the server's GatewayApplication). */
     public static final int DEFAULT_REQUEST_PORT = 7075;
     /** Default gateway response control endpoint port. */
@@ -75,6 +84,10 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     private final Map<String, EntriesAccumulator> pendingEntries = new ConcurrentHashMap<>();
     // correlationId -> accumulating getStats request
     private final Map<String, StatsAccumulator> pendingStats = new ConcurrentHashMap<>();
+    // correlationId -> pending bulk-operations request
+    private final Map<String, CompletableFuture<BulkCacheOpsResponse>> pendingBulk = new ConcurrentHashMap<>();
+    // subscribe correlationId -> pending subscribe-ack barrier
+    private final Map<String, CompletableFuture<Void>> pendingSubscribeAcks = new ConcurrentHashMap<>();
 
     // cacheId -> subscription listeners
     private final Map<String, List<Consumer<CacheUpdateEvent>>> cacheListeners = new ConcurrentHashMap<>();
@@ -210,6 +223,24 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         return await(putTimedItemAsync(cacheId, key, value, ttl));
     }
 
+    public CompletableFuture<PatchItemResponse> patchItemAsync(String cacheId, String key, String value) {
+        return command(cid -> gatewayClient.patchEntry(cid, cacheId, key, value),
+                (status, cId, k, v) -> patchItemResponse(cId, k, status));
+    }
+
+    public PatchItemResponse patchItem(String cacheId, String key, String value) throws Exception {
+        return await(patchItemAsync(cacheId, key, value));
+    }
+
+    public CompletableFuture<CancelItemRemovalResponse> cancelItemRemovalAsync(String cacheId, String key) {
+        return command(cid -> gatewayClient.cancelItemRemoval(cid, cacheId, key),
+                (status, cId, k, v) -> cancelItemRemovalResponse(cId, k, status));
+    }
+
+    public CancelItemRemovalResponse cancelItemRemoval(String cacheId, String key) throws Exception {
+        return await(cancelItemRemovalAsync(cacheId, key));
+    }
+
     public CompletableFuture<GetItemResponse> getItemAsync(String cacheId, String key) {
         return command(cid -> gatewayClient.getEntry(cid, cacheId, key),
                 (status, cId, k, v) -> getItemResponse(cId, k, v, status));
@@ -272,6 +303,31 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         return await(getStatsAsync());
     }
 
+    // ------------------------------------------------------------------ bulk operations
+
+    /**
+     * Apply a batch of cache/counter operations atomically, mirroring
+     * {@link com.bhf.aeroncache.client.AeronCacheClient#bulkOpsAsync}. The whole batch rides a single
+     * bulk request/response round trip over the gateway connection; results arrive in request order,
+     * each echoing its operation's {@code requestId}.
+     */
+    public CompletableFuture<BulkCacheOpsResponse> bulkOpsAsync(BulkCacheOpsRequest req) {
+        final String cid = UUID.randomUUID().toString();
+        final CompletableFuture<BulkCacheOpsResponse> future = new CompletableFuture<>();
+        pendingBulk.put(cid, future);
+        scheduleTimeout(cid, future);
+        final List<CacheOperationRequest> ops = req.getOperations() == null ? List.of() : req.getOperations();
+        offer(() -> gatewayClient.bulkOps(cid, ops), future);
+        return future.thenApply(resp -> {
+            resp.setRequestId(req.getRequestId());
+            return resp;
+        });
+    }
+
+    public BulkCacheOpsResponse bulkOps(BulkCacheOpsRequest req) throws Exception {
+        return await(bulkOpsAsync(req));
+    }
+
     // ------------------------------------------------------------------ counter commands
 
     public CompletableFuture<CreateResponse> createCounterCacheAsync(String cacheId) {
@@ -316,6 +372,15 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
 
     public DeleteItemResponse deleteCounter(String cacheId, String key) throws Exception {
         return await(deleteCounterAsync(cacheId, key));
+    }
+
+    public CompletableFuture<CancelItemRemovalResponse> cancelCounterItemRemovalAsync(String cacheId, String key) {
+        return command(cid -> gatewayClient.cancelCounterItemRemoval(cid, cacheId, key),
+                (status, cId, k, v) -> cancelItemRemovalResponse(cId, k, status));
+    }
+
+    public CancelItemRemovalResponse cancelCounterItemRemoval(String cacheId, String key) throws Exception {
+        return await(cancelCounterItemRemovalAsync(cacheId, key));
     }
 
     public CompletableFuture<DeleteCacheResponse> deleteCounterCacheAsync(String cacheId) {
@@ -367,9 +432,29 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     }
 
     public GatewaySubscription subscribe(String cacheId, boolean sendSnapshot, Consumer<CacheUpdateEvent> listener) {
+        return subscribe(cacheId, sendSnapshot, SubscriptionMode.FULL, null, listener);
+    }
+
+    /**
+     * Subscribe to streaming updates for a regular cache with an explicit subscription {@code mode}
+     * ({@link SubscriptionMode#FULL} full values or {@link SubscriptionMode#PATCH} deltas) and an
+     * optional {@code key} filter. {@code PATCH_ITEM} updates arrive through the same
+     * {@link CacheUpdateEvent} channel (with {@code eventType == "PATCH_ITEM"}).
+     * <p>
+     * After sending the subscribe frame this best-effort waits up to the request timeout for the
+     * gateway's {@code GatewaySubscribeAck}, then returns regardless — servers that do not emit an ack
+     * proceed after a logged warning.
+     *
+     * @return an {@link AutoCloseable} handle; closing it unsubscribes.
+     */
+    public GatewaySubscription subscribe(String cacheId, boolean sendSnapshot, SubscriptionMode mode, String key,
+                                         Consumer<CacheUpdateEvent> listener) {
         cacheListeners.computeIfAbsent(cacheId, k -> new CopyOnWriteArrayList<>()).add(listener);
         final String cid = UUID.randomUUID().toString();
-        offer(() -> gatewayClient.subscribe(cid, List.of(cacheId), sendSnapshot, false), null);
+        final CompletableFuture<Void> ack = new CompletableFuture<>();
+        pendingSubscribeAcks.put(cid, ack);
+        offer(() -> gatewayClient.subscribe(cid, List.of(cacheId), sendSnapshot, false, mode, key), null);
+        awaitSubscribeAck(cid, ack);
         return new GatewaySubscription(cacheId, false, () -> {
             removeListener(cacheListeners, cacheId, listener);
             offer(() -> gatewayClient.unsubscribe(UUID.randomUUID().toString(), cacheId, false), null);
@@ -389,7 +474,10 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     public GatewaySubscription subscribeCounter(String cacheId, boolean sendSnapshot, Consumer<CounterUpdateEvent> listener) {
         counterListeners.computeIfAbsent(cacheId, k -> new CopyOnWriteArrayList<>()).add(listener);
         final String cid = UUID.randomUUID().toString();
-        offer(() -> gatewayClient.subscribe(cid, List.of(cacheId), sendSnapshot, true), null);
+        final CompletableFuture<Void> ack = new CompletableFuture<>();
+        pendingSubscribeAcks.put(cid, ack);
+        offer(() -> gatewayClient.subscribe(cid, List.of(cacheId), sendSnapshot, true, SubscriptionMode.FULL, null), null);
+        awaitSubscribeAck(cid, ack);
         return new GatewaySubscription(cacheId, true, () -> {
             removeListener(counterListeners, cacheId, listener);
             offer(() -> gatewayClient.unsubscribe(UUID.randomUUID().toString(), cacheId, true), null);
@@ -486,9 +574,30 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
                 pendingCommands.remove(correlationId);
                 pendingEntries.remove(correlationId);
                 pendingStats.remove(correlationId);
+                pendingBulk.remove(correlationId);
                 future.completeExceptionally(new TimeoutException("Gateway request timed out: " + correlationId));
             }
         }, requestTimeoutMs, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Best-effort wait for a subscribe acknowledgement, up to the request timeout. On timeout (or any
+     * other failure) a warning is logged and control returns so the subscription proceeds regardless —
+     * graceful for gateways that do not emit a {@code GatewaySubscribeAck}.
+     */
+    private void awaitSubscribeAck(String correlationId, CompletableFuture<Void> ack) {
+        try {
+            ack.get(requestTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            LOG.log(System.Logger.Level.WARNING,
+                    "No subscribe ack received for {0} within {1}ms; proceeding", correlationId, requestTimeoutMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (java.util.concurrent.ExecutionException e) {
+            // Barrier failed (e.g. client closed); proceed regardless.
+        } finally {
+            pendingSubscribeAcks.remove(correlationId);
+        }
     }
 
     private <T> T await(CompletableFuture<T> future) throws Exception {
@@ -520,6 +629,10 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         pendingEntries.clear();
         pendingStats.values().forEach(a -> a.future.completeExceptionally(cause));
         pendingStats.clear();
+        pendingBulk.values().forEach(f -> f.completeExceptionally(cause));
+        pendingBulk.clear();
+        pendingSubscribeAcks.values().forEach(f -> f.completeExceptionally(cause));
+        pendingSubscribeAcks.clear();
     }
 
     private static ThreadFactory daemonFactory(String name) {
@@ -559,6 +672,22 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
 
     private static DeleteItemResponse deleteItemResponse(String cacheId, String key, OperationStatus status) {
         final DeleteItemResponse r = new DeleteItemResponse();
+        r.setCacheId(cacheId);
+        r.setKey(key);
+        r.setOperationStatus(status.name());
+        return r;
+    }
+
+    private static PatchItemResponse patchItemResponse(String cacheId, String key, OperationStatus status) {
+        final PatchItemResponse r = new PatchItemResponse();
+        r.setCacheId(cacheId);
+        r.setKey(key);
+        r.setOperationStatus(status.name());
+        return r;
+    }
+
+    private static CancelItemRemovalResponse cancelItemRemovalResponse(String cacheId, String key, OperationStatus status) {
+        final CancelItemRemovalResponse r = new CancelItemRemovalResponse();
         r.setCacheId(cacheId);
         r.setKey(key);
         r.setOperationStatus(status.name());
@@ -682,6 +811,25 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         }
 
         @Override
+        public void onSubscribeAck(String correlationId, OperationStatus status, List<String> cacheIds) {
+            final CompletableFuture<Void> ack = pendingSubscribeAcks.remove(correlationId);
+            if (ack != null) {
+                ack.complete(null);
+            }
+        }
+
+        @Override
+        public void onBulkResponse(String correlationId, List<CacheOperationResponse> operations) {
+            final CompletableFuture<BulkCacheOpsResponse> future = pendingBulk.remove(correlationId);
+            if (future == null) {
+                return;
+            }
+            final BulkCacheOpsResponse response = new BulkCacheOpsResponse();
+            response.setOperationResponses(new ArrayList<>(operations));
+            future.complete(response);
+        }
+
+        @Override
         public void onError(String correlationId, OperationStatus status, String message) {
             final GatewayException error = new GatewayException(status, message);
             final PendingCommand<?> pending = pendingCommands.remove(correlationId);
@@ -697,6 +845,16 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
             final StatsAccumulator stats = pendingStats.remove(correlationId);
             if (stats != null) {
                 stats.future.completeExceptionally(error);
+                return;
+            }
+            final CompletableFuture<BulkCacheOpsResponse> bulk = pendingBulk.remove(correlationId);
+            if (bulk != null) {
+                bulk.completeExceptionally(error);
+                return;
+            }
+            final CompletableFuture<Void> ack = pendingSubscribeAcks.remove(correlationId);
+            if (ack != null) {
+                ack.completeExceptionally(error);
             }
         }
     }

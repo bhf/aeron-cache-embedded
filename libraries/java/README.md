@@ -51,6 +51,24 @@ System.out.println(counters.get("requests").getValue());
 
 Counter operations are also available via `bulkOps` using the counter `BulkOperationType` values and the `counterValue` field on `CacheOperationRequest`.
 
+## Inspection & management operations
+
+Beyond basic CRUD, the client exposes the full HTTP management surface (each has an `*Async` `CompletableFuture` variant):
+
+```java
+client.patchItem("my-cache", "doc", "{\"b\":2}"); // deep-merge into an existing item
+client.cancelItemRemoval("my-cache", "key");        // cancel a scheduled TTL removal
+client.getCaches();                                 // -> List<CacheDetails> (cacheId, itemCount)
+client.getStats();                                  // -> CacheStatsResponse (totals + errorCount)
+
+// Counter equivalents:
+client.getCounterItems("counter-cache");            // -> GetCountersResponse (items: List<CounterItem>)
+client.clearCounterCache("counter-cache");
+client.cancelCounterItemRemoval("counter-cache", "key");
+client.getCounterCaches();                           // -> List<CacheDetails>
+client.getCounterStats();                            // -> CacheStatsResponse
+```
+
 ## Transports: HTTP+WS or Aeron
 
 The library offers two transports for the same operations. Pick whichever suits your deployment — you can even use both:

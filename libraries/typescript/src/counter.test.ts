@@ -139,4 +139,60 @@ describe('AeronCacheClient counters', () => {
         (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500, statusText: 'Internal Server Error' });
         await expect(client.getCounter('test-counter', 'hits')).rejects.toThrow('HTTP Error: 500');
     });
+
+    it('should get counter items', async () => {
+        mockJson({
+            cacheId: 'test-counter',
+            operationStatus: 'SUCCESS',
+            items: [{ key: 'hits', value: 42 }, { key: 'misses', value: 7 }]
+        });
+
+        const response = await client.getCounterItems('test-counter');
+
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/counters/test-counter');
+        expect(response.cacheId).toBe('test-counter');
+        expect(response.items).toHaveLength(2);
+        expect(response.items[0].key).toBe('hits');
+        expect(response.items[0].value).toBe(42);
+    });
+
+    it('should clear counter cache', async () => {
+        mockJson({ cacheId: 'test-counter', operationStatus: 'SUCCESS' });
+
+        const response = await client.clearCounterCache('test-counter');
+
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/counters/test-counter', { method: 'PATCH' });
+        expect(response.operationStatus).toBe('SUCCESS');
+    });
+
+    it('should cancel counter item removal', async () => {
+        mockJson({ cacheId: 'test-counter', key: 'hits', operationStatus: 'SUCCESS' });
+
+        const response = await client.cancelCounterItemRemoval('test-counter', 'hits');
+
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/counters/test-counter/hits/cancel-removal', { method: 'POST' });
+        expect(response.cacheId).toBe('test-counter');
+        expect(response.key).toBe('hits');
+    });
+
+    it('should get counter caches', async () => {
+        mockJson([{ cacheId: 'cc1', itemCount: 4 }]);
+
+        const response = await client.getCounterCaches();
+
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/counters-caches');
+        expect(response).toHaveLength(1);
+        expect(response[0].cacheId).toBe('cc1');
+        expect(response[0].itemCount).toBe(4);
+    });
+
+    it('should get counter stats', async () => {
+        mockJson({ totalOpsCount: 3, totalCachesCount: 1, totalItemsCount: 4, errorCount: 0 });
+
+        const response = await client.getCounterStats();
+
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/counters-stats');
+        expect(response.totalItemsCount).toBe(4);
+        expect(response.totalCachesCount).toBe(1);
+    });
 });

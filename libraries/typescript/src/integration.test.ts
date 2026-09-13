@@ -265,4 +265,170 @@ if (shouldRun && !wsUrl) {
             const ws = counters.subscribe(onMessage, () => {}, onStatusChange);
         });
     }, 15000);
+
+    test('patch_item deep-merges document', async () => {
+        const cacheId = `it-patch-${Date.now()}`;
+        await client.createCache(cacheId);
+
+        await client.putItem(cacheId, 'doc', '{"a":1}');
+        const patchResp = await client.patchItem(cacheId, 'doc', '{"b":2}');
+        expect(patchResp.cacheId).toBe(cacheId);
+        expect(patchResp.key).toBe('doc');
+
+        const getResp = await client.getItem(cacheId, 'doc');
+        // deep-merge should retain both fields
+        expect(getResp.value).toContain('"a"');
+        expect(getResp.value).toContain('"b"');
+    });
+
+    test('cancel_item_removal keeps a timed item', async () => {
+        const cacheId = `it-cancel-${Date.now()}`;
+        await client.createCache(cacheId);
+
+        await client.putTimedItem(cacheId, 'keep', 'val', 2000);
+        const cancelResp = await client.cancelItemRemoval(cacheId, 'keep');
+        expect(cancelResp.cacheId).toBe(cacheId);
+        expect(cancelResp.key).toBe('keep');
+
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const getResp = await client.getItem(cacheId, 'keep');
+        expect(getResp.value).toBe('val');
+    }, 10000);
+
+    test('get_caches_and_stats behaves correctly', async () => {
+        const cacheId = `it-caches-${Date.now()}`;
+        await client.createCache(cacheId);
+        await client.putItem(cacheId, 'k', 'v');
+
+        const caches = await client.getCaches();
+        expect(caches.some(c => c.cacheId === cacheId)).toBeTruthy();
+
+        const stats = await client.getStats();
+        expect(stats.totalCachesCount).toBeGreaterThanOrEqual(1);
+        expect(stats.totalItemsCount).toBeGreaterThanOrEqual(1);
+    });
+
+    test('get_counter_items_and_clear behaves correctly', async () => {
+        const cacheId = `it-citems-${Date.now()}`;
+        await client.createCounterCache(cacheId);
+        await client.putCounter(cacheId, 'a', 1);
+        await client.putCounter(cacheId, 'b', 2);
+
+        const resp = await client.getCounterItems(cacheId);
+        expect(resp.cacheId).toBe(cacheId);
+        expect(resp.items.length).toBe(2);
+
+        const clearResp = await client.clearCounterCache(cacheId);
+        expect(clearResp.operationStatus).toBe('SUCCESS');
+    });
+
+    test('cancel_counter_item_removal keeps a timed counter', async () => {
+        const cacheId = `it-ccancel-${Date.now()}`;
+        await client.createCounterCache(cacheId);
+
+        await client.putTimedCounter(cacheId, 'keep', 9, 2000);
+        const cancelResp = await client.cancelCounterItemRemoval(cacheId, 'keep');
+        expect(cancelResp.cacheId).toBe(cacheId);
+        expect(cancelResp.key).toBe('keep');
+
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        expect((await client.getCounter(cacheId, 'keep')).value).toBe(9);
+    }, 10000);
+
+    test('get_counter_caches_and_stats behaves correctly', async () => {
+        const cacheId = `it-ccaches-${Date.now()}`;
+        await client.createCounterCache(cacheId);
+        await client.putCounter(cacheId, 'k', 1);
+
+        const caches = await client.getCounterCaches();
+        expect(caches.some(c => c.cacheId === cacheId)).toBeTruthy();
+
+        const stats = await client.getCounterStats();
+        expect(stats.totalCachesCount).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should filter websocket events by key', async () => {
+        const cacheId = `it-ws-keys-${Math.random().toString(36).substring(7)}`;
+        await client.createCache(cacheId);
+
+        const received: string[] = [];
+
+        return new Promise<void>((resolve, reject) => {
+            let opened = false;
+
+            const timeout = setTimeout(() => {
+                ws.close();
+                try {
+                    expect(received).toContain('key1');
+                    expect(received).not.toContain('key2');
+                    resolve();
+                } catch (e) {
+                    reject(e);
+                }
+            }, 4000);
+
+            const onMessage = (event: any) => {
+                if (event.eventType === 'ADD_ITEM' && event.itemKey) {
+                    received.push(event.itemKey);
+                }
+            };
+
+            const onStatusChange = (status: 'Connected' | 'Disconnected') => {
+                if (status === 'Connected' && !opened) {
+                    opened = true;
+                    setTimeout(() => {
+                        Promise.all([
+                            client.putItem(cacheId, 'key1', 'v1'),
+                            client.putItem(cacheId, 'key2', 'v2')
+                        ]).catch(err => {
+                            clearTimeout(timeout);
+                            ws.close();
+                            reject(err);
+                        });
+                    }, 1000);
+                }
+            };
+
+            // Subscribe filtered to only "key1".
+            const ws = client.subscribe(cacheId, onMessage, () => {}, onStatusChange, false, 'key1');
+        });
+    }, 15000);
+
+    it('should receive PATCH_ITEM events in patch mode', async () => {
+        const cacheId = `it-ws-patch-${Math.random().toString(36).substring(7)}`;
+        await client.createCache(cacheId);
+        await client.putItem(cacheId, 'doc', '{"a":1}');
+
+        return new Promise<void>((resolve, reject) => {
+            let opened = false;
+
+            const timeout = setTimeout(() => {
+                ws.close();
+                reject(new Error('PATCH_ITEM event not received within timeout'));
+            }, 8000);
+
+            const onMessage = (event: any) => {
+                if (event.eventType === 'PATCH_ITEM' && event.itemKey === 'doc') {
+                    clearTimeout(timeout);
+                    ws.close();
+                    resolve();
+                }
+            };
+
+            const onStatusChange = (status: 'Connected' | 'Disconnected') => {
+                if (status === 'Connected' && !opened) {
+                    opened = true;
+                    setTimeout(() => {
+                        client.patchItem(cacheId, 'doc', '{"b":2}').catch(err => {
+                            clearTimeout(timeout);
+                            ws.close();
+                            reject(err);
+                        });
+                    }, 1000);
+                }
+            };
+
+            const ws = client.subscribe(cacheId, onMessage, () => {}, onStatusChange, false, undefined, 'patch');
+        });
+    }, 15000);
 });

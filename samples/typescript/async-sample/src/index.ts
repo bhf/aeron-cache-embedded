@@ -55,6 +55,33 @@ async function main() {
     } catch (err) {
         console.error(err);
     }
+
+    // --- Inspection & management operations ---
+    try {
+        console.log("Patching 'doc' (deep-merge)");
+        await cacheClient.putItem('streaming-sample-cache', 'doc', '{"a":1}');
+        const patchResp = await cacheClient.patchItem('streaming-sample-cache', 'doc', '{"b":2}');
+        console.log(`Patch status: ${patchResp.operationStatus}`);
+        console.log(`Doc after patch: ${(await cacheClient.getItem('streaming-sample-cache', 'doc')).value}`);
+
+        console.log('Listing all caches:');
+        for (const details of await cacheClient.getCaches()) {
+            console.log(`  - ${details.cacheId} (${details.itemCount} items)`);
+        }
+
+        const stats = await cacheClient.getStats();
+        console.log(`Cache stats: caches=${stats.totalCachesCount} items=${stats.totalItemsCount} ops=${stats.totalOpsCount} errors=${stats.errorCount}`);
+
+        console.log("Listing all counters in 'async-counter-cache':");
+        for (const item of (await cacheClient.getCounterItems('async-counter-cache')).items) {
+            console.log(`  - ${item.key} = ${item.value}`);
+        }
+
+        const counterStats = await cacheClient.getCounterStats();
+        console.log(`Counter stats: caches=${counterStats.totalCachesCount} items=${counterStats.totalItemsCount}`);
+    } catch (err) {
+        console.error(err);
+    }
 }
 
 main();

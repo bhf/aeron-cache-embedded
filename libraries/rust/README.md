@@ -63,6 +63,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Counter operations are also available via `bulk_ops` using the counter `BulkOperationType` variants and the `counter_value` field on `CacheOperationRequest`.
 
+## Inspection & management operations
+
+Beyond the basic CRUD, the HTTP client exposes operations for inspecting and managing caches and
+counters. Every method has an `_async` variant (e.g. `get_caches` / `get_caches_async`).
+
+```rust
+use aeron_cache_embedded_client::AeronCacheClient;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = AeronCacheClient::new(
+        "http://localhost:7070".to_string(),
+        "ws://localhost:7071".to_string(),
+    );
+
+    // Deep-merge JSON into an existing item.
+    client.patch_item("my-cache", "doc", r#"{"b":2}"#)?;
+
+    // Keep a timed item that was scheduled for removal.
+    client.cancel_item_removal("my-cache", "doc")?;
+
+    // Enumerate caches and read server-wide statistics.
+    for details in client.get_caches()? {
+        println!("{} ({} items)", details.cache_id, details.item_count);
+    }
+    let stats = client.get_stats()?;
+    println!("caches={} items={}", stats.total_caches_count, stats.total_items_count);
+
+    // Counter equivalents.
+    let counters = client.get_counter_items("my-counters")?;   // full snapshot
+    println!("{} counters", counters.items.len());
+    client.clear_counter_cache("my-counters")?;
+    client.cancel_counter_item_removal("my-counters", "hits")?;
+    let counter_caches = client.get_counter_caches()?;
+    let counter_stats = client.get_counter_stats()?;
+    println!("{} counter caches, {} items", counter_caches.len(), counter_stats.total_items_count);
+
+    Ok(())
+}
+```
+
+| Cache | Counter | HTTP |
+| --- | --- | --- |
+| `patch_item` | — | `PATCH /api/v1/cache/{id}/{key}` |
+| `cancel_item_removal` | `cancel_counter_item_removal` | `POST .../{key}/cancel-removal` |
+| `get_cache_items` | `get_counter_items` | `GET /api/v1/cache/{id}` · `GET /api/v1/counters/{id}` |
+| `clear_cache` | `clear_counter_cache` | `PATCH /api/v1/cache/{id}` · `PATCH /api/v1/counters/{id}` |
+| `get_caches` | `get_counter_caches` | `GET /api/v1/caches` · `GET /api/v1/counters-caches` |
+| `get_stats` | `get_counter_stats` | `GET /api/v1/stats` · `GET /api/v1/counters-stats` |
+
 ## Transports: HTTP+WS or Aeron
 
 The library offers two transports for the same cache and counter operations:

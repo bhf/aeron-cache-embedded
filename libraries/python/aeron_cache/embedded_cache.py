@@ -46,7 +46,7 @@ class EmbeddedAeronCache:
     async def clear_async(self) -> DeleteCacheResponse:
         return await self.client.delete_cache_async(self.cache_id)
 
-    async def subscribe(self, callback, hydrate: bool = False):
+    async def subscribe(self, callback, hydrate: bool = False, keys=None, mode=None):
         async def wrapped_callback(event: CacheUpdateEvent):
             self._update_local_cache(event)
             if callback:
@@ -55,11 +55,11 @@ class EmbeddedAeronCache:
                     await callback(event)
                 else:
                     callback(event)
-        return await self.client.subscribe(self.cache_id, wrapped_callback, hydrate=hydrate)
+        return await self.client.subscribe(self.cache_id, wrapped_callback, hydrate=hydrate, keys=keys, mode=mode)
 
     def _update_local_cache(self, event: CacheUpdateEvent):
         event_type = event.eventType
-        if event_type == 'ADD_ITEM':
+        if event_type in ('ADD_ITEM', 'PATCH_ITEM'):
             if event.itemKey and event.itemValue:
                 self.local_cache[event.itemKey] = event.itemValue
         elif event_type == 'REMOVE_ITEM':

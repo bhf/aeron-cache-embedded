@@ -2,6 +2,7 @@ package com.bhf.aeroncache.client.gateway;
 
 import com.bhf.aeroncache.gateway.messages.OperationStatus;
 import com.bhf.aeroncache.gateway.messages.UpdateEventType;
+import com.bhf.aeroncache.models.CacheOperationResponse;
 
 import java.util.List;
 import java.util.Map;
@@ -40,4 +41,19 @@ public interface GatewayClientListener {
      * An error correlated to a request.
      */
     void onError(String correlationId, OperationStatus status, String message);
+
+    /**
+     * Acknowledgement that a subscription is live (the cluster has registered it and updates for the
+     * requested caches will now be delivered). Emitted once per subscribe request. Default no-op so
+     * implementations that do not care about the ack barrier are unaffected.
+     */
+    default void onSubscribeAck(String correlationId, OperationStatus status, List<String> cacheIds) {
+    }
+
+    /**
+     * The response to a bulk-operations request, carrying one result per requested operation in request
+     * order. Default no-op so implementations that do not issue bulk requests are unaffected.
+     */
+    default void onBulkResponse(String correlationId, List<CacheOperationResponse> operations) {
+    }
 }

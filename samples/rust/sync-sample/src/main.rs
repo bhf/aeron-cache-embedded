@@ -57,5 +57,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Set 'requests' -> {}", counters.set("requests", 100)?.value);
     println!("Read counter 'requests': {}", counters.get("requests")?.value);
 
+    // --- Inspection & management operations ---
+    println!("Patching 'doc' (deep-merge)");
+    client.put_item(cache_id, "doc", r#"{"a":1}"#)?;
+    let patch_resp = client.patch_item(cache_id, "doc", r#"{"b":2}"#)?;
+    println!("Patch status: {}", patch_resp.operation_status);
+    println!("Doc after patch: {}", client.get_item(cache_id, "doc")?.value);
+
+    println!("Listing all caches:");
+    for details in client.get_caches()? {
+        println!("  - {} ({} items)", details.cache_id, details.item_count);
+    }
+
+    let stats = client.get_stats()?;
+    println!(
+        "Cache stats: caches={} items={} ops={} errors={}",
+        stats.total_caches_count, stats.total_items_count, stats.total_ops_count, stats.error_count
+    );
+
+    println!("Listing all counters in '{}':", counter_cache_id);
+    for item in client.get_counter_items(counter_cache_id)?.items {
+        println!("  - {} = {}", item.key, item.value);
+    }
+
+    let counter_stats = client.get_counter_stats()?;
+    println!(
+        "Counter stats: caches={} items={}",
+        counter_stats.total_caches_count, counter_stats.total_items_count
+    );
+
     Ok(())
 }

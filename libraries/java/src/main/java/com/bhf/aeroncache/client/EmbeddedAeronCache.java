@@ -110,13 +110,25 @@ public class EmbeddedAeronCache {
     }
 
     public ReconnectingWebSocket subscribe(AeronCacheSubscriber subscriber, boolean hydrate) {
+        return subscribe(subscriber, hydrate, null, null);
+    }
+
+    /**
+     * Subscribe over the HTTP WebSocket transport with an optional key filter and subscription mode.
+     *
+     * @param keys optional comma-separated key filter(s); each token is {@code cacheId:key} or a bare
+     *             {@code key}. Pass {@code null} for no filtering.
+     * @param mode optional subscription mode, {@code "full"} (default) or {@code "patch"} (emits
+     *             {@code PATCH_ITEM} events). Pass {@code null} for the server default.
+     */
+    public ReconnectingWebSocket subscribe(AeronCacheSubscriber subscriber, boolean hydrate, String keys, String mode) {
         if (httpClient == null) {
             throw new UnsupportedOperationException(
                     "The WebSocket-listener subscribe API requires the HTTP transport; "
                             + "use subscribe(Consumer<CacheUpdateEvent>) with the Aeron transport.");
         }
         subscriber.setInternalUpdater(this::updateLocalCache);
-        return httpClient.subscribe(cacheId, hydrate, subscriber);
+        return httpClient.subscribe(cacheId, hydrate, keys, mode, subscriber);
     }
 
     private void updateLocalCache(CacheUpdateEvent event) {
@@ -124,7 +136,7 @@ public class EmbeddedAeronCache {
         String key = event.getItemKey();
         String value = event.getItemValue();
 
-        if ("ADD_ITEM".equals(eventType)) {
+        if ("ADD_ITEM".equals(eventType) || "PATCH_ITEM".equals(eventType)) {
             if (key != null && value != null) {
                 localCache.put(key, value);
             }

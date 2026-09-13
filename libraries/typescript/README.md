@@ -49,3 +49,40 @@ console.log((await counters.get('requests')).value);
 ```
 
 Counter operations are also available via `bulkOps` using the counter `BulkOperationType` values and the `counterValue` field on `CacheOperationRequest`.
+
+## Inspection & management operations
+
+Beyond the basic CRUD surface, the client exposes operations for inspecting and managing caches and counters:
+
+```typescript
+const client = new AeronCacheClient('http://localhost:7070', 'ws://localhost:7071');
+
+// --- Caches ---
+// Deep-merge a JSON document into an existing item
+await client.patchItem('my-cache', 'doc', '{"b":2}');
+
+// Cancel a pending timed removal so the item is kept
+await client.cancelItemRemoval('my-cache', 'key');
+
+// List every cache with its item count
+const caches = await client.getCaches();       // CacheDetails[]
+
+// Server-wide cache statistics
+const stats = await client.getStats();          // CacheStatsResponse
+
+// --- Counters ---
+// List every counter in a cache
+const counters = await client.getCounterItems('counter-cache');  // GetCountersResponse
+
+// Clear all counters in a cache
+await client.clearCounterCache('counter-cache');
+
+// Cancel a pending timed removal of a counter
+await client.cancelCounterItemRemoval('counter-cache', 'hits');
+
+// List every counter cache with its item count
+const counterCaches = await client.getCounterCaches();  // CacheDetails[]
+
+// Server-wide counter statistics
+const counterStats = await client.getCounterStats();    // CacheStatsResponse
+```

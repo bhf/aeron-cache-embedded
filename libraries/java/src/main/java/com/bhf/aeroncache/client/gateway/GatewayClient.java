@@ -1,11 +1,16 @@
 package com.bhf.aeroncache.client.gateway;
 
+import com.bhf.aeroncache.gateway.messages.GatewayBulkResponseDecoder;
 import com.bhf.aeroncache.gateway.messages.GatewayCommandResponseDecoder;
 import com.bhf.aeroncache.gateway.messages.GatewayEntriesDecoder;
 import com.bhf.aeroncache.gateway.messages.GatewayErrorDecoder;
 import com.bhf.aeroncache.gateway.messages.GatewayStatsDecoder;
 import com.bhf.aeroncache.gateway.messages.GatewayStreamUpdateDecoder;
+import com.bhf.aeroncache.gateway.messages.GatewaySubscribeAckDecoder;
 import com.bhf.aeroncache.gateway.messages.MessageHeaderDecoder;
+import com.bhf.aeroncache.gateway.messages.SubscriptionMode;
+import com.bhf.aeroncache.models.CacheOperationRequest;
+import com.bhf.aeroncache.models.CacheOperationResponse;
 import io.aeron.Aeron;
 import io.aeron.ChannelUriStringBuilder;
 import io.aeron.ExclusivePublication;
@@ -79,6 +84,8 @@ public class GatewayClient implements Agent, AutoCloseable {
     private final GatewayStatsDecoder statsDecoder = new GatewayStatsDecoder();
     private final GatewayStreamUpdateDecoder streamUpdateDecoder = new GatewayStreamUpdateDecoder();
     private final GatewayErrorDecoder errorDecoder = new GatewayErrorDecoder();
+    private final GatewaySubscribeAckDecoder subscribeAckDecoder = new GatewaySubscribeAckDecoder();
+    private final GatewayBulkResponseDecoder bulkResponseDecoder = new GatewayBulkResponseDecoder();
     private final FragmentAssembler fragmentAssembler = new FragmentAssembler(this::onFragment);
 
     private ExclusivePublication publication;
@@ -195,6 +202,14 @@ public class GatewayClient implements Agent, AutoCloseable {
         return sendCommand(CacheRequestMessageTypes.ADD_CACHE_ENTRY_MSG_ID, ttl, 0L, correlationId, cacheId, key, value);
     }
 
+    public long patchEntry(String correlationId, String cacheId, String key, String value) {
+        return sendCommand(CacheRequestMessageTypes.PATCH_CACHE_ENTRY_MSG_ID, 0L, 0L, correlationId, cacheId, key, value);
+    }
+
+    public long cancelItemRemoval(String correlationId, String cacheId, String key) {
+        return sendCommand(CacheRequestMessageTypes.CANCEL_CACHE_ITEM_REMOVAL_MSG_ID, 0L, 0L, correlationId, cacheId, key, null);
+    }
+
     public long getEntry(String correlationId, String cacheId, String key) {
         return sendCommand(CacheRequestMessageTypes.GET_CACHE_ENTRY_MSG_ID, 0L, 0L, correlationId, cacheId, key, null);
     }
@@ -249,6 +264,10 @@ public class GatewayClient implements Agent, AutoCloseable {
         return sendCommand(CacheRequestMessageTypes.REMOVE_COUNTER_ENTRY_MSG_ID, 0L, 0L, correlationId, cacheId, key, null);
     }
 
+    public long cancelCounterItemRemoval(String correlationId, String cacheId, String key) {
+        return sendCommand(CacheRequestMessageTypes.CANCEL_COUNTER_ITEM_REMOVAL_MSG_ID, 0L, 0L, correlationId, cacheId, key, null);
+    }
+
     public long getCounterStats(String correlationId) {
         return sendCommand(CacheRequestMessageTypes.GET_COUNTER_STATS_MSG_ID, 0L, 0L, correlationId, null, null, null);
     }
@@ -273,8 +292,33 @@ public class GatewayClient implements Agent, AutoCloseable {
      * @param counters {@code true} to subscribe to counter caches, {@code false} for regular caches.
      */
     public long subscribe(String correlationId, List<String> cacheIds, boolean sendSnapshot, boolean counters) {
+        return subscribe(correlationId, cacheIds, sendSnapshot, counters, SubscriptionMode.FULL, null);
+    }
+
+    /**
+     * Subscribe to streaming updates for the given caches with an explicit subscription {@code mode}
+     * ({@link SubscriptionMode#FULL} full values or {@link SubscriptionMode#PATCH} deltas) and an optional
+     * per-cache {@code key} filter.
+     *
+     * @param counters {@code true} to subscribe to counter caches, {@code false} for regular caches.
+     */
+    public long subscribe(String correlationId, List<String> cacheIds, boolean sendSnapshot, boolean counters,
+                          SubscriptionMode mode, String key) {
         final MutableDirectBuffer buffer = encodeBuffer.get();
-        final int length = requestWriter.get().encodeSubscribe(buffer, correlationId, cacheIds, sendSnapshot, counters);
+        final int length = requestWriter.get().encodeSubscribe(buffer, correlationId, cacheIds, sendSnapshot, counters, mode, key);
+        return enqueue(buffer, length);
+    }
+
+    // ------------------------------------------------------------------ bulk operations
+
+    /**
+     * Send a batch of cache/counter operations, applied atomically in order by the cluster. The response
+     * arrives as a single {@code GatewayBulkResponse}, fanned out via
+     * {@link GatewayClientListener#onBulkResponse}.
+     */
+    public long bulkOps(String correlationId, List<CacheOperationRequest> ops) {
+        final MutableDirectBuffer buffer = encodeBuffer.get();
+        final int length = requestWriter.get().encodeBulkRequest(buffer, correlationId, ops);
         return enqueue(buffer, length);
     }
 
@@ -346,6 +390,10 @@ public class GatewayClient implements Agent, AutoCloseable {
             decodeStats(buffer, bodyOffset, blockLength, version);
         } else if (templateId == GatewayStreamUpdateDecoder.TEMPLATE_ID) {
             decodeStreamUpdate(buffer, bodyOffset, blockLength, version);
+        } else if (templateId == GatewaySubscribeAckDecoder.TEMPLATE_ID) {
+            decodeSubscribeAck(buffer, bodyOffset, blockLength, version);
+        } else if (templateId == GatewayBulkResponseDecoder.TEMPLATE_ID) {
+            decodeBulkResponse(buffer, bodyOffset, blockLength, version);
         } else if (templateId == GatewayErrorDecoder.TEMPLATE_ID) {
             decodeError(buffer, bodyOffset, blockLength, version);
         } else {
@@ -410,6 +458,37 @@ public class GatewayClient implements Agent, AutoCloseable {
         final String correlationId = streamUpdateDecoder.correlationId();
         for (GatewayClientListener listener : listeners) {
             listener.onStreamUpdate(correlationId, eventType, cacheId, key, value);
+        }
+    }
+
+    private void decodeSubscribeAck(DirectBuffer buffer, int offset, int blockLength, int version) {
+        subscribeAckDecoder.wrap(buffer, offset, blockLength, version);
+        final var status = subscribeAckDecoder.status();
+        final List<String> cacheIds = new java.util.ArrayList<>();
+        for (GatewaySubscribeAckDecoder.CacheIdsDecoder cacheId : subscribeAckDecoder.cacheIds()) {
+            cacheIds.add(cacheId.cacheId());
+        }
+        final String correlationId = subscribeAckDecoder.correlationId();
+        for (GatewayClientListener listener : listeners) {
+            listener.onSubscribeAck(correlationId, status, cacheIds);
+        }
+    }
+
+    private void decodeBulkResponse(DirectBuffer buffer, int offset, int blockLength, int version) {
+        bulkResponseDecoder.wrap(buffer, offset, blockLength, version);
+        final List<CacheOperationResponse> operations = new java.util.ArrayList<>();
+        for (GatewayBulkResponseDecoder.OperationsDecoder op : bulkResponseDecoder.operations()) {
+            final CacheOperationResponse response = new CacheOperationResponse();
+            response.setStatus(op.status().name());
+            response.setRequestId(op.requestId());
+            response.setCacheId(op.cacheId());
+            response.setKey(op.key());
+            response.setValue(op.value());
+            operations.add(response);
+        }
+        final String correlationId = bulkResponseDecoder.correlationId();
+        for (GatewayClientListener listener : listeners) {
+            listener.onBulkResponse(correlationId, operations);
         }
     }
 

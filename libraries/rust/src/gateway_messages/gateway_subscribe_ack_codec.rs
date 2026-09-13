@@ -1,10 +1,10 @@
 use crate::gateway_messages::*;
 
-pub use decoder::GatewaySubscribeDecoder;
-pub use encoder::GatewaySubscribeEncoder;
+pub use decoder::GatewaySubscribeAckDecoder;
+pub use encoder::GatewaySubscribeAckEncoder;
 
-pub const SBE_BLOCK_LENGTH: u16 = 2;
-pub const SBE_TEMPLATE_ID: u16 = 2;
+pub const SBE_BLOCK_LENGTH: u16 = 1;
+pub const SBE_TEMPLATE_ID: u16 = 15;
 pub const SBE_SCHEMA_ID: u16 = 7;
 pub const SBE_SCHEMA_VERSION: u16 = 0;
 pub const SBE_SEMANTIC_VERSION: &str = "0.1";
@@ -14,21 +14,21 @@ pub mod encoder {
     use message_header_codec::*;
 
     #[derive(Debug, Default)]
-    pub struct GatewaySubscribeEncoder<'a> {
+    pub struct GatewaySubscribeAckEncoder<'a> {
         buf: WriteBuf<'a>,
         initial_offset: usize,
         offset: usize,
         limit: usize,
     }
 
-    impl<'a> Writer<'a> for GatewaySubscribeEncoder<'a> {
+    impl<'a> Writer<'a> for GatewaySubscribeAckEncoder<'a> {
         #[inline]
         fn get_buf_mut(&mut self) -> &mut WriteBuf<'a> {
             &mut self.buf
         }
     }
 
-    impl<'a> Encoder<'a> for GatewaySubscribeEncoder<'a> {
+    impl<'a> Encoder<'a> for GatewaySubscribeAckEncoder<'a> {
         #[inline]
         fn get_limit(&self) -> usize {
             self.limit
@@ -40,7 +40,7 @@ pub mod encoder {
         }
     }
 
-    impl<'a> GatewaySubscribeEncoder<'a> {
+    impl<'a> GatewaySubscribeAckEncoder<'a> {
         pub fn wrap(mut self, buf: WriteBuf<'a>, offset: usize) -> Self {
             let limit = offset + SBE_BLOCK_LENGTH as usize;
             self.buf = buf;
@@ -66,19 +66,12 @@ pub mod encoder {
 
         /// REQUIRED enum
         #[inline]
-        pub fn send_snapshot(&mut self, value: boolean_type::BooleanType) {
+        pub fn status(&mut self, value: operation_status::OperationStatus) {
             let offset = self.offset;
             self.get_buf_mut().put_u8_at(offset, value as u8)
         }
 
-        /// REQUIRED enum
-        #[inline]
-        pub fn counters(&mut self, value: boolean_type::BooleanType) {
-            let offset = self.offset + 1;
-            self.get_buf_mut().put_u8_at(offset, value as u8)
-        }
-
-        /// GROUP ENCODER (id=10)
+        /// GROUP ENCODER (id=40)
         #[inline]
         pub fn cache_ids_encoder(self, count: u16, cache_ids_encoder: CacheIdsEncoder<Self>) -> CacheIdsEncoder<Self> {
             cache_ids_encoder.wrap(self, count)
@@ -149,7 +142,7 @@ pub mod encoder {
 
         #[inline]
         pub fn block_length() -> u16 {
-            1
+            0
         }
 
         #[inline]
@@ -174,26 +167,9 @@ pub mod encoder {
             }
         }
 
-        /// REQUIRED enum
-        #[inline]
-        pub fn mode(&mut self, value: subscription_mode::SubscriptionMode) {
-            let offset = self.offset;
-            self.get_buf_mut().put_u8_at(offset, value as u8)
-        }
-
         /// VAR_DATA ENCODER - character encoding: 'UTF-8'
         #[inline]
         pub fn cache_id(&mut self, value: &str) {
-            let limit = self.get_limit();
-            let data_length = value.len();
-            self.set_limit(limit + 4 + data_length);
-            self.get_buf_mut().put_u32_at(limit, data_length as u32);
-            self.get_buf_mut().put_slice_at(limit + 4, value.as_bytes());
-        }
-
-        /// VAR_DATA ENCODER - character encoding: 'UTF-8'
-        #[inline]
-        pub fn key(&mut self, value: &str) {
             let limit = self.get_limit();
             let data_length = value.len();
             self.set_limit(limit + 4 + data_length);
@@ -210,7 +186,7 @@ pub mod decoder {
     use message_header_codec::*;
 
     #[derive(Clone, Copy, Debug, Default)]
-    pub struct GatewaySubscribeDecoder<'a> {
+    pub struct GatewaySubscribeAckDecoder<'a> {
         buf: ReadBuf<'a>,
         initial_offset: usize,
         offset: usize,
@@ -219,21 +195,21 @@ pub mod decoder {
         pub acting_version: u16,
     }
 
-    impl<'a> ActingVersion for GatewaySubscribeDecoder<'a> {
+    impl<'a> ActingVersion for GatewaySubscribeAckDecoder<'a> {
         #[inline]
         fn acting_version(&self) -> u16 {
             self.acting_version
         }
     }
 
-    impl<'a> Reader<'a> for GatewaySubscribeDecoder<'a> {
+    impl<'a> Reader<'a> for GatewaySubscribeAckDecoder<'a> {
         #[inline]
         fn get_buf(&self) -> &ReadBuf<'a> {
             &self.buf
         }
     }
 
-    impl<'a> Decoder<'a> for GatewaySubscribeDecoder<'a> {
+    impl<'a> Decoder<'a> for GatewaySubscribeAckDecoder<'a> {
         #[inline]
         fn get_limit(&self) -> usize {
             self.limit
@@ -245,7 +221,7 @@ pub mod decoder {
         }
     }
 
-    impl<'a> GatewaySubscribeDecoder<'a> {
+    impl<'a> GatewaySubscribeAckDecoder<'a> {
         pub fn wrap(
             mut self,
             buf: ReadBuf<'a>,
@@ -283,17 +259,11 @@ pub mod decoder {
 
         /// REQUIRED enum
         #[inline]
-        pub fn send_snapshot(&self) -> boolean_type::BooleanType {
+        pub fn status(&self) -> operation_status::OperationStatus {
             self.get_buf().get_u8_at(self.offset).into()
         }
 
-        /// REQUIRED enum
-        #[inline]
-        pub fn counters(&self) -> boolean_type::BooleanType {
-            self.get_buf().get_u8_at(self.offset + 1).into()
-        }
-
-        /// GROUP DECODER (id=10)
+        /// GROUP DECODER (id=40)
         #[inline]
         pub fn cache_ids_decoder(self) -> CacheIdsDecoder<Self> {
             CacheIdsDecoder::default().wrap(self)
@@ -368,7 +338,7 @@ pub mod decoder {
             self
         }
 
-        /// group token - Token{signal=BEGIN_GROUP, name='cacheIds', referencedName='null', description='null', packageName='null', id=10, version=0, deprecated=0, encodedLength=1, offset=2, componentTokenCount=24, encoding=Encoding{presence=REQUIRED, primitiveType=null, byteOrder=LITTLE_ENDIAN, minValue=null, maxValue=null, nullValue=null, constValue=null, characterEncoding='null', epoch='null', timeUnit=null, semanticType='null'}}
+        /// group token - Token{signal=BEGIN_GROUP, name='cacheIds', referencedName='null', description='null', packageName='null', id=40, version=0, deprecated=0, encodedLength=0, offset=1, componentTokenCount=12, encoding=Encoding{presence=REQUIRED, primitiveType=null, byteOrder=LITTLE_ENDIAN, minValue=null, maxValue=null, nullValue=null, constValue=null, characterEncoding='null', epoch='null', timeUnit=null, semanticType='null'}}
         #[inline]
         pub fn parent(&mut self) -> SbeResult<P> {
             self.parent.take().ok_or(SbeErr::ParentNotSet)
@@ -400,12 +370,6 @@ pub mod decoder {
             }
         }
 
-        /// REQUIRED enum
-        #[inline]
-        pub fn mode(&self) -> subscription_mode::SubscriptionMode {
-            self.get_buf().get_u8_at(self.offset).into()
-        }
-
         /// VAR_DATA DECODER - character encoding: 'UTF-8'
         #[inline]
         pub fn cache_id_decoder(&mut self) -> (usize, usize) {
@@ -417,21 +381,6 @@ pub mod decoder {
 
         #[inline]
         pub fn cache_id_slice(&'a self, coordinates: (usize, usize)) -> &'a [u8] {
-            debug_assert!(self.get_limit() >= coordinates.0 + coordinates.1);
-            self.get_buf().get_slice_at(coordinates.0, coordinates.1)
-        }
-
-        /// VAR_DATA DECODER - character encoding: 'UTF-8'
-        #[inline]
-        pub fn key_decoder(&mut self) -> (usize, usize) {
-            let offset = self.parent.as_ref().expect("parent missing").get_limit();
-            let data_length = self.get_buf().get_u32_at(offset) as usize;
-            self.parent.as_mut().unwrap().set_limit(offset + 4 + data_length);
-            (offset + 4, data_length)
-        }
-
-        #[inline]
-        pub fn key_slice(&'a self, coordinates: (usize, usize)) -> &'a [u8] {
             debug_assert!(self.get_limit() >= coordinates.0 + coordinates.1);
             self.get_buf().get_slice_at(coordinates.0, coordinates.1)
         }

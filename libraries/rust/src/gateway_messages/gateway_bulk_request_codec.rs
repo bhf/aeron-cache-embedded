@@ -1,10 +1,10 @@
 use crate::gateway_messages::*;
 
-pub use decoder::GatewaySubscribeDecoder;
-pub use encoder::GatewaySubscribeEncoder;
+pub use decoder::GatewayBulkRequestDecoder;
+pub use encoder::GatewayBulkRequestEncoder;
 
-pub const SBE_BLOCK_LENGTH: u16 = 2;
-pub const SBE_TEMPLATE_ID: u16 = 2;
+pub const SBE_BLOCK_LENGTH: u16 = 0;
+pub const SBE_TEMPLATE_ID: u16 = 4;
 pub const SBE_SCHEMA_ID: u16 = 7;
 pub const SBE_SCHEMA_VERSION: u16 = 0;
 pub const SBE_SEMANTIC_VERSION: &str = "0.1";
@@ -14,21 +14,21 @@ pub mod encoder {
     use message_header_codec::*;
 
     #[derive(Debug, Default)]
-    pub struct GatewaySubscribeEncoder<'a> {
+    pub struct GatewayBulkRequestEncoder<'a> {
         buf: WriteBuf<'a>,
         initial_offset: usize,
         offset: usize,
         limit: usize,
     }
 
-    impl<'a> Writer<'a> for GatewaySubscribeEncoder<'a> {
+    impl<'a> Writer<'a> for GatewayBulkRequestEncoder<'a> {
         #[inline]
         fn get_buf_mut(&mut self) -> &mut WriteBuf<'a> {
             &mut self.buf
         }
     }
 
-    impl<'a> Encoder<'a> for GatewaySubscribeEncoder<'a> {
+    impl<'a> Encoder<'a> for GatewayBulkRequestEncoder<'a> {
         #[inline]
         fn get_limit(&self) -> usize {
             self.limit
@@ -40,7 +40,7 @@ pub mod encoder {
         }
     }
 
-    impl<'a> GatewaySubscribeEncoder<'a> {
+    impl<'a> GatewayBulkRequestEncoder<'a> {
         pub fn wrap(mut self, buf: WriteBuf<'a>, offset: usize) -> Self {
             let limit = offset + SBE_BLOCK_LENGTH as usize;
             self.buf = buf;
@@ -64,24 +64,10 @@ pub mod encoder {
             header
         }
 
-        /// REQUIRED enum
+        /// GROUP ENCODER (id=50)
         #[inline]
-        pub fn send_snapshot(&mut self, value: boolean_type::BooleanType) {
-            let offset = self.offset;
-            self.get_buf_mut().put_u8_at(offset, value as u8)
-        }
-
-        /// REQUIRED enum
-        #[inline]
-        pub fn counters(&mut self, value: boolean_type::BooleanType) {
-            let offset = self.offset + 1;
-            self.get_buf_mut().put_u8_at(offset, value as u8)
-        }
-
-        /// GROUP ENCODER (id=10)
-        #[inline]
-        pub fn cache_ids_encoder(self, count: u16, cache_ids_encoder: CacheIdsEncoder<Self>) -> CacheIdsEncoder<Self> {
-            cache_ids_encoder.wrap(self, count)
+        pub fn operations_encoder(self, count: u16, operations_encoder: OperationsEncoder<Self>) -> OperationsEncoder<Self> {
+            operations_encoder.wrap(self, count)
         }
 
         /// VAR_DATA ENCODER - character encoding: 'UTF-8'
@@ -97,7 +83,7 @@ pub mod encoder {
     }
 
     #[derive(Debug, Default)]
-    pub struct CacheIdsEncoder<P> {
+    pub struct OperationsEncoder<P> {
         parent: Option<P>,
         count: u16,
         index: usize,
@@ -105,7 +91,7 @@ pub mod encoder {
         initial_limit: usize,
     }
 
-    impl<'a, P> Writer<'a> for CacheIdsEncoder<P> where P: Writer<'a> + Default {
+    impl<'a, P> Writer<'a> for OperationsEncoder<P> where P: Writer<'a> + Default {
         #[inline]
         fn get_buf_mut(&mut self) -> &mut WriteBuf<'a> {
             if let Some(parent) = self.parent.as_mut() {
@@ -116,7 +102,7 @@ pub mod encoder {
         }
     }
 
-    impl<'a, P> Encoder<'a> for CacheIdsEncoder<P> where P: Encoder<'a> + Default {
+    impl<'a, P> Encoder<'a> for OperationsEncoder<P> where P: Encoder<'a> + Default {
         #[inline]
         fn get_limit(&self) -> usize {
             self.parent.as_ref().expect("parent missing").get_limit()
@@ -128,7 +114,7 @@ pub mod encoder {
         }
     }
 
-    impl<'a, P> CacheIdsEncoder<P> where P: Encoder<'a> + Default {
+    impl<'a, P> OperationsEncoder<P> where P: Encoder<'a> + Default {
         #[inline]
         pub fn wrap(
             mut self,
@@ -149,7 +135,7 @@ pub mod encoder {
 
         #[inline]
         pub fn block_length() -> u16 {
-            1
+            17
         }
 
         #[inline]
@@ -176,9 +162,49 @@ pub mod encoder {
 
         /// REQUIRED enum
         #[inline]
-        pub fn mode(&mut self, value: subscription_mode::SubscriptionMode) {
+        pub fn operation_type(&mut self, value: bulk_operation_type::BulkOperationType) {
             let offset = self.offset;
             self.get_buf_mut().put_u8_at(offset, value as u8)
+        }
+
+        /// primitive field 'ttl'
+        /// - min value: -9223372036854775807
+        /// - max value: 9223372036854775807
+        /// - null value: -9223372036854775808
+        /// - characterEncoding: null
+        /// - semanticType: null
+        /// - encodedOffset: 1
+        /// - encodedLength: 8
+        /// - version: 0
+        #[inline]
+        pub fn ttl(&mut self, value: i64) {
+            let offset = self.offset + 1;
+            self.get_buf_mut().put_i64_at(offset, value);
+        }
+
+        /// primitive field 'counterValue'
+        /// - min value: -9223372036854775807
+        /// - max value: 9223372036854775807
+        /// - null value: -9223372036854775808
+        /// - characterEncoding: null
+        /// - semanticType: null
+        /// - encodedOffset: 9
+        /// - encodedLength: 8
+        /// - version: 0
+        #[inline]
+        pub fn counter_value(&mut self, value: i64) {
+            let offset = self.offset + 9;
+            self.get_buf_mut().put_i64_at(offset, value);
+        }
+
+        /// VAR_DATA ENCODER - character encoding: 'UTF-8'
+        #[inline]
+        pub fn request_id(&mut self, value: &str) {
+            let limit = self.get_limit();
+            let data_length = value.len();
+            self.set_limit(limit + 4 + data_length);
+            self.get_buf_mut().put_u32_at(limit, data_length as u32);
+            self.get_buf_mut().put_slice_at(limit + 4, value.as_bytes());
         }
 
         /// VAR_DATA ENCODER - character encoding: 'UTF-8'
@@ -201,6 +227,16 @@ pub mod encoder {
             self.get_buf_mut().put_slice_at(limit + 4, value.as_bytes());
         }
 
+        /// VAR_DATA ENCODER - character encoding: 'UTF-8'
+        #[inline]
+        pub fn value(&mut self, value: &str) {
+            let limit = self.get_limit();
+            let data_length = value.len();
+            self.set_limit(limit + 4 + data_length);
+            self.get_buf_mut().put_u32_at(limit, data_length as u32);
+            self.get_buf_mut().put_slice_at(limit + 4, value.as_bytes());
+        }
+
     }
 
 } // end encoder
@@ -210,7 +246,7 @@ pub mod decoder {
     use message_header_codec::*;
 
     #[derive(Clone, Copy, Debug, Default)]
-    pub struct GatewaySubscribeDecoder<'a> {
+    pub struct GatewayBulkRequestDecoder<'a> {
         buf: ReadBuf<'a>,
         initial_offset: usize,
         offset: usize,
@@ -219,21 +255,21 @@ pub mod decoder {
         pub acting_version: u16,
     }
 
-    impl<'a> ActingVersion for GatewaySubscribeDecoder<'a> {
+    impl<'a> ActingVersion for GatewayBulkRequestDecoder<'a> {
         #[inline]
         fn acting_version(&self) -> u16 {
             self.acting_version
         }
     }
 
-    impl<'a> Reader<'a> for GatewaySubscribeDecoder<'a> {
+    impl<'a> Reader<'a> for GatewayBulkRequestDecoder<'a> {
         #[inline]
         fn get_buf(&self) -> &ReadBuf<'a> {
             &self.buf
         }
     }
 
-    impl<'a> Decoder<'a> for GatewaySubscribeDecoder<'a> {
+    impl<'a> Decoder<'a> for GatewayBulkRequestDecoder<'a> {
         #[inline]
         fn get_limit(&self) -> usize {
             self.limit
@@ -245,7 +281,7 @@ pub mod decoder {
         }
     }
 
-    impl<'a> GatewaySubscribeDecoder<'a> {
+    impl<'a> GatewayBulkRequestDecoder<'a> {
         pub fn wrap(
             mut self,
             buf: ReadBuf<'a>,
@@ -281,22 +317,10 @@ pub mod decoder {
             )
         }
 
-        /// REQUIRED enum
+        /// GROUP DECODER (id=50)
         #[inline]
-        pub fn send_snapshot(&self) -> boolean_type::BooleanType {
-            self.get_buf().get_u8_at(self.offset).into()
-        }
-
-        /// REQUIRED enum
-        #[inline]
-        pub fn counters(&self) -> boolean_type::BooleanType {
-            self.get_buf().get_u8_at(self.offset + 1).into()
-        }
-
-        /// GROUP DECODER (id=10)
-        #[inline]
-        pub fn cache_ids_decoder(self) -> CacheIdsDecoder<Self> {
-            CacheIdsDecoder::default().wrap(self)
+        pub fn operations_decoder(self) -> OperationsDecoder<Self> {
+            OperationsDecoder::default().wrap(self)
         }
 
         /// VAR_DATA DECODER - character encoding: 'UTF-8'
@@ -317,7 +341,7 @@ pub mod decoder {
     }
 
     #[derive(Debug, Default)]
-    pub struct CacheIdsDecoder<P> {
+    pub struct OperationsDecoder<P> {
         parent: Option<P>,
         block_length: u16,
         count: u16,
@@ -325,21 +349,21 @@ pub mod decoder {
         offset: usize,
     }
 
-    impl<'a, P> ActingVersion for CacheIdsDecoder<P> where P: Reader<'a> + ActingVersion + Default {
+    impl<'a, P> ActingVersion for OperationsDecoder<P> where P: Reader<'a> + ActingVersion + Default {
         #[inline]
         fn acting_version(&self) -> u16 {
             self.parent.as_ref().unwrap().acting_version()
         }
     }
 
-    impl<'a, P> Reader<'a> for CacheIdsDecoder<P> where P: Reader<'a> + Default {
+    impl<'a, P> Reader<'a> for OperationsDecoder<P> where P: Reader<'a> + Default {
         #[inline]
         fn get_buf(&self) -> &ReadBuf<'a> {
             self.parent.as_ref().expect("parent missing").get_buf()
         }
     }
 
-    impl<'a, P> Decoder<'a> for CacheIdsDecoder<P> where P: Decoder<'a> + ActingVersion + Default {
+    impl<'a, P> Decoder<'a> for OperationsDecoder<P> where P: Decoder<'a> + ActingVersion + Default {
         #[inline]
         fn get_limit(&self) -> usize {
             self.parent.as_ref().expect("parent missing").get_limit()
@@ -351,7 +375,7 @@ pub mod decoder {
         }
     }
 
-    impl<'a, P> CacheIdsDecoder<P> where P: Decoder<'a> + ActingVersion + Default {
+    impl<'a, P> OperationsDecoder<P> where P: Decoder<'a> + ActingVersion + Default {
         pub fn wrap(
             mut self,
             mut parent: P,
@@ -368,7 +392,7 @@ pub mod decoder {
             self
         }
 
-        /// group token - Token{signal=BEGIN_GROUP, name='cacheIds', referencedName='null', description='null', packageName='null', id=10, version=0, deprecated=0, encodedLength=1, offset=2, componentTokenCount=24, encoding=Encoding{presence=REQUIRED, primitiveType=null, byteOrder=LITTLE_ENDIAN, minValue=null, maxValue=null, nullValue=null, constValue=null, characterEncoding='null', epoch='null', timeUnit=null, semanticType='null'}}
+        /// group token - Token{signal=BEGIN_GROUP, name='operations', referencedName='null', description='null', packageName='null', id=50, version=0, deprecated=0, encodedLength=17, offset=0, componentTokenCount=59, encoding=Encoding{presence=REQUIRED, primitiveType=null, byteOrder=LITTLE_ENDIAN, minValue=null, maxValue=null, nullValue=null, constValue=null, characterEncoding='null', epoch='null', timeUnit=null, semanticType='null'}}
         #[inline]
         pub fn parent(&mut self) -> SbeResult<P> {
             self.parent.take().ok_or(SbeErr::ParentNotSet)
@@ -402,8 +426,35 @@ pub mod decoder {
 
         /// REQUIRED enum
         #[inline]
-        pub fn mode(&self) -> subscription_mode::SubscriptionMode {
+        pub fn operation_type(&self) -> bulk_operation_type::BulkOperationType {
             self.get_buf().get_u8_at(self.offset).into()
+        }
+
+        /// primitive field - 'REQUIRED'
+        #[inline]
+        pub fn ttl(&self) -> i64 {
+            self.get_buf().get_i64_at(self.offset + 1)
+        }
+
+        /// primitive field - 'REQUIRED'
+        #[inline]
+        pub fn counter_value(&self) -> i64 {
+            self.get_buf().get_i64_at(self.offset + 9)
+        }
+
+        /// VAR_DATA DECODER - character encoding: 'UTF-8'
+        #[inline]
+        pub fn request_id_decoder(&mut self) -> (usize, usize) {
+            let offset = self.parent.as_ref().expect("parent missing").get_limit();
+            let data_length = self.get_buf().get_u32_at(offset) as usize;
+            self.parent.as_mut().unwrap().set_limit(offset + 4 + data_length);
+            (offset + 4, data_length)
+        }
+
+        #[inline]
+        pub fn request_id_slice(&'a self, coordinates: (usize, usize)) -> &'a [u8] {
+            debug_assert!(self.get_limit() >= coordinates.0 + coordinates.1);
+            self.get_buf().get_slice_at(coordinates.0, coordinates.1)
         }
 
         /// VAR_DATA DECODER - character encoding: 'UTF-8'
@@ -432,6 +483,21 @@ pub mod decoder {
 
         #[inline]
         pub fn key_slice(&'a self, coordinates: (usize, usize)) -> &'a [u8] {
+            debug_assert!(self.get_limit() >= coordinates.0 + coordinates.1);
+            self.get_buf().get_slice_at(coordinates.0, coordinates.1)
+        }
+
+        /// VAR_DATA DECODER - character encoding: 'UTF-8'
+        #[inline]
+        pub fn value_decoder(&mut self) -> (usize, usize) {
+            let offset = self.parent.as_ref().expect("parent missing").get_limit();
+            let data_length = self.get_buf().get_u32_at(offset) as usize;
+            self.parent.as_mut().unwrap().set_limit(offset + 4 + data_length);
+            (offset + 4, data_length)
+        }
+
+        #[inline]
+        pub fn value_slice(&'a self, coordinates: (usize, usize)) -> &'a [u8] {
             debug_assert!(self.get_limit() >= coordinates.0 + coordinates.1);
             self.get_buf().get_slice_at(coordinates.0, coordinates.1)
         }

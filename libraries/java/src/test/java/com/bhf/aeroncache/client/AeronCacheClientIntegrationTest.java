@@ -280,6 +280,208 @@ public class AeronCacheClientIntegrationTest {
     }
 
     @Test
+    public void testPatchItem() throws Exception {
+        String cacheId = "it-patch-" + UUID.randomUUID().toString();
+        client.createCache(cacheId);
+
+        client.putItem(cacheId, "doc", "{\"a\":1}");
+        PatchItemResponse patchResp = client.patchItem(cacheId, "doc", "{\"b\":2}");
+        assertNotNull(patchResp);
+        assertEquals("doc", patchResp.getKey());
+
+        // Deep-merge: both fields should be present after the patch. Reads are eventually
+        // consistent on the cluster, so poll until the merged field is visible.
+        GetItemResponse getResp = null;
+        String value = "";
+        for (int i = 0; i < 25; i++) {
+            getResp = client.getItem(cacheId, "doc");
+            value = getResp.getValue() == null ? "" : getResp.getValue();
+            if (value.contains("\"b\":2")) {
+                break;
+            }
+            Thread.sleep(200);
+        }
+        assertTrue(value.contains("\"a\":1"), "Patched doc should retain original field: " + value);
+        assertTrue(value.contains("\"b\":2"), "Patched doc should contain merged field: " + value);
+    }
+
+    @Test
+    public void testCancelItemRemoval() throws Exception {
+        String cacheId = "it-cancel-" + UUID.randomUUID().toString();
+        client.createCache(cacheId);
+        EmbeddedAeronCache embedded = client.getCache(cacheId);
+
+        // Put a timed item, then cancel its scheduled removal so it survives past the TTL.
+        embedded.putTimed("keep-me", "val", 2000);
+        CancelItemRemovalResponse cancelResp = client.cancelItemRemoval(cacheId, "keep-me");
+        assertNotNull(cancelResp);
+        assertEquals("keep-me", cancelResp.getKey());
+
+        Thread.sleep(3000);
+
+        GetItemResponse getResp = client.getItem(cacheId, "keep-me");
+        assertEquals("val", getResp.getValue(), "Item should still be present after cancelling its removal");
+    }
+
+    @Test
+    public void testGetCachesAndStats() throws Exception {
+        String cacheId = "it-list-" + UUID.randomUUID().toString();
+        client.createCache(cacheId);
+        client.putItem(cacheId, "k1", "v1");
+        client.putItem(cacheId, "k2", "v2");
+
+        // The newly created cache should be listed. (getCaches() itemCount is a derived,
+        // eventually-consistent summary on the backend, so we don't assert on its exact value.)
+        java.util.List<CacheDetails> caches = client.getCaches();
+        assertNotNull(caches);
+        assertTrue(caches.stream().anyMatch(c -> cacheId.equals(c.getCacheId())),
+                "Newly created cache should appear in getCaches()");
+
+        CacheStatsResponse stats = client.getStats();
+        assertNotNull(stats);
+        assertTrue(stats.getTotalCachesCount() >= 1);
+    }
+
+    @Test
+    public void testGetCounterItemsAndClear() throws Exception {
+        String cacheId = "it-counter-list-" + UUID.randomUUID().toString();
+        client.createCounterCache(cacheId);
+        EmbeddedCounterCache counters = client.getCounterCache(cacheId);
+        counters.put("hits", 10);
+        counters.put("misses", 3);
+
+        GetCountersResponse getResp = client.getCounterItems(cacheId);
+        assertNotNull(getResp);
+        assertEquals(2, getResp.getItems().size());
+
+        ClearCacheResponse clearResp = client.clearCounterCache(cacheId);
+        assertNotNull(clearResp);
+        assertEquals("SUCCESS", clearResp.getOperationStatus());
+
+        GetCountersResponse getResp2 = client.getCounterItems(cacheId);
+        assertEquals(0, getResp2.getItems().size());
+    }
+
+    @Test
+    public void testCancelCounterItemRemoval() throws Exception {
+        String cacheId = "it-counter-cancel-" + UUID.randomUUID().toString();
+        client.createCounterCache(cacheId);
+        EmbeddedCounterCache counters = client.getCounterCache(cacheId);
+
+        counters.putTimed("keep-me", 5, 2000);
+        CancelItemRemovalResponse cancelResp = client.cancelCounterItemRemoval(cacheId, "keep-me");
+        assertNotNull(cancelResp);
+        assertEquals("keep-me", cancelResp.getKey());
+
+        Thread.sleep(3000);
+
+        assertEquals(5L, counters.get("keep-me").getValue(), "Counter should survive past TTL after cancelling removal");
+    }
+
+    @Test
+    public void testGetCounterCachesAndStats() throws Exception {
+        String cacheId = "it-counter-caches-" + UUID.randomUUID().toString();
+        client.createCounterCache(cacheId);
+        EmbeddedCounterCache counters = client.getCounterCache(cacheId);
+        counters.put("hits", 1);
+
+        java.util.List<CacheDetails> caches = client.getCounterCaches();
+        assertNotNull(caches);
+        assertTrue(caches.stream().anyMatch(c -> cacheId.equals(c.getCacheId())),
+                "Newly created counter cache should appear in getCounterCaches()");
+
+        CacheStatsResponse stats = client.getCounterStats();
+        assertNotNull(stats);
+        assertTrue(stats.getTotalCachesCount() >= 1);
+    }
+
+    @Test
+    public void testWebsocketKeyFilter() throws Exception {
+        String cacheId = "it-ws-keys-" + UUID.randomUUID().toString();
+        client.createCache(cacheId);
+
+        java.util.List<String> received = new java.util.concurrent.CopyOnWriteArrayList<>();
+        CountDownLatch openLatch = new CountDownLatch(1);
+        CountDownLatch key1Latch = new CountDownLatch(1);
+
+        AeronCacheSubscriber subscriber = new AeronCacheSubscriber() {
+            @Override
+            public void onOpen(java.net.http.WebSocket webSocket) {
+                super.onOpen(webSocket);
+                openLatch.countDown();
+            }
+
+            @Override
+            public void onAfterUpdate(CacheUpdateEvent event) {
+                if ("ADD_ITEM".equals(event.getEventType()) && event.getItemKey() != null) {
+                    received.add(event.getItemKey());
+                    if ("key1".equals(event.getItemKey())) {
+                        key1Latch.countDown();
+                    }
+                }
+            }
+        };
+
+        // Subscribe filtered to only "key1"
+        ReconnectingWebSocket ws = client.subscribe(cacheId, false, "key1", null, subscriber);
+        assertTrue(openLatch.await(5, TimeUnit.SECONDS), "Websocket failed to connect within timeout");
+
+        // Let the server register the subscription routing before publishing.
+        Thread.sleep(500);
+
+        client.putItem(cacheId, "key1", "v1");
+        client.putItem(cacheId, "key2", "v2");
+
+        // Wait for the (only expected) key1 event, then a grace period to catch any stray key2 event.
+        assertTrue(key1Latch.await(10, TimeUnit.SECONDS), "Expected ADD_ITEM for key1 within timeout");
+        Thread.sleep(1000);
+
+        assertTrue(received.contains("key1"), "Expected key1 event, got " + received);
+        assertFalse(received.contains("key2"), "key2 should be filtered out, got " + received);
+
+        client.deleteCache(cacheId);
+        ws.close();
+    }
+
+    @Test
+    public void testWebsocketPatchMode() throws Exception {
+        String cacheId = "it-ws-patch-" + UUID.randomUUID().toString();
+        client.createCache(cacheId);
+        client.putItem(cacheId, "doc", "{\"a\":1}");
+
+        CountDownLatch openLatch = new CountDownLatch(1);
+        CountDownLatch patchLatch = new CountDownLatch(1);
+
+        AeronCacheSubscriber subscriber = new AeronCacheSubscriber() {
+            @Override
+            public void onOpen(java.net.http.WebSocket webSocket) {
+                super.onOpen(webSocket);
+                openLatch.countDown();
+            }
+
+            @Override
+            public void onAfterUpdate(CacheUpdateEvent event) {
+                if ("PATCH_ITEM".equals(event.getEventType()) && "doc".equals(event.getItemKey())) {
+                    patchLatch.countDown();
+                }
+            }
+        };
+
+        ReconnectingWebSocket ws = client.subscribe(cacheId, false, null, "patch", subscriber);
+        assertTrue(openLatch.await(5, TimeUnit.SECONDS), "Websocket failed to connect within timeout");
+
+        // Let the server register the subscription routing before publishing.
+        Thread.sleep(500);
+
+        client.patchItem(cacheId, "doc", "{\"b\":2}");
+
+        assertTrue(patchLatch.await(10, TimeUnit.SECONDS), "Expected PATCH_ITEM event for doc within timeout");
+
+        client.deleteCache(cacheId);
+        ws.close();
+    }
+
+    @Test
     public void testPutTimedItem() throws Exception {
         String cacheId = "it-timed-" + UUID.randomUUID().toString();
         client.createCache(cacheId);

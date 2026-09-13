@@ -7,17 +7,22 @@
 use ::core::{convert::TryInto};
 
 pub mod boolean_type;
+pub mod bulk_operation_type;
+pub mod gateway_bulk_request_codec;
+pub mod gateway_bulk_response_codec;
 pub mod gateway_command_codec;
 pub mod gateway_command_response_codec;
 pub mod gateway_entries_codec;
 pub mod gateway_error_codec;
 pub mod gateway_stats_codec;
 pub mod gateway_stream_update_codec;
+pub mod gateway_subscribe_ack_codec;
 pub mod gateway_subscribe_codec;
 pub mod gateway_unsubscribe_codec;
 pub mod group_size_encoding_codec;
 pub mod message_header_codec;
 pub mod operation_status;
+pub mod subscription_mode;
 pub mod update_event_type;
 pub mod var_string_encoding_codec;
 

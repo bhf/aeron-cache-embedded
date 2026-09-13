@@ -2,7 +2,14 @@ package com.bhf.aeroncache.client.gateway;
 
 import com.bhf.aeroncache.client.EmbeddedAeronCache;
 import com.bhf.aeroncache.client.EmbeddedCounterCache;
+import com.bhf.aeroncache.gateway.messages.SubscriptionMode;
+import com.bhf.aeroncache.models.BulkCacheOpsRequest;
+import com.bhf.aeroncache.models.BulkCacheOpsResponse;
+import com.bhf.aeroncache.models.BulkOperationType;
+import com.bhf.aeroncache.models.CacheOperationRequest;
+import com.bhf.aeroncache.models.CacheOperationResponse;
 import com.bhf.aeroncache.models.CacheUpdateEvent;
+import com.bhf.aeroncache.models.CancelItemRemovalResponse;
 import com.bhf.aeroncache.models.CounterResponse;
 import com.bhf.aeroncache.models.CounterUpdateEvent;
 import com.bhf.aeroncache.models.CreateResponse;
@@ -176,6 +183,113 @@ class AeronGatewayClientIntegrationTest {
             assertNotNull(event, "expected a counter update for key ck");
         }
         client.deleteCounterCache(cacheId);
+    }
+
+    @Test
+    void bulkOpsOverGateway() throws Exception {
+        final String cacheId = "it-bulk-" + UUID.randomUUID();
+
+        final BulkCacheOpsRequest request = BulkCacheOpsRequest.builder()
+                .requestId(UUID.randomUUID().toString())
+                .addOperation(CacheOperationRequest.builder()
+                        .operationType(BulkOperationType.CREATE_CACHE)
+                        .requestId("op-create")
+                        .cacheId(cacheId)
+                        .build())
+                .addOperation(CacheOperationRequest.builder()
+                        .operationType(BulkOperationType.ADD_ITEM)
+                        .requestId("op-add-1")
+                        .cacheId(cacheId)
+                        .key("bk1")
+                        .value("bv1")
+                        .build())
+                .addOperation(CacheOperationRequest.builder()
+                        .operationType(BulkOperationType.GET_ITEM)
+                        .requestId("op-get-1")
+                        .cacheId(cacheId)
+                        .key("bk1")
+                        .build())
+                .build();
+
+        final BulkCacheOpsResponse response = client.bulkOps(request);
+        assertEquals(request.getRequestId(), response.getRequestId());
+        assertNotNull(response.getOperationResponses());
+        assertEquals(3, response.getOperationResponses().size());
+
+        final CacheOperationResponse getResult = response.getOperationResponses().stream()
+                .filter(r -> "op-get-1".equals(r.getRequestId()))
+                .findFirst().orElse(null);
+        assertNotNull(getResult, "expected a result for op-get-1");
+        assertEquals("bv1", getResult.getValue());
+
+        client.deleteCache(cacheId);
+    }
+
+    @Test
+    void keyedSubscription() throws Exception {
+        // Exercises the new key-filtered subscription (the `key` field on GatewaySubscribe) in FULL mode.
+        // Patch mode (SubscriptionMode.PATCH / PATCH_ITEM) is NOT exercisable over the gateway: there is
+        // no patch command in the gateway wire protocol (deep-merge patch is HTTP-only), so a put never
+        // yields a PATCH_ITEM. Patch-mode encoding is covered by the SBE round-trip unit tests.
+        final String cacheId = "it-keyed-" + UUID.randomUUID();
+        client.createCache(cacheId);
+
+        final List<CacheUpdateEvent> events = new CopyOnWriteArrayList<>();
+        try (GatewaySubscription ignored =
+                     client.subscribe(cacheId, false, SubscriptionMode.FULL, "pk", events::add)) {
+            Thread.sleep(500);
+            client.putItem(cacheId, "pk", "pv");
+            client.putItem(cacheId, "other", "ov");
+
+            final long deadline = System.currentTimeMillis() + 5_000;
+            while (events.stream().noneMatch(e -> "pk".equals(e.getItemKey()))
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50);
+            }
+            assertTrue(events.stream().anyMatch(e -> "pk".equals(e.getItemKey())),
+                    "expected a streamed update for the subscribed key pk");
+            assertTrue(events.stream().noneMatch(e -> "other".equals(e.getItemKey())),
+                    "key filter should exclude 'other'");
+        }
+        client.deleteCache(cacheId);
+    }
+
+    @Test
+    void patchModeSubscription() throws Exception {
+        final String cacheId = "it-patch-" + UUID.randomUUID();
+        client.createCache(cacheId);
+        client.putItem(cacheId, "pk", "{\"a\":1}");
+
+        final List<CacheUpdateEvent> events = new CopyOnWriteArrayList<>();
+        try (GatewaySubscription ignored =
+                     client.subscribe(cacheId, false, SubscriptionMode.PATCH, "pk", events::add)) {
+            Thread.sleep(500);
+            client.patchItem(cacheId, "pk", "{\"b\":2}");
+
+            final long deadline = System.currentTimeMillis() + 5_000;
+            while (events.stream().noneMatch(e -> "PATCH_ITEM".equals(e.getEventType()))
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50);
+            }
+            assertTrue(events.stream().anyMatch(e -> "PATCH_ITEM".equals(e.getEventType()) && "pk".equals(e.getItemKey())),
+                    "expected a PATCH_ITEM event for key pk in patch mode");
+        }
+        client.deleteCache(cacheId);
+    }
+
+    @Test
+    void cancelItemRemovalOverGateway() throws Exception {
+        final String cacheId = "it-gw-cancel-" + UUID.randomUUID();
+        client.createCache(cacheId);
+        client.putTimedItem(cacheId, "keep", "val", 2000);
+
+        final CancelItemRemovalResponse cancelResp = client.cancelItemRemoval(cacheId, "keep");
+        assertEquals("keep", cancelResp.getKey());
+
+        Thread.sleep(3000);
+        assertEquals("val", client.getItem(cacheId, "keep").getValue(),
+                "item should survive past its TTL after cancelling removal");
+        client.deleteCache(cacheId);
     }
 
     @Test

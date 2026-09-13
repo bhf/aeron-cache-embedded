@@ -286,7 +286,22 @@ fn test_integration_counter_websocket_subscription() {
     thread::sleep(Duration::from_secs(1));
 
     counters.insert("ws-counter", 7).unwrap();
-    ws.read_message().expect("Failed to read message");
+
+    // Poll for the specific ADD_ITEM frame rather than assuming it is the first message
+    // (mirrors the cache websocket test's robust polling loop).
+    let mut found = false;
+    for _ in 0..5 {
+        if let Ok(msg) = ws.read_message() {
+            if let tungstenite::Message::Text(text) = msg {
+                if text.contains("ws-counter") && text.contains("ADD_ITEM") {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+    assert!(found, "Should have received ADD_ITEM for ws-counter through websocket");
 
     assert_eq!(counters.get_local("ws-counter"), Some(7));
     counters.clear().unwrap();
@@ -314,6 +329,228 @@ fn test_integration_put_timed_counter() {
 
     let get_resp2 = counters.get("timed-counter").expect("Failed to get counter after expiry");
     assert!(get_resp2.operation_status == "UNKNOWN_KEY" || get_resp2.value == 0);
+}
+
+#[test]
+fn test_integration_patch_item() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_patch_item: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-patch");
+
+    client.create_cache(&cache_id).expect("Failed to create cache");
+    client.put_item(&cache_id, "doc", r#"{"a":1}"#).unwrap();
+
+    let patch_resp = client.patch_item(&cache_id, "doc", r#"{"b":2}"#).expect("Failed to patch item");
+    assert_eq!(patch_resp.cache_id, cache_id);
+    assert_eq!(patch_resp.key, "doc");
+
+    // deep-merge should retain both fields
+    let get_resp = client.get_item(&cache_id, "doc").unwrap();
+    assert!(get_resp.value.contains("\"a\"") && get_resp.value.contains("\"b\""));
+
+    client.delete_cache(&cache_id).ok();
+}
+
+#[test]
+fn test_integration_cancel_item_removal() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_cancel_item_removal: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-cancel");
+
+    client.create_cache(&cache_id).expect("Failed to create cache");
+    client.put_timed_item(&cache_id, "keep", "val", 2000).unwrap();
+
+    let cancel_resp = client.cancel_item_removal(&cache_id, "keep").expect("Failed to cancel removal");
+    assert_eq!(cancel_resp.cache_id, cache_id);
+    assert_eq!(cancel_resp.key, "keep");
+
+    thread::sleep(Duration::from_secs(3));
+    let get_resp = client.get_item(&cache_id, "keep").unwrap();
+    assert_eq!(get_resp.value, "val");
+
+    client.delete_cache(&cache_id).ok();
+}
+
+#[test]
+fn test_integration_get_caches_and_stats() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_get_caches_and_stats: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-caches");
+    client.create_cache(&cache_id).unwrap();
+    client.put_item(&cache_id, "k", "v").unwrap();
+
+    let caches = client.get_caches().expect("Failed to get caches");
+    assert!(caches.iter().any(|c| c.cache_id == cache_id));
+
+    let stats = client.get_stats().expect("Failed to get stats");
+    assert!(stats.total_caches_count >= 1);
+    assert!(stats.total_items_count >= 1);
+
+    client.delete_cache(&cache_id).ok();
+}
+
+#[test]
+fn test_integration_get_counter_items_and_clear() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_get_counter_items_and_clear: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-citems");
+    client.create_counter_cache(&cache_id).unwrap();
+    client.put_counter(&cache_id, "a", 1).unwrap();
+    client.put_counter(&cache_id, "b", 2).unwrap();
+
+    let resp = client.get_counter_items(&cache_id).expect("Failed to get counter items");
+    assert_eq!(resp.cache_id, cache_id);
+    assert_eq!(resp.items.len(), 2);
+
+    let clear_resp = client.clear_counter_cache(&cache_id).expect("Failed to clear counter cache");
+    assert_eq!(clear_resp.operation_status, "SUCCESS");
+
+    client.delete_counter_cache(&cache_id).ok();
+}
+
+#[test]
+fn test_integration_cancel_counter_item_removal() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_cancel_counter_item_removal: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-ccancel");
+    client.create_counter_cache(&cache_id).unwrap();
+
+    client.put_timed_counter(&cache_id, "keep", 9, 2000).unwrap();
+    let cancel_resp = client.cancel_counter_item_removal(&cache_id, "keep").expect("Failed to cancel counter removal");
+    assert_eq!(cancel_resp.cache_id, cache_id);
+    assert_eq!(cancel_resp.key, "keep");
+
+    thread::sleep(Duration::from_secs(3));
+    assert_eq!(client.get_counter(&cache_id, "keep").unwrap().value, 9);
+
+    client.delete_counter_cache(&cache_id).ok();
+}
+
+#[test]
+fn test_integration_get_counter_caches_and_stats() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_get_counter_caches_and_stats: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-ccaches");
+    client.create_counter_cache(&cache_id).unwrap();
+    client.put_counter(&cache_id, "k", 1).unwrap();
+
+    let caches = client.get_counter_caches().expect("Failed to get counter caches");
+    assert!(caches.iter().any(|c| c.cache_id == cache_id));
+
+    let stats = client.get_counter_stats().expect("Failed to get counter stats");
+    assert!(stats.total_caches_count >= 1);
+
+    client.delete_counter_cache(&cache_id).ok();
+}
+
+#[test]
+fn test_integration_websocket_key_filter() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_websocket_key_filter: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-ws-keys");
+
+    client.create_cache(&cache_id).expect("Failed to create cache");
+    let cache = client.get_cache(&cache_id);
+
+    // Subscribe filtered to only "key1" (no hydration, full mode).
+    let mut ws = cache
+        .subscribe_filtered(false, Some("key1"), None)
+        .expect("Failed to subscribe with key filter");
+    thread::sleep(Duration::from_secs(1));
+
+    cache.insert("key1", "v1").unwrap();
+    cache.insert("key2", "v2").unwrap();
+
+    // Poll: expect an ADD_ITEM frame for key1 and NO frame for key2 within the window.
+    let mut found_key1 = false;
+    let mut found_key2 = false;
+    for _ in 0..5 {
+        if let Ok(msg) = ws.read_message() {
+            if let tungstenite::Message::Text(text) = msg {
+                if text.contains("key1") && text.contains("ADD_ITEM") {
+                    found_key1 = true;
+                }
+                if text.contains("key2") {
+                    found_key2 = true;
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+
+    assert!(found_key1, "Should have received ADD_ITEM for key1 through filtered websocket");
+    assert!(!found_key2, "Should NOT have received any frame for key2 (filtered out)");
+
+    cache.clear().unwrap();
+}
+
+#[test]
+fn test_integration_websocket_patch_mode() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_websocket_patch_mode: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-ws-patch");
+
+    client.create_cache(&cache_id).expect("Failed to create cache");
+    client.put_item(&cache_id, "doc", r#"{"a":1}"#).unwrap();
+
+    let cache = client.get_cache(&cache_id);
+
+    // Subscribe in patch mode (cache-only): changed fields arrive as PATCH_ITEM events.
+    let mut ws = cache
+        .subscribe_filtered(false, None, Some("patch"))
+        .expect("Failed to subscribe in patch mode");
+    thread::sleep(Duration::from_secs(1));
+
+    client.patch_item(&cache_id, "doc", r#"{"b":2}"#).unwrap();
+
+    let mut found = false;
+    for _ in 0..5 {
+        if let Ok(msg) = ws.read_message() {
+            if let tungstenite::Message::Text(text) = msg {
+                if text.contains("doc") && text.contains("PATCH_ITEM") {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+
+    assert!(found, "Should have received PATCH_ITEM for doc through patch-mode websocket");
+
+    cache.clear().unwrap();
 }
 
 #[test]

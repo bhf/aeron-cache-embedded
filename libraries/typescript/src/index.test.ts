@@ -185,4 +185,92 @@ describe('AeronCacheClient', () => {
         expect(response.operationStatus).toBe('SUCCESS');
     });
 
+    it('should patch item', async () => {
+        const mockResponse = { cacheId: 'test-cache', key: 'doc', operationStatus: 'SUCCESS' };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const response = await client.patchItem('test-cache', 'doc', '{"b":2}');
+
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache/doc', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: '{"b":2}' })
+        });
+        expect(response).toEqual(mockResponse);
+    });
+
+    it('should cancel item removal', async () => {
+        const mockResponse = { cacheId: 'test-cache', key: 'keep', operationStatus: 'SUCCESS' };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const response = await client.cancelItemRemoval('test-cache', 'keep');
+
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/cache/test-cache/keep/cancel-removal', {
+            method: 'POST'
+        });
+        expect(response).toEqual(mockResponse);
+    });
+
+    it('should get caches', async () => {
+        const mockResponse = [{ cacheId: 'c1', itemCount: 3 }, { cacheId: 'c2', itemCount: 0 }];
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const response = await client.getCaches();
+
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/caches');
+        expect(response).toHaveLength(2);
+        expect(response[0].cacheId).toBe('c1');
+        expect(response[0].itemCount).toBe(3);
+    });
+
+    it('should get stats', async () => {
+        const mockResponse = { totalOpsCount: 10, totalCachesCount: 2, totalItemsCount: 5, errorCount: 1 };
+        (global.fetch as jest.Mock).mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: async () => mockResponse
+        });
+
+        const response = await client.getStats();
+
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/stats');
+        expect(response).toEqual(mockResponse);
+    });
+
+    describe('wsQuery', () => {
+        it('returns empty string when neither param is provided', () => {
+            expect(AeronCacheClient.wsQuery()).toBe('');
+            expect(AeronCacheClient.wsQuery(undefined, undefined)).toBe('');
+        });
+
+        it('builds keys-only query', () => {
+            expect(AeronCacheClient.wsQuery('key1')).toBe('?keys=key1');
+        });
+
+        it('builds mode-only query', () => {
+            expect(AeronCacheClient.wsQuery(undefined, 'patch')).toBe('?mode=patch');
+        });
+
+        it('builds combined keys and mode query', () => {
+            expect(AeronCacheClient.wsQuery('cacheA:key1,key2', 'patch'))
+                .toBe(`?keys=${encodeURIComponent('cacheA:key1,key2')}&mode=patch`);
+        });
+
+        it('URL-encodes each value', () => {
+            expect(AeronCacheClient.wsQuery('a b:c/d', 'full'))
+                .toBe(`?keys=${encodeURIComponent('a b:c/d')}&mode=full`);
+        });
+    });
 });

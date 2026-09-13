@@ -4,6 +4,8 @@ import com.bhf.aeroncache.models.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -49,7 +51,7 @@ public class AeronCacheClient implements CacheTransport {
     }
 
     public PutItemResponse putItem(String cacheId, String key, String value) throws Exception {
-        String json = String.format("{\"key\":\"%s\",\"value\":\"%s\"}", key, value);
+        String json = objectMapper.writeValueAsString(java.util.Map.of("key", key, "value", value));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
                 .header("Content-Type", "application/json")
@@ -61,7 +63,7 @@ public class AeronCacheClient implements CacheTransport {
     }
 
     public PutItemResponse putTimedItem(String cacheId, String key, String value, long ttl) throws Exception {
-        String json = String.format("{\"key\":\"%s\",\"value\":\"%s\",\"ttl\":%d}", key, value, ttl);
+        String json = objectMapper.writeValueAsString(java.util.Map.of("key", key, "value", value, "ttl", ttl));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/timed/" + cacheId))
                 .header("Content-Type", "application/json")
@@ -214,6 +216,46 @@ public class AeronCacheClient implements CacheTransport {
         return objectMapper.readValue(response.body(), CounterResponse.class);
     }
 
+    // --- Additional Cache Operations (Sync) ---
+
+    public PatchItemResponse patchItem(String cacheId, String key, String value) throws Exception {
+        return patchItemAsync(cacheId, key, value).get();
+    }
+
+    public CancelItemRemovalResponse cancelItemRemoval(String cacheId, String key) throws Exception {
+        return cancelItemRemovalAsync(cacheId, key).get();
+    }
+
+    public java.util.List<CacheDetails> getCaches() throws Exception {
+        return getCachesAsync().get();
+    }
+
+    public CacheStatsResponse getStats() throws Exception {
+        return getStatsAsync().get();
+    }
+
+    // --- Additional Counter Operations (Sync) ---
+
+    public GetCountersResponse getCounterItems(String cacheId) throws Exception {
+        return getCounterItemsAsync(cacheId).get();
+    }
+
+    public ClearCacheResponse clearCounterCache(String cacheId) throws Exception {
+        return clearCounterCacheAsync(cacheId).get();
+    }
+
+    public CancelItemRemovalResponse cancelCounterItemRemoval(String cacheId, String key) throws Exception {
+        return cancelCounterItemRemovalAsync(cacheId, key).get();
+    }
+
+    public java.util.List<CacheDetails> getCounterCaches() throws Exception {
+        return getCounterCachesAsync().get();
+    }
+
+    public CacheStatsResponse getCounterStats() throws Exception {
+        return getCounterStatsAsync().get();
+    }
+
     // --- Async Operations ---
 
     public CompletableFuture<CreateResponse> createCacheAsync(String cacheId) {
@@ -235,7 +277,12 @@ public class AeronCacheClient implements CacheTransport {
     }
 
     public CompletableFuture<PutItemResponse> putItemAsync(String cacheId, String key, String value) {
-        String json = String.format("{\"key\":\"%s\",\"value\":\"%s\"}", key, value);
+        final String json;
+        try {
+            json = objectMapper.writeValueAsString(java.util.Map.of("key", key, "value", value));
+        } catch (Exception e) {
+            return CompletableFuture.failedFuture(e);
+        }
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
                 .header("Content-Type", "application/json")
@@ -253,7 +300,12 @@ public class AeronCacheClient implements CacheTransport {
     }
 
     public CompletableFuture<PutItemResponse> putTimedItemAsync(String cacheId, String key, String value, long ttl) {
-        String json = String.format("{\"key\":\"%s\",\"value\":\"%s\",\"ttl\":%d}", key, value, ttl);
+        final String json;
+        try {
+            json = objectMapper.writeValueAsString(java.util.Map.of("key", key, "value", value, "ttl", ttl));
+        } catch (Exception e) {
+            return CompletableFuture.failedFuture(e);
+        }
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/api/v1/cache/timed/" + cacheId))
                 .header("Content-Type", "application/json")
@@ -419,6 +471,114 @@ public class AeronCacheClient implements CacheTransport {
         return sendAsync(URI.create(baseUrl + "/api/v1/counters/set/" + cacheId), "POST", json, CounterResponse.class);
     }
 
+    // --- Additional Cache Operations (Async) ---
+
+    public CompletableFuture<PatchItemResponse> patchItemAsync(String cacheId, String key, String value) {
+        try {
+            String json = objectMapper.writeValueAsString(java.util.Collections.singletonMap("value", value));
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId + "/" + key))
+                    .header("Content-Type", "application/json")
+                    .method("PATCH", HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenApply(resp -> {
+                        checkStatusAsync(resp);
+                        try {
+                            return objectMapper.readValue(resp.body(), PatchItemResponse.class);
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+        } catch (Exception e) {
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    public CompletableFuture<CancelItemRemovalResponse> cancelItemRemovalAsync(String cacheId, String key) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId + "/" + key + "/cancel-removal"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), CancelItemRemovalResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
+    public CompletableFuture<java.util.List<CacheDetails>> getCachesAsync() {
+        return sendAsyncList(URI.create(baseUrl + "/api/v1/caches"), CacheDetails.class);
+    }
+
+    public CompletableFuture<CacheStatsResponse> getStatsAsync() {
+        return sendAsync(URI.create(baseUrl + "/api/v1/stats"), "GET", null, CacheStatsResponse.class);
+    }
+
+    // --- Additional Counter Operations (Async) ---
+
+    public CompletableFuture<GetCountersResponse> getCounterItemsAsync(String cacheId) {
+        return sendAsync(URI.create(baseUrl + "/api/v1/counters/" + cacheId), "GET", null, GetCountersResponse.class);
+    }
+
+    public CompletableFuture<ClearCacheResponse> clearCounterCacheAsync(String cacheId) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/v1/counters/" + cacheId))
+                .method("PATCH", HttpRequest.BodyPublishers.noBody())
+                .build();
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), ClearCacheResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
+    public CompletableFuture<CancelItemRemovalResponse> cancelCounterItemRemovalAsync(String cacheId, String key) {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/api/v1/counters/" + cacheId + "/" + key + "/cancel-removal"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(), CancelItemRemovalResponse.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
+    public CompletableFuture<java.util.List<CacheDetails>> getCounterCachesAsync() {
+        return sendAsyncList(URI.create(baseUrl + "/api/v1/counters-caches"), CacheDetails.class);
+    }
+
+    public CompletableFuture<CacheStatsResponse> getCounterStatsAsync() {
+        return sendAsync(URI.create(baseUrl + "/api/v1/counters-stats"), "GET", null, CacheStatsResponse.class);
+    }
+
+    private <T> CompletableFuture<java.util.List<T>> sendAsyncList(URI uri, Class<T> elementType) {
+        HttpRequest request = HttpRequest.newBuilder().uri(uri).GET().build();
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(resp -> {
+                    checkStatusAsync(resp);
+                    try {
+                        return objectMapper.readValue(resp.body(),
+                                objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, elementType));
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+    }
+
     private <T> CompletableFuture<T> sendAsync(URI uri, String method, String body, Class<T> type) {
         HttpRequest.Builder builder = HttpRequest.newBuilder().uri(uri);
         if ("POST".equals(method)) {
@@ -451,6 +611,18 @@ public class AeronCacheClient implements CacheTransport {
     }
 
     public ReconnectingWebSocket subscribeCounter(String cacheIds, boolean hydrate, WebSocket.Listener listener) {
+        return subscribeCounter(cacheIds, hydrate, null, listener);
+    }
+
+    /**
+     * Subscribe to counter updates with an optional key filter.
+     *
+     * @param keys optional comma-separated key filter(s); each token is {@code cacheId:key} (targets that
+     *             key in that cache) or a bare {@code key} (applies to all caches in the route). Pass
+     *             {@code null} for no filtering. (Patch {@code mode} is cache-only and is not supported for
+     *             counter subscriptions.)
+     */
+    public ReconnectingWebSocket subscribeCounter(String cacheIds, boolean hydrate, String keys, WebSocket.Listener listener) {
         String finalWsUrl = wsUrl;
         String prefix = hydrate ? "/api/ws/v1/counter/hydrate" : "/api/ws/v1/counter";
 
@@ -463,7 +635,7 @@ public class AeronCacheClient implements CacheTransport {
             finalWsUrl = finalWsUrl.substring(0, finalWsUrl.length() - 1);
         }
 
-        URI uri = URI.create(finalWsUrl + prefix + "/" + cacheIds);
+        URI uri = URI.create(finalWsUrl + prefix + "/" + cacheIds + wsQuery(keys, null));
         return new ReconnectingWebSocket(httpClient, uri, listener);
     }
 
@@ -472,9 +644,23 @@ public class AeronCacheClient implements CacheTransport {
     }
 
     public ReconnectingWebSocket subscribe(String cacheIds, boolean hydrate, WebSocket.Listener listener) {
+        return subscribe(cacheIds, hydrate, null, null, listener);
+    }
+
+    /**
+     * Subscribe to cache updates with an optional key filter and subscription mode.
+     *
+     * @param keys optional comma-separated key filter(s); each token is {@code cacheId:key} (targets that
+     *             key in that cache) or a bare {@code key} (applies to all caches in the route). Pass
+     *             {@code null} for no filtering.
+     * @param mode optional subscription mode: {@code "full"} (default; streams full values as
+     *             {@code ADD_ITEM}) or {@code "patch"} (streams only changed fields as {@code PATCH_ITEM}
+     *             events). Pass {@code null} for the server default.
+     */
+    public ReconnectingWebSocket subscribe(String cacheIds, boolean hydrate, String keys, String mode, WebSocket.Listener listener) {
         String finalWsUrl = wsUrl;
         String prefix = hydrate ? "/api/ws/v1/cache/hydrate" : "/api/ws/v1/cache";
-        
+
         // Handle plural if comma-separated
         if (cacheIds.contains(",")) {
             prefix = hydrate ? "/api/ws/v1/caches/hydrate" : "/api/ws/v1/caches";
@@ -483,9 +669,29 @@ public class AeronCacheClient implements CacheTransport {
         if (finalWsUrl.endsWith("/")) {
             finalWsUrl = finalWsUrl.substring(0, finalWsUrl.length() - 1);
         }
-        
-        URI uri = URI.create(finalWsUrl + prefix + "/" + cacheIds);
+
+        URI uri = URI.create(finalWsUrl + prefix + "/" + cacheIds + wsQuery(keys, mode));
         return new ReconnectingWebSocket(httpClient, uri, listener);
+    }
+
+    /**
+     * Build the optional WebSocket query string for key filters and subscription mode. Only non-null
+     * params are included; values are URL-encoded so {@code :} and {@code ,} are escaped. Mirrors the
+     * Python client's {@code _ws_query}.
+     */
+    static String wsQuery(String keys, String mode) {
+        StringBuilder sb = new StringBuilder();
+        if (keys != null) {
+            sb.append(sb.length() == 0 ? "?" : "&")
+              .append("keys=")
+              .append(URLEncoder.encode(keys, StandardCharsets.UTF_8));
+        }
+        if (mode != null) {
+            sb.append(sb.length() == 0 ? "?" : "&")
+              .append("mode=")
+              .append(URLEncoder.encode(mode, StandardCharsets.UTF_8));
+        }
+        return sb.toString();
     }
 
     public EmbeddedAeronCache getCache(String cacheId) {

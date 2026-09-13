@@ -8,7 +8,9 @@
 //!
 //! Each test launches its own embedded media driver and talks to the gateway over UDP.
 
-use aeron_cache_embedded_client::{AeronGatewayClient, CacheTransport};
+use aeron_cache_embedded_client::{
+    AeronGatewayClient, BulkCacheOpsRequest, BulkOperationType, CacheOperationRequest, CacheTransport,
+};
 use rusteron_media_driver::testing::EmbeddedDriver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -176,6 +178,150 @@ fn embedded_counter_mirrors_over_aeron() {
 
     drop(sub);
     client.delete_counter_cache(&cache_name).unwrap();
+}
+
+#[test]
+fn bulk_ops_over_gateway() {
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-bulk");
+
+    let req = BulkCacheOpsRequest {
+        request_id: unique("bulk-req"),
+        operations: vec![
+            CacheOperationRequest {
+                operation_type: BulkOperationType::CreateCache,
+                request_id: "op-create".to_string(),
+                cache_id: cache.clone(),
+                key: None,
+                value: None,
+                ttl: None,
+                counter_value: None,
+            },
+            CacheOperationRequest {
+                operation_type: BulkOperationType::AddItem,
+                request_id: "op-add".to_string(),
+                cache_id: cache.clone(),
+                key: Some("bk".to_string()),
+                value: Some("bv".to_string()),
+                ttl: None,
+                counter_value: None,
+            },
+            CacheOperationRequest {
+                operation_type: BulkOperationType::GetItem,
+                request_id: "op-get".to_string(),
+                cache_id: cache.clone(),
+                key: Some("bk".to_string()),
+                value: None,
+                ttl: None,
+                counter_value: None,
+            },
+        ],
+    };
+
+    let resp = client.bulk_ops(&req).unwrap();
+    assert_eq!(resp.operation_responses.len(), 3, "expected one response per operation");
+
+    let get = resp
+        .operation_responses
+        .iter()
+        .find(|r| r.request_id == "op-get")
+        .expect("response for op-get");
+    assert_eq!(get.value.as_deref(), Some("bv"));
+
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn keyed_subscription() {
+    // Exercises the new key-filtered subscription (`key` field on GatewaySubscribe) in FULL mode.
+    // Patch mode (SubscriptionMode::PATCH / PATCH_ITEM) is NOT exercisable over the gateway — there
+    // is no patch command in the gateway wire protocol (deep-merge patch is HTTP-only), so a put
+    // never produces a PATCH_ITEM. Patch-mode *encoding* is covered by the SBE round-trip unit tests.
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-keyed");
+    client.create_cache(&cache).unwrap();
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = events.clone();
+    let sub = client
+        .subscribe_with(&cache, false, None, Some("pk"), move |e| sink.lock().unwrap().push(e))
+        .unwrap();
+
+    std::thread::sleep(Duration::from_millis(500));
+    client.put_item(&cache, "pk", "pv1").unwrap();
+    client.put_item(&cache, "other", "ov1").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !events.lock().unwrap().iter().any(|e| e.item_key.as_deref() == Some("pk"))
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let keys: Vec<Option<String>> = events.lock().unwrap().iter().map(|e| e.item_key.clone()).collect();
+    eprintln!("keyed_subscription received keys: {:?}", keys);
+    assert!(
+        keys.iter().any(|k| k.as_deref() == Some("pk")),
+        "expected a streamed update for the subscribed key pk"
+    );
+    assert!(
+        !keys.iter().any(|k| k.as_deref() == Some("other")),
+        "key filter should exclude 'other'"
+    );
+
+    drop(sub);
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn patch_mode_subscription() {
+    // Real patch-mode subscription: patch an existing item over the gateway (PATCH_CACHE_ENTRY) and
+    // observe the PATCH_ITEM delta stream. Requires the gateway's patch command (msgType 12).
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-patch");
+    client.create_cache(&cache).unwrap();
+    client.put_item(&cache, "pk", "{\"a\":1}").unwrap();
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = events.clone();
+    let sub = client
+        .subscribe_with(&cache, false, Some("patch"), Some("pk"), move |e| sink.lock().unwrap().push(e))
+        .unwrap();
+
+    std::thread::sleep(Duration::from_millis(500));
+    client.patch_item(&cache, "pk", "{\"b\":2}").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !events.lock().unwrap().iter().any(|e| e.event_type == "PATCH_ITEM")
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let found = events
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|e| e.event_type == "PATCH_ITEM" && e.item_key.as_deref() == Some("pk"));
+    assert!(found, "expected a PATCH_ITEM event for key pk in patch mode");
+
+    drop(sub);
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn cancel_item_removal_over_gateway() {
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-gw-cancel");
+    client.create_cache(&cache).unwrap();
+    client.put_timed_item(&cache, "keep", "val", 2000).unwrap();
+
+    let resp = client.cancel_item_removal(&cache, "keep").unwrap();
+    assert_eq!(resp.key, "keep");
+
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(client.get_item(&cache, "keep").unwrap().value, "val",
+        "item should survive past its TTL after cancelling removal");
+
+    client.delete_cache(&cache).unwrap();
 }
 
 #[test]

@@ -77,7 +77,7 @@ impl<'a> EmbeddedCache<'a> {
 fn update_cache_local(local: &Arc<RwLock<HashMap<String, String>>>, event: CacheUpdateEvent) {
     if let Ok(mut m) = local.write() {
         match event.event_type.as_str() {
-            "ADD_ITEM" => {
+            "ADD_ITEM" | "PATCH_ITEM" => {
                 if let (Some(k), Some(v)) = (event.item_key, event.item_value) {
                     m.insert(k, v);
                 }
