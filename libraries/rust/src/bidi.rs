@@ -16,9 +16,10 @@
 //! Aeron gateway transport and the Python reference client.
 
 use crate::{
-    CacheItem, CacheUpdateEvent, CancelItemRemovalResponse, ClearCacheResponse, CounterItem,
-    CounterResponse, CounterUpdateEvent, CreateResponse, DeleteCacheResponse, DeleteItemResponse,
-    GetCacheResponse, GetCountersResponse, GetItemResponse, PatchItemResponse, PutItemResponse,
+    BulkCacheOpsRequest, BulkCacheOpsResponse, CacheItem, CacheOperationResponse, CacheUpdateEvent,
+    CancelItemRemovalResponse, ClearCacheResponse, CounterItem, CounterResponse, CounterUpdateEvent,
+    CreateResponse, DeleteCacheResponse, DeleteItemResponse, GetCacheResponse, GetCountersResponse,
+    GetItemResponse, PatchItemResponse, PutItemResponse, TimerInfo,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -91,6 +92,16 @@ struct StatsReq {
     stats: Vec<StatEntry>,
 }
 
+struct TimersReq {
+    sender: Sender<Result<Vec<TimerInfo>, String>>,
+    timers: Vec<TimerInfo>,
+}
+
+struct BulkReq {
+    sender: Sender<Result<Vec<CacheOperationResponse>, String>>,
+    responses: Vec<CacheOperationResponse>,
+}
+
 /// State shared between the background reader thread and the client's command methods.
 struct Shared {
     /// correlationId -> waiter for a single `commandResponse`.
@@ -99,6 +110,10 @@ struct Shared {
     pending_entries: Mutex<HashMap<String, EntriesReq>>,
     /// correlationId -> batched `stats` accumulator.
     pending_stats: Mutex<HashMap<String, StatsReq>>,
+    /// correlationId -> batched `timers` accumulator.
+    pending_timers: Mutex<HashMap<String, TimersReq>>,
+    /// correlationId -> batched `bulkResponse` accumulator.
+    pending_bulk: Mutex<HashMap<String, BulkReq>>,
     /// correlationId -> `subscribed` ack barrier.
     pending_sub_ack: Mutex<HashMap<String, Sender<()>>>,
     /// cacheId -> cache-stream listeners (routed by cacheId, see module docs).
@@ -113,6 +128,8 @@ impl Shared {
             pending_cmd: Mutex::new(HashMap::new()),
             pending_entries: Mutex::new(HashMap::new()),
             pending_stats: Mutex::new(HashMap::new()),
+            pending_timers: Mutex::new(HashMap::new()),
+            pending_bulk: Mutex::new(HashMap::new()),
             pending_sub_ack: Mutex::new(HashMap::new()),
             cache_listeners: Mutex::new(HashMap::new()),
             counter_listeners: Mutex::new(HashMap::new()),
@@ -127,6 +144,12 @@ impl Shared {
             let _ = req.sender.send(Err(msg.to_string()));
         }
         for (_, req) in self.pending_stats.lock().unwrap().drain() {
+            let _ = req.sender.send(Err(msg.to_string()));
+        }
+        for (_, req) in self.pending_timers.lock().unwrap().drain() {
+            let _ = req.sender.send(Err(msg.to_string()));
+        }
+        for (_, req) in self.pending_bulk.lock().unwrap().drain() {
             let _ = req.sender.send(Err(msg.to_string()));
         }
         self.pending_sub_ack.lock().unwrap().clear();
@@ -375,6 +398,69 @@ impl AeronBidiClient {
     /// Per-counter-cache stats (one [`StatEntry`] per counter cache).
     pub fn get_counter_stats(&self) -> Result<Vec<StatEntry>, Box<dyn Error>> {
         self.batched_stats("GET_COUNTER_STATS")
+    }
+
+    // ------------------------------------------------------------------ timers
+
+    /// All pending TTL removal timers across both caches and counter caches. The server streams one or
+    /// more `timers` frames, accumulated until the end-of-batch frame; each timer is tagged `CACHE` or
+    /// `COUNTER`.
+    pub fn get_timers(&self) -> Result<Vec<TimerInfo>, Box<dyn Error>> {
+        let cid = new_correlation_id();
+        let (tx, rx) = channel();
+        self.shared.pending_timers.lock().unwrap().insert(cid.clone(), TimersReq { sender: tx, timers: Vec::new() });
+        let frame = json!({
+            "type": "command",
+            "correlationId": cid,
+            "op": "GET_TIMERS",
+            "cacheId": Value::Null,
+            "key": Value::Null,
+            "value": Value::Null,
+            "ttl": 0,
+            "counterValue": 0,
+        });
+        if let Err(e) = send_frame(&self.ws, &frame) {
+            self.shared.pending_timers.lock().unwrap().remove(&cid);
+            return Err(e);
+        }
+        match rx.recv_timeout(self.request_timeout) {
+            Ok(Ok(timers)) => Ok(timers),
+            Ok(Err(msg)) => Err(msg.into()),
+            Err(_) => {
+                self.shared.pending_timers.lock().unwrap().remove(&cid);
+                Err("bidi request timed out".into())
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ bulk operations
+
+    /// Apply a batch of cache/counter operations in one `bulk` frame, mirroring the HTTP client's
+    /// [`crate::AeronCacheClient::bulk_ops`]. A batch may freely mix regular-cache and counter
+    /// operations, applied in request order. Per-operation results are streamed back as one or more
+    /// `bulkResponse` frames, accumulated until the end-of-batch frame; each echoes its `requestId`.
+    pub fn bulk_ops(&self, req: &BulkCacheOpsRequest) -> Result<BulkCacheOpsResponse, Box<dyn Error>> {
+        let cid = if req.request_id.is_empty() { new_correlation_id() } else { req.request_id.clone() };
+        let (tx, rx) = channel();
+        self.shared.pending_bulk.lock().unwrap().insert(cid.clone(), BulkReq { sender: tx, responses: Vec::new() });
+        let operations = serde_json::to_value(&req.operations)?;
+        let frame = json!({
+            "type": "bulk",
+            "correlationId": cid,
+            "operations": operations,
+        });
+        if let Err(e) = send_frame(&self.ws, &frame) {
+            self.shared.pending_bulk.lock().unwrap().remove(&cid);
+            return Err(e);
+        }
+        match rx.recv_timeout(self.request_timeout) {
+            Ok(Ok(responses)) => Ok(BulkCacheOpsResponse { request_id: cid, operation_responses: responses }),
+            Ok(Err(msg)) => Err(msg.into()),
+            Err(_) => {
+                self.shared.pending_bulk.lock().unwrap().remove(&cid);
+                Err("bidi request timed out".into())
+            }
+        }
     }
 
     // ------------------------------------------------------------------ subscriptions
@@ -656,6 +742,40 @@ fn dispatch(msg: &Value, shared: &Shared) {
                 }
             }
         }
+        "timers" => {
+            let end_of_batch = msg.get("endOfBatch").and_then(|v| v.as_bool()).unwrap_or(false);
+            let mut map = shared.pending_timers.lock().unwrap();
+            if let Some(req) = map.get_mut(&cid) {
+                if let Some(arr) = msg.get("timers").and_then(|v| v.as_array()) {
+                    for t in arr {
+                        if let Ok(timer) = serde_json::from_value::<TimerInfo>(t.clone()) {
+                            req.timers.push(timer);
+                        }
+                    }
+                }
+                if end_of_batch {
+                    let req = map.remove(&cid).unwrap();
+                    let _ = req.sender.send(Ok(req.timers));
+                }
+            }
+        }
+        "bulkResponse" => {
+            let end_of_batch = msg.get("endOfBatch").and_then(|v| v.as_bool()).unwrap_or(false);
+            let mut map = shared.pending_bulk.lock().unwrap();
+            if let Some(req) = map.get_mut(&cid) {
+                if let Some(arr) = msg.get("operationResponses").and_then(|v| v.as_array()) {
+                    for o in arr {
+                        if let Ok(resp) = serde_json::from_value::<CacheOperationResponse>(o.clone()) {
+                            req.responses.push(resp);
+                        }
+                    }
+                }
+                if end_of_batch {
+                    let req = map.remove(&cid).unwrap();
+                    let _ = req.sender.send(Ok(req.responses));
+                }
+            }
+        }
         "subscribed" => {
             if let Some(tx) = shared.pending_sub_ack.lock().unwrap().remove(&cid) {
                 let _ = tx.send(());
@@ -721,6 +841,14 @@ fn dispatch_error(cid: &str, msg: &Value, shared: &Shared) {
         return;
     }
     if let Some(req) = shared.pending_stats.lock().unwrap().remove(cid) {
+        let _ = req.sender.send(Err(err));
+        return;
+    }
+    if let Some(req) = shared.pending_timers.lock().unwrap().remove(cid) {
+        let _ = req.sender.send(Err(err));
+        return;
+    }
+    if let Some(req) = shared.pending_bulk.lock().unwrap().remove(cid) {
         let _ = req.sender.send(Err(err));
         return;
     }

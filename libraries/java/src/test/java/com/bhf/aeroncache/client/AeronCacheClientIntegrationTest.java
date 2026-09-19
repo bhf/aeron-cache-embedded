@@ -343,6 +343,24 @@ public class AeronCacheClientIntegrationTest {
     }
 
     @Test
+    public void testGetTimers() throws Exception {
+        String cacheId = "it-timers-" + UUID.randomUUID().toString();
+        client.createCache(cacheId);
+        // A timed entry schedules a pending TTL removal timer.
+        client.putTimedItem(cacheId, "ttl-key", "v", 600_000L);
+
+        GetTimersResponse resp = client.getTimers();
+        assertNotNull(resp);
+        assertNotNull(resp.getTimers());
+        TimerInfo timer = resp.getTimers().stream()
+                .filter(t -> cacheId.equals(t.getCacheId()) && "ttl-key".equals(t.getKey()))
+                .findFirst().orElse(null);
+        assertNotNull(timer, "expected a pending timer for " + cacheId + "/ttl-key");
+        assertEquals("CACHE", timer.getTimerType());
+        assertTrue(timer.getDeadline() > 0, "timer deadline should be a positive epoch millis");
+    }
+
+    @Test
     public void testGetCounterItemsAndClear() throws Exception {
         String cacheId = "it-counter-list-" + UUID.randomUUID().toString();
         client.createCounterCache(cacheId);

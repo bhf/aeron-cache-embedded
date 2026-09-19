@@ -72,6 +72,14 @@ async function main() {
         const stats = await cacheClient.getStats();
         console.log(`Cache stats: caches=${stats.totalCachesCount} items=${stats.totalItemsCount} ops=${stats.totalOpsCount} errors=${stats.errorCount}`);
 
+        // A timed entry schedules a pending TTL removal timer; getTimers lists all pending timers
+        // across both caches and counter caches, each tagged CACHE or COUNTER.
+        await cacheClient.putTimedItem('streaming-sample-cache', 'expiring', 'gone-soon', 600000);
+        console.log('Listing all pending TTL timers:');
+        for (const timer of (await cacheClient.getTimers()).timers) {
+            console.log(`  - [${timer.timerType}] ${timer.cacheId}/${timer.key} fires at ${timer.deadline}`);
+        }
+
         console.log("Listing all counters in 'async-counter-cache':");
         for (const item of (await cacheClient.getCounterItems('async-counter-cache')).items) {
             console.log(`  - ${item.key} = ${item.value}`);

@@ -65,7 +65,7 @@ jobs:
         env:
           # Enable the Aeron SBE gateway and pin its endpoints to loopback for the gateway
           # integration tests.
-          AERON_TRANSPORT_GATEWAY_ENABLED: "true"
+          AERON_GATEWAY_ENABLED: "true"
           GATEWAY_REQUEST_ENDPOINT: "127.0.0.1:7075"
           GATEWAY_RESPONSE_CONTROL_ENDPOINT: "127.0.0.1:7076"
         run: |

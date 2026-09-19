@@ -17,7 +17,8 @@ import {
     CancelItemRemovalResponse,
     CacheDetails,
     CacheStatsResponse,
-    GetCountersResponse
+    GetCountersResponse,
+    GetTimersResponse
 } from './models';
 
 export { EmbeddedAeronCache };
@@ -142,6 +143,12 @@ export class AeronCacheClient {
 
     async getStats(): Promise<CacheStatsResponse> {
         const response = await fetch(`${this.baseUrl}/api/v1/stats`);
+        return this.handleResponse(response);
+    }
+
+    /** Get all pending TTL removal timers across caches and counter caches. */
+    async getTimers(): Promise<GetTimersResponse> {
+        const response = await fetch(`${this.baseUrl}/api/v1/timers`);
         return this.handleResponse(response);
     }
 

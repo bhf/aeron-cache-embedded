@@ -97,6 +97,15 @@ public class SyncSample {
                     + " ops=" + stats.getTotalOpsCount()
                     + " errors=" + stats.getErrorCount());
 
+            // A timed entry schedules a pending TTL removal timer; getTimers lists all pending timers
+            // across both caches and counter caches, each tagged CACHE or COUNTER.
+            client.putTimedItem("sync-test-cache", "expiring", "gone-soon", 600_000);
+            System.out.println("Listing all pending TTL timers:");
+            for (var timer : client.getTimers().getTimers()) {
+                System.out.println("  - [" + timer.getTimerType() + "] " + timer.getCacheId()
+                        + "/" + timer.getKey() + " fires at " + timer.getDeadline());
+            }
+
             System.out.println("Listing all counters in 'sync-counter-cache':");
             for (var item : client.getCounterItems("sync-counter-cache").getItems()) {
                 System.out.println("  - " + item.getKey() + " = " + item.getValue());

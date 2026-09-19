@@ -18,11 +18,13 @@ pub mod gateway_stats_codec;
 pub mod gateway_stream_update_codec;
 pub mod gateway_subscribe_ack_codec;
 pub mod gateway_subscribe_codec;
+pub mod gateway_timers_codec;
 pub mod gateway_unsubscribe_codec;
 pub mod group_size_encoding_codec;
 pub mod message_header_codec;
 pub mod operation_status;
 pub mod subscription_mode;
+pub mod timer_type;
 pub mod update_event_type;
 pub mod var_string_encoding_codec;
 

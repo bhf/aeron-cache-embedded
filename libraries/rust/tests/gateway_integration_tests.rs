@@ -2,7 +2,7 @@
 //!
 //! Enabled only when `AERON_GATEWAY_IT=true` is set, so they do not run in the default `cargo test`.
 //! The gateway must be reachable at `AERON_GATEWAY_HOST` (default `127.0.0.1`) on the default
-//! request/response ports. Enable the gateway on the backend with `AERON_TRANSPORT_GATEWAY_ENABLED=true`
+//! request/response ports. Enable the gateway on the backend with `AERON_GATEWAY_ENABLED=true`
 //! and pin its endpoints to loopback with `GATEWAY_REQUEST_ENDPOINT=127.0.0.1:7075` and
 //! `GATEWAY_RESPONSE_CONTROL_ENDPOINT=127.0.0.1:7076`.
 //!
@@ -93,6 +93,25 @@ fn get_stats() {
     let stats = client.get_stats().unwrap();
     let stat = stats.iter().find(|s| s.cache_id == cache).expect("stats for our cache");
     assert_eq!(stat.size, 2);
+
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn get_timers_over_gateway() {
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-timers");
+    client.create_cache(&cache).unwrap();
+    // A timed entry schedules a pending TTL removal timer.
+    client.put_timed_item(&cache, "ttl-key", "v", 600_000).unwrap();
+
+    let timers = client.get_timers().unwrap();
+    let timer = timers
+        .iter()
+        .find(|t| t.cache_id == cache && t.key == "ttl-key")
+        .expect("a pending timer for our cache/key");
+    assert_eq!(timer.timer_type, "CACHE");
+    assert!(timer.deadline > 0, "timer deadline should be a positive epoch millis");
 
     client.delete_cache(&cache).unwrap();
 }

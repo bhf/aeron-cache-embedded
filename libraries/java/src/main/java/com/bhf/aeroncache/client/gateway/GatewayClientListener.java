@@ -3,6 +3,7 @@ package com.bhf.aeroncache.client.gateway;
 import com.bhf.aeroncache.gateway.messages.OperationStatus;
 import com.bhf.aeroncache.gateway.messages.UpdateEventType;
 import com.bhf.aeroncache.models.CacheOperationResponse;
+import com.bhf.aeroncache.models.TimerInfo;
 
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,15 @@ public interface GatewayClientListener {
     void onStats(String correlationId, OperationStatus status, List<GatewayStat> stats, boolean endOfBatch);
 
     /**
+     * A batch of pending TTL removal timers streamed in response to a getTimers command. Timers arrive
+     * in one or more batches; the final batch carries {@code endOfBatch=true}. Accumulate across
+     * invocations with the same {@code correlationId} until an end-of-batch frame. Default no-op so
+     * implementations that do not issue getTimers requests are unaffected.
+     */
+    default void onTimers(String correlationId, OperationStatus status, List<TimerInfo> timers, boolean endOfBatch) {
+    }
+
+    /**
      * A streaming cache update pushed to a subscribed client.
      */
     void onStreamUpdate(String correlationId, UpdateEventType eventType, String cacheId, String key, String value);
@@ -51,9 +61,11 @@ public interface GatewayClientListener {
     }
 
     /**
-     * The response to a bulk-operations request, carrying one result per requested operation in request
-     * order. Default no-op so implementations that do not issue bulk requests are unaffected.
+     * A batch of bulk-operation results, carrying one result per requested operation in request order.
+     * Results arrive in one or more batches; the final batch carries {@code endOfBatch=true}. Accumulate
+     * across invocations with the same {@code correlationId} until an end-of-batch frame. Default no-op so
+     * implementations that do not issue bulk requests are unaffected.
      */
-    default void onBulkResponse(String correlationId, List<CacheOperationResponse> operations) {
+    default void onBulkResponse(String correlationId, List<CacheOperationResponse> operations, boolean endOfBatch) {
     }
 }

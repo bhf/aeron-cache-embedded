@@ -16,10 +16,10 @@ all over a single Aeron connection.
 The backend must have the Aeron gateway enabled:
 
 ```
--Daeron.transport.gateway.enabled=true
+-Daeron.gateway.enabled=true
 ```
 
-(or the environment variable `AERON_TRANSPORT_GATEWAY_ENABLED=true`). The gateway binds the request
+(or the environment variable `AERON_GATEWAY_ENABLED=true`). The gateway binds the request
 endpoint on port `7075` and the response control endpoint on port `7076` by default.
 
 ## Running

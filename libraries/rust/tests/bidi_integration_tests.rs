@@ -94,6 +94,73 @@ fn bidi_get_stats() {
 }
 
 #[test]
+fn bidi_get_timers() {
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_get_timers: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-timers");
+
+    client.create_cache(&cache_id).unwrap();
+    // A timed entry schedules a pending TTL removal timer.
+    client.put_timed_item(&cache_id, "ttl-key", "v", 600_000).unwrap();
+
+    let timers = client.get_timers().unwrap();
+    let timer = timers
+        .iter()
+        .find(|t| t.cache_id == cache_id && t.key == "ttl-key")
+        .expect("a pending timer for our cache/key");
+    assert_eq!(timer.timer_type, "CACHE");
+    assert!(timer.deadline > 0, "timer deadline should be a positive epoch millis");
+    client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
+fn bidi_bulk_ops() {
+    use aeron_cache_embedded_client::{BulkCacheOpsRequest, BulkOperationType, CacheOperationRequest};
+
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_bulk_ops: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-bulk");
+    client.create_cache(&cache_id).unwrap();
+
+    let op = |op_type, request_id: &str, key: &str, value: Option<&str>| CacheOperationRequest {
+        operation_type: op_type,
+        request_id: request_id.to_string(),
+        cache_id: cache_id.clone(),
+        key: Some(key.to_string()),
+        value: value.map(|v| v.to_string()),
+        ttl: None,
+        counter_value: None,
+    };
+    let req = BulkCacheOpsRequest {
+        request_id: unique("req"),
+        operations: vec![
+            op(BulkOperationType::AddItem, "op-1", "bk1", Some("bv1")),
+            op(BulkOperationType::AddItem, "op-2", "bk2", Some("bv2")),
+            op(BulkOperationType::GetItem, "op-3", "bk1", None),
+        ],
+    };
+
+    let resp = client.bulk_ops(&req).unwrap();
+    assert_eq!(resp.request_id, req.request_id);
+    assert_eq!(resp.operation_responses.len(), 3);
+    let get_result = resp
+        .operation_responses
+        .iter()
+        .find(|r| r.request_id == "op-3")
+        .expect("a result for op-3");
+    assert_eq!(get_result.value.as_deref(), Some("bv1"));
+
+    assert_eq!(client.get_item(&cache_id, "bk2").unwrap().value, "bv2");
+    client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
 fn bidi_cancel_item_removal() {
     let Some(url) = ws_url() else {
         println!("Skipping bidi_cancel_item_removal: AERON_CACHE_BASE_URL not set");

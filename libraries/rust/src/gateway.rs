@@ -13,8 +13,8 @@ use crate::gateway_messages::{
     boolean_type, bulk_operation_type, gateway_bulk_request_codec, gateway_bulk_response_codec,
     gateway_command_codec, gateway_command_response_codec, gateway_entries_codec,
     gateway_error_codec, gateway_stats_codec, gateway_stream_update_codec, gateway_subscribe_ack_codec,
-    gateway_subscribe_codec, gateway_unsubscribe_codec, operation_status, subscription_mode,
-    update_event_type, ReadBuf, WriteBuf,
+    gateway_subscribe_codec, gateway_timers_codec, gateway_unsubscribe_codec, operation_status,
+    subscription_mode, update_event_type, ReadBuf, WriteBuf,
 };
 use crate::{
     BulkCacheOpsRequest, BulkCacheOpsResponse, CacheItem, CacheOperationResponse, CacheUpdateEvent,
@@ -56,6 +56,7 @@ mod msg {
     pub const REMOVE_CACHE_ENTRY: u16 = 10;
     pub const PATCH_CACHE_ENTRY: u16 = 12;
     pub const CANCEL_CACHE_ITEM_REMOVAL: u16 = 13;
+    pub const GET_TIMERS: u16 = 14;
 
     pub const CREATE_COUNTER_CACHE: u16 = 101;
     pub const ADD_COUNTER_ENTRY: u16 = 102;
@@ -78,6 +79,16 @@ pub struct GatewayStat {
     pub removed_count: i64,
     pub cleared_count: i64,
     pub size: i64,
+}
+
+/// A single pending TTL removal timer, as streamed in a `GatewayTimers` frame. `timer_type` is
+/// `"CACHE"` or `"COUNTER"`; `deadline` is the epoch time (millis) at which removal is scheduled.
+#[derive(Debug, Clone)]
+pub struct GatewayTimer {
+    pub timer_type: String,
+    pub cache_id: String,
+    pub key: String,
+    pub deadline: i64,
 }
 
 type CacheListener = Arc<dyn Fn(CacheUpdateEvent) + Send + Sync>;
@@ -107,13 +118,26 @@ struct StatsReq {
     stats: Vec<GatewayStat>,
 }
 
+struct TimersReq {
+    sender: Sender<Result<Vec<GatewayTimer>, String>>,
+    timers: Vec<GatewayTimer>,
+}
+
+/// Accumulates per-operation results across the `GatewayBulkResponse` batches for one bulk request.
+struct BulkReq {
+    sender: Sender<Result<BulkCacheOpsResponse, String>>,
+    responses: Vec<CacheOperationResponse>,
+}
+
 /// State shared between the polling thread and the client's command methods.
 struct Shared {
     pending_cmd: Mutex<HashMap<String, Sender<CmdOutcome>>>,
     pending_entries: Mutex<HashMap<String, EntriesReq>>,
     pending_stats: Mutex<HashMap<String, StatsReq>>,
-    /// Pending bulk requests, awaiting a reassembled `GatewayBulkResponse`.
-    pending_bulk: Mutex<HashMap<String, Sender<Result<BulkCacheOpsResponse, String>>>>,
+    /// Pending getTimers requests, accumulating across `GatewayTimers` batches.
+    pending_timers: Mutex<HashMap<String, TimersReq>>,
+    /// Pending bulk requests, accumulating across `GatewayBulkResponse` batches.
+    pending_bulk: Mutex<HashMap<String, BulkReq>>,
     /// Pending subscribe barriers, completed by a `GatewaySubscribeAck`.
     pending_sub_ack: Mutex<HashMap<String, Sender<()>>>,
     cache_listeners: Mutex<HashMap<String, Vec<CacheListener>>>,
@@ -128,6 +152,7 @@ impl Shared {
             pending_cmd: Mutex::new(HashMap::new()),
             pending_entries: Mutex::new(HashMap::new()),
             pending_stats: Mutex::new(HashMap::new()),
+            pending_timers: Mutex::new(HashMap::new()),
             pending_bulk: Mutex::new(HashMap::new()),
             pending_sub_ack: Mutex::new(HashMap::new()),
             cache_listeners: Mutex::new(HashMap::new()),
@@ -351,6 +376,22 @@ impl AeronGatewayClient {
         }
     }
 
+    /// All pending TTL removal timers across both caches and counter caches. Results are streamed as
+    /// one or more `GatewayTimers` batches, accumulated until the end-of-batch frame; each timer is
+    /// tagged `CACHE` or `COUNTER`.
+    pub fn get_timers(&self) -> Result<Vec<GatewayTimer>, Box<dyn Error>> {
+        let cid = new_correlation_id();
+        let (tx, rx) = channel();
+        self.shared.pending_timers.lock().unwrap().insert(cid.clone(), TimersReq { sender: tx, timers: Vec::new() });
+        let frame = encode_command(msg::GET_TIMERS, 0, 0, &cid, "", "", "");
+        offer_frame(&self.publication, &frame, self.request_timeout)?;
+        match rx.recv_timeout(self.request_timeout) {
+            Ok(Ok(timers)) => Ok(timers),
+            Ok(Err(e)) => { self.shared.pending_timers.lock().unwrap().remove(&cid); Err(e.into()) }
+            Err(_) => { self.shared.pending_timers.lock().unwrap().remove(&cid); Err("gateway request timed out".into()) }
+        }
+    }
+
     /// Execute a batch of cache operations in a single round-trip, mirroring the HTTP client's
     /// [`crate::AeronCacheClient::bulk_ops`]. The whole batch is correlated by the request's
     /// `request_id` (a fresh id is minted if it is empty); the gateway replies with one reassembled
@@ -358,7 +399,7 @@ impl AeronGatewayClient {
     pub fn bulk_ops(&self, req: &BulkCacheOpsRequest) -> Result<BulkCacheOpsResponse, Box<dyn Error>> {
         let cid = if req.request_id.is_empty() { new_correlation_id() } else { req.request_id.clone() };
         let (tx, rx) = channel();
-        self.shared.pending_bulk.lock().unwrap().insert(cid.clone(), tx);
+        self.shared.pending_bulk.lock().unwrap().insert(cid.clone(), BulkReq { sender: tx, responses: Vec::new() });
         let frame = encode_bulk_request(&cid, req);
         if let Err(e) = offer_frame(&self.publication, &frame, self.request_timeout) {
             self.shared.pending_bulk.lock().unwrap().remove(&cid);
@@ -646,6 +687,7 @@ fn map_bulk_op(t: &crate::BulkOperationType) -> bulk_operation_type::BulkOperati
         H::ClearCache => S::CLEAR_CACHE,
         H::GetItem => S::GET_ITEM,
         H::DeleteCache => S::DELETE_CACHE,
+        H::PatchItem => S::PATCH_ITEM,
         H::CreateCounterCache => S::CREATE_COUNTER_CACHE,
         H::AddCounter => S::ADD_COUNTER,
         H::RemoveCounter => S::REMOVE_COUNTER,
@@ -655,6 +697,8 @@ fn map_bulk_op(t: &crate::BulkOperationType) -> bulk_operation_type::BulkOperati
         H::IncrementCounter => S::INCREMENT_COUNTER,
         H::DecrementCounter => S::DECREMENT_COUNTER,
         H::SetCounter => S::SET_COUNTER,
+        H::CancelItem => S::CANCEL_ITEM,
+        H::CancelCounter => S::CANCEL_COUNTER,
     }
 }
 
@@ -730,8 +774,10 @@ fn dispatch(data: &[u8], shared: &Shared) {
                 let _ = req.sender.send(Err(err.clone()));
             } else if let Some(req) = shared.pending_stats.lock().unwrap().remove(&correlation_id) {
                 let _ = req.sender.send(Err(err.clone()));
-            } else if let Some(tx) = shared.pending_bulk.lock().unwrap().remove(&correlation_id) {
-                let _ = tx.send(Err(err));
+            } else if let Some(req) = shared.pending_timers.lock().unwrap().remove(&correlation_id) {
+                let _ = req.sender.send(Err(err.clone()));
+            } else if let Some(req) = shared.pending_bulk.lock().unwrap().remove(&correlation_id) {
+                let _ = req.sender.send(Err(err));
             }
         }
         gateway_stream_update_codec::SBE_TEMPLATE_ID => {
@@ -748,6 +794,9 @@ fn dispatch(data: &[u8], shared: &Shared) {
         }
         gateway_stats_codec::SBE_TEMPLATE_ID => {
             decode_stats(header, shared);
+        }
+        gateway_timers_codec::SBE_TEMPLATE_ID => {
+            decode_timers(header, shared);
         }
         gateway_subscribe_ack_codec::SBE_TEMPLATE_ID => {
             decode_subscribe_ack(header, shared);
@@ -776,8 +825,9 @@ fn decode_subscribe_ack(header: message_header_codec::decoder::MessageHeaderDeco
 
 fn decode_bulk_response(header: message_header_codec::decoder::MessageHeaderDecoder<ReadBuf>, shared: &Shared) {
     let dec = gateway_bulk_response_codec::decoder::GatewayBulkResponseDecoder::default().header(header);
+    let end_of_batch = matches!(dec.end_of_batch(), boolean_type::BooleanType::T);
 
-    let mut responses: Vec<CacheOperationResponse> = Vec::new();
+    let mut batch: Vec<CacheOperationResponse> = Vec::new();
     let mut ops = dec.operations_decoder();
     while let Ok(Some(_)) = ops.advance() {
         let status = status_name(ops.status());
@@ -785,7 +835,7 @@ fn decode_bulk_response(header: message_header_codec::decoder::MessageHeaderDeco
         let cache_id = read_str(ops.cache_id_decoder(), |c| ops.cache_id_slice(c));
         let key = read_str(ops.key_decoder(), |c| ops.key_slice(c));
         let value = read_str(ops.value_decoder(), |c| ops.value_slice(c));
-        responses.push(CacheOperationResponse {
+        batch.push(CacheOperationResponse {
             request_id,
             status,
             cache_id,
@@ -796,11 +846,16 @@ fn decode_bulk_response(header: message_header_codec::decoder::MessageHeaderDeco
     let mut dec = ops.parent().unwrap();
     let correlation_id = read_str(dec.correlation_id_decoder(), |c| dec.correlation_id_slice(c));
 
-    if let Some(tx) = shared.pending_bulk.lock().unwrap().remove(&correlation_id) {
-        let _ = tx.send(Ok(BulkCacheOpsResponse {
-            request_id: correlation_id,
-            operation_responses: responses,
-        }));
+    let mut map = shared.pending_bulk.lock().unwrap();
+    if let Some(req) = map.get_mut(&correlation_id) {
+        req.responses.extend(batch);
+        if end_of_batch {
+            let req = map.remove(&correlation_id).unwrap();
+            let _ = req.sender.send(Ok(BulkCacheOpsResponse {
+                request_id: correlation_id,
+                operation_responses: req.responses,
+            }));
+        }
     }
 }
 
@@ -890,6 +945,33 @@ fn decode_stats(header: message_header_codec::decoder::MessageHeaderDecoder<Read
         if end_of_batch {
             let req = map.remove(&correlation_id).unwrap();
             let _ = req.sender.send(Ok(req.stats));
+        }
+    }
+}
+
+fn decode_timers(header: message_header_codec::decoder::MessageHeaderDecoder<ReadBuf>, shared: &Shared) {
+    let dec = gateway_timers_codec::decoder::GatewayTimersDecoder::default().header(header);
+    let _status = status_name(dec.status());
+    let end_of_batch = matches!(dec.end_of_batch(), boolean_type::BooleanType::T);
+
+    let mut batch: Vec<GatewayTimer> = Vec::new();
+    let mut timers = dec.timers_decoder();
+    while let Ok(Some(_)) = timers.advance() {
+        let timer_type = format!("{:?}", timers.timer_type());
+        let deadline = timers.deadline();
+        let cache_id = read_str(timers.cache_id_decoder(), |c| timers.cache_id_slice(c));
+        let key = read_str(timers.key_decoder(), |c| timers.key_slice(c));
+        batch.push(GatewayTimer { timer_type, cache_id, key, deadline });
+    }
+    let mut dec = timers.parent().unwrap();
+    let correlation_id = read_str(dec.correlation_id_decoder(), |c| dec.correlation_id_slice(c));
+
+    let mut map = shared.pending_timers.lock().unwrap();
+    if let Some(req) = map.get_mut(&correlation_id) {
+        req.timers.extend(batch);
+        if end_of_batch {
+            let req = map.remove(&correlation_id).unwrap();
+            let _ = req.sender.send(Ok(req.timers));
         }
     }
 }
@@ -1069,6 +1151,7 @@ mod tests {
             let mut enc = GatewayBulkResponseEncoder::default()
                 .wrap(WriteBuf::new(&mut buf), message_header_codec::ENCODED_LENGTH);
             enc = enc.header(0).parent().unwrap();
+            enc.end_of_batch(boolean_type::BooleanType::T);
             let mut group = enc.operations_encoder(ops.len() as u16, OperationsEncoder::default());
             for (status, rid, cid, k, v) in ops {
                 group.advance().unwrap();
@@ -1090,7 +1173,7 @@ mod tests {
     fn bulk_response_decodes_and_routes_to_pending() {
         let shared = Shared::new();
         let (tx, rx) = channel();
-        shared.pending_bulk.lock().unwrap().insert("batch-9".to_string(), tx);
+        shared.pending_bulk.lock().unwrap().insert("batch-9".to_string(), BulkReq { sender: tx, responses: Vec::new() });
 
         let frame = encode_bulk_response("batch-9", &[
             (operation_status::OperationStatus::SUCCESS, "r1", "c1", "k1", "v1"),

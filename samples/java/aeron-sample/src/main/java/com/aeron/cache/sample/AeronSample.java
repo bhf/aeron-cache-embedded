@@ -3,6 +3,7 @@ package com.aeron.cache.sample;
 import com.bhf.aeroncache.client.EmbeddedAeronCache;
 import com.bhf.aeroncache.client.gateway.AeronGatewayClient;
 import com.bhf.aeroncache.client.gateway.GatewaySubscription;
+import com.bhf.aeroncache.models.TimerInfo;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 
@@ -12,7 +13,7 @@ import java.util.concurrent.TimeUnit;
  * Demonstrates the Aeron gateway transport — the alternative to the HTTP+WS client.
  * <p>
  * Launches an embedded media driver and talks to a gateway over UDP. Enable the gateway on the
- * backend with {@code -Daeron.transport.gateway.enabled=true}. Override the host with
+ * backend with {@code -Daeron.gateway.enabled=true}. Override the host with
  * {@code -Daeron.gateway.host=<host>} (default {@code 127.0.0.1}).
  */
 public class AeronSample {
@@ -93,6 +94,17 @@ public class AeronSample {
             System.out.println("increment hits +5 -> " + client.incrementCounter(counterCache, "hits", 5).getValue());
             System.out.println("decrement hits -3 -> " + client.decrementCounter(counterCache, "hits", 3).getValue());
             System.out.println("set hits = 100 -> " + client.setCounter(counterCache, "hits", 100).getValue());
+
+            // --- Timers ---
+            // A timed entry schedules a pending TTL removal timer; getTimers streams all pending timers
+            // (cache + counter) as one or more batches, reassembled here into a single list.
+            System.out.println();
+            System.out.println("--- Timers ---");
+            client.putTimedItem(cacheId, "expiring", "gone-soon", 600_000);
+            for (TimerInfo timer : client.getTimers()) {
+                System.out.println("  [" + timer.getTimerType() + "] " + timer.getCacheId()
+                        + "/" + timer.getKey() + " fires at " + timer.getDeadline());
+            }
 
             client.deleteCache(cacheId);
             client.deleteCache(embeddedCacheId);

@@ -72,6 +72,70 @@ async def test_bidi_get_stats():
 
 
 @pytest.mark.asyncio
+async def test_bidi_get_timers():
+    async with AeronBidiClient(_ws_url()) as client:
+        cache_id = f"bidi-timers-{uuid.uuid4().hex[:8]}"
+        await client.create_cache(cache_id)
+        # A timed entry schedules a pending TTL removal timer.
+        await client.put_timed_item(cache_id, "ttl-key", "v", 600000)
+
+        timers = await client.get_timers()
+        assert isinstance(timers, list)
+        timer = next(
+            (t for t in timers if t.cacheId == cache_id and t.key == "ttl-key"),
+            None,
+        )
+        assert timer is not None, f"expected a pending timer for {cache_id}/ttl-key"
+        assert timer.timerType == "CACHE"
+        assert timer.deadline > 0
+        await client.delete_cache(cache_id)
+
+
+@pytest.mark.asyncio
+async def test_bidi_bulk_ops():
+    from aeron_cache.models import (
+        BulkCacheOpsRequest,
+        CacheOperationRequest,
+        BulkOperationType,
+    )
+
+    async with AeronBidiClient(_ws_url()) as client:
+        cache_id = f"bidi-bulk-{uuid.uuid4().hex[:8]}"
+        await client.create_cache(cache_id)
+
+        req_id = str(uuid.uuid4())
+        request = BulkCacheOpsRequest(
+            requestId=req_id,
+            operations=[
+                CacheOperationRequest(
+                    operationType=BulkOperationType.ADD_ITEM,
+                    requestId="op-1", cacheId=cache_id, key="bk1", value="bv1",
+                ),
+                CacheOperationRequest(
+                    operationType=BulkOperationType.ADD_ITEM,
+                    requestId="op-2", cacheId=cache_id, key="bk2", value="bv2",
+                ),
+                CacheOperationRequest(
+                    operationType=BulkOperationType.GET_ITEM,
+                    requestId="op-3", cacheId=cache_id, key="bk1",
+                ),
+            ],
+        )
+
+        response = await client.bulk_ops(request)
+        assert response.requestId == req_id
+        assert len(response.operationResponses) == 3
+
+        get_result = next(
+            r for r in response.operationResponses if r.requestId == "op-3"
+        )
+        assert get_result.value == "bv1"
+
+        assert (await client.get_item(cache_id, "bk2")).value == "bv2"
+        await client.delete_cache(cache_id)
+
+
+@pytest.mark.asyncio
 async def test_bidi_cancel_item_removal():
     async with AeronBidiClient(_ws_url()) as client:
         cache_id = f"bidi-cancel-{uuid.uuid4().hex[:8]}"

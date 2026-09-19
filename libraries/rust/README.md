@@ -120,7 +120,7 @@ The library offers three transports for the same cache and counter operations:
 - **Bidirectional WebSocket** — [`AeronBidiClient`](src/bidi.rs): a single WebSocket connection to `/api/ws/v1/bidi` carrying both commands and streaming updates as JSON frames. Pure Rust, no native dependencies.
 - **Aeron gateway** — [`AeronGatewayClient`](src/gateway.rs): a single low-latency, bidirectional Aeron connection carrying both commands and streaming updates, using the shared SBE wire protocol (`sbe/gateway-schema.xml`).
 
-Enable the Aeron gateway on the backend with `AERON_TRANSPORT_GATEWAY_ENABLED=true`. By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`).
+Enable the Aeron gateway on the backend with `AERON_GATEWAY_ENABLED=true`. By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`).
 
 > **Native build dependency:** the Aeron transport uses [`rusteron-client`](https://crates.io/crates/rusteron-client), which builds the Aeron C client. Building the crate therefore requires a C compiler, `cmake`, and `libclang` (for bindgen). The SBE codecs are pre-generated from the schema and vendored under `src/gateway_messages/`.
 

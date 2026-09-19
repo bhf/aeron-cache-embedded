@@ -74,6 +74,44 @@ const rid = () => Math.random().toString(36).substring(2, 10);
         await client.deleteCache(cacheId);
     });
 
+    it('getTimers returns a pending cache timer', async () => {
+        const cacheId = `bidi-timers-${crypto.randomUUID()}`;
+        await client.createCache(cacheId);
+        await client.putTimedItem(cacheId, 'timed', 'val', 600000);
+
+        const timers = await client.getTimers();
+        expect(Array.isArray(timers)).toBe(true);
+        const timer = timers.find((t) => t.cacheId === cacheId && t.key === 'timed');
+        expect(timer).toBeDefined();
+        expect(timer!.timerType).toBe('CACHE');
+        expect(timer!.deadline).toBeGreaterThan(0);
+
+        await client.deleteCache(cacheId);
+    });
+
+    it('bulkOps applies a batch of operations', async () => {
+        const cacheId = `bidi-bulk-${crypto.randomUUID()}`;
+        const requestId = `req-${crypto.randomUUID()}`;
+        await client.createCache(cacheId);
+
+        const resp = await client.bulkOps({
+            requestId,
+            operations: [
+                { operationType: 'ADD_ITEM', requestId: 'op-1', cacheId, key: 'k1', value: 'v1' },
+                { operationType: 'ADD_ITEM', requestId: 'op-2', cacheId, key: 'k2', value: 'v2' },
+                { operationType: 'GET_ITEM', requestId: 'op-3', cacheId, key: 'k1' }
+            ]
+        });
+
+        expect(resp.requestId).toBe(requestId);
+        expect(resp.operationResponses.length).toBe(3);
+        const get = resp.operationResponses.find((o) => o.requestId === 'op-3');
+        expect(get).toBeDefined();
+        expect(get!.value).toBe('v1');
+
+        await client.deleteCache(cacheId);
+    });
+
     it('cancel-item-removal keeps a timed item', async () => {
         const cacheId = `bidi-cancel-${rid()}`;
         await client.createCache(cacheId);

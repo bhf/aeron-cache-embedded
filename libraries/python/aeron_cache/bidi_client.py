@@ -31,6 +31,10 @@ from .models import (
     PatchItemResponse,
     CancelItemRemovalResponse,
     StatEntry,
+    TimerInfo,
+    BulkCacheOpsRequest,
+    BulkCacheOpsResponse,
+    CacheOperationResponse,
     CacheUpdateEvent,
     CounterUpdateEvent,
 )
@@ -71,6 +75,10 @@ class AeronBidiClient:
         self._entries = {}
         # correlationId -> {"stats": [], "status": str, "future": Future}
         self._stats = {}
+        # correlationId -> {"timers": [], "status": str, "future": Future}
+        self._timers = {}
+        # correlationId -> {"operations": [], "future": Future}
+        self._bulk = {}
         # correlationId -> Future resolving to the ack's cacheIds
         self._sub_acks = {}
         # cacheId -> list of {"cid", "on_message", "counters"}. Stream updates are routed by cacheId
@@ -145,6 +153,23 @@ class AeronBidiClient:
                     self._stats.pop(cid, None)
                     if not acc["future"].done():
                         acc["future"].set_result(acc)
+        elif msg_type == "timers":
+            acc = self._timers.get(cid)
+            if acc is not None:
+                acc["timers"].extend(msg.get("timers") or [])
+                acc["status"] = msg.get("status")
+                if msg.get("endOfBatch"):
+                    self._timers.pop(cid, None)
+                    if not acc["future"].done():
+                        acc["future"].set_result(acc)
+        elif msg_type == "bulkResponse":
+            acc = self._bulk.get(cid)
+            if acc is not None:
+                acc["operations"].extend(msg.get("operationResponses") or [])
+                if msg.get("endOfBatch"):
+                    self._bulk.pop(cid, None)
+                    if not acc["future"].done():
+                        acc["future"].set_result(acc)
         elif msg_type == "subscribed":
             fut = self._sub_acks.pop(cid, None)
             if fut is not None and not fut.done():
@@ -191,7 +216,9 @@ class AeronBidiClient:
         if fut is not None and not fut.done():
             fut.set_exception(err)
             return
-        acc = self._entries.pop(cid, None) or self._stats.pop(cid, None) or self._sub_acks.pop(cid, None)
+        acc = (self._entries.pop(cid, None) or self._stats.pop(cid, None)
+               or self._timers.pop(cid, None) or self._bulk.pop(cid, None)
+               or self._sub_acks.pop(cid, None))
         if acc is not None:
             future = acc["future"] if isinstance(acc, dict) else acc
             if not future.done():
@@ -202,11 +229,14 @@ class AeronBidiClient:
             if not fut.done():
                 fut.set_exception(exc)
         self._pending.clear()
-        for acc in list(self._entries.values()) + list(self._stats.values()):
+        for acc in (list(self._entries.values()) + list(self._stats.values())
+                    + list(self._timers.values()) + list(self._bulk.values())):
             if not acc["future"].done():
                 acc["future"].set_exception(exc)
         self._entries.clear()
         self._stats.clear()
+        self._timers.clear()
+        self._bulk.clear()
         for fut in self._sub_acks.values():
             if not fut.done():
                 fut.set_exception(exc)
@@ -292,6 +322,61 @@ class AeronBidiClient:
     async def get_stats(self) -> list:
         acc = await self._batched("GET_CACHE_STATS", None, "stats")
         return [StatEntry(**s) for s in acc["stats"]]
+
+    # ------------------------------------------------------------------ timers
+
+    async def get_timers(self) -> list:
+        """Request all pending TTL removal timers across caches and counter caches.
+
+        Sends a ``GET_TIMERS`` command (no cacheId, like get_stats) and accumulates the
+        server's ``timers`` frames until endOfBatch, returning the full list of
+        :class:`TimerInfo` (each tagged ``CACHE`` or ``COUNTER``).
+        """
+        cid = str(uuid.uuid4())
+        fut = asyncio.get_event_loop().create_future()
+        acc = {"timers": [], "status": None, "future": fut}
+        self._timers[cid] = acc
+        await self._send({
+            "type": "command", "correlationId": cid, "op": "GET_TIMERS",
+            "cacheId": None, "key": None, "value": None, "ttl": 0, "counterValue": 0,
+        })
+        try:
+            result = await asyncio.wait_for(fut, self.request_timeout)
+        finally:
+            self._timers.pop(cid, None)
+        return [TimerInfo(**t) for t in result["timers"]]
+
+    # ------------------------------------------------------------------ bulk operations
+
+    async def bulk_ops(self, request: BulkCacheOpsRequest) -> BulkCacheOpsResponse:
+        """Apply a batch of cache/counter operations in one ``bulk`` frame.
+
+        Mirrors :meth:`AeronCacheClient.bulk_ops`. Per-operation results are streamed back
+        as one or more ``bulkResponse`` frames, accumulated until endOfBatch; each result
+        echoes its operation's requestId, in request order.
+        """
+        cid = str(uuid.uuid4())
+        fut = asyncio.get_event_loop().create_future()
+        acc = {"operations": [], "future": fut}
+        self._bulk[cid] = acc
+        operations = [
+            {k: (v.value if hasattr(v, 'value') else v)
+             for k, v in op.__dict__.items() if v is not None}
+            for op in request.operations
+        ]
+        await self._send({
+            "type": "bulk", "correlationId": cid, "operations": operations,
+        })
+        try:
+            result = await asyncio.wait_for(fut, self.request_timeout)
+        finally:
+            self._bulk.pop(cid, None)
+        known = {"requestId", "status", "cacheId", "key", "value"}
+        ops = [
+            CacheOperationResponse(**{k: v for k, v in o.items() if k in known})
+            for o in result["operations"]
+        ]
+        return BulkCacheOpsResponse(requestId=request.requestId, operationResponses=ops)
 
     # ------------------------------------------------------------------ counter commands
 

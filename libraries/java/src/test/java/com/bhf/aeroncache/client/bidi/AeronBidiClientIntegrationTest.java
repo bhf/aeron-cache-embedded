@@ -1,11 +1,17 @@
 package com.bhf.aeroncache.client.bidi;
 
+import com.bhf.aeroncache.models.BulkCacheOpsRequest;
+import com.bhf.aeroncache.models.BulkCacheOpsResponse;
+import com.bhf.aeroncache.models.BulkOperationType;
 import com.bhf.aeroncache.models.CacheItem;
+import com.bhf.aeroncache.models.CacheOperationRequest;
+import com.bhf.aeroncache.models.CacheOperationResponse;
 import com.bhf.aeroncache.models.CacheUpdateEvent;
 import com.bhf.aeroncache.models.CounterItem;
 import com.bhf.aeroncache.models.GetCacheResponse;
 import com.bhf.aeroncache.models.GetCountersResponse;
 import com.bhf.aeroncache.models.StatEntry;
+import com.bhf.aeroncache.models.TimerInfo;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -112,6 +118,55 @@ class AeronBidiClientIntegrationTest {
         client.putItem(cacheId, "k", "v");
         final List<StatEntry> stats = client.getStats();
         assertNotNull(stats);
+        client.deleteCache(cacheId);
+    }
+
+    @Test
+    void getTimers() throws Exception {
+        final String cacheId = "bidi-timers-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCache(cacheId);
+        // A timed entry schedules a pending TTL removal timer.
+        client.putTimedItem(cacheId, "ttl-key", "v", 600_000L);
+
+        final List<TimerInfo> timers = client.getTimers();
+        final TimerInfo timer = timers.stream()
+                .filter(t -> cacheId.equals(t.getCacheId()) && "ttl-key".equals(t.getKey()))
+                .findFirst().orElse(null);
+        assertNotNull(timer, "expected a pending timer for " + cacheId + "/ttl-key");
+        assertEquals("CACHE", timer.getTimerType());
+        assertTrue(timer.getDeadline() > 0, "timer deadline should be a positive epoch millis");
+        client.deleteCache(cacheId);
+    }
+
+    @Test
+    void bulkOps() throws Exception {
+        final String cacheId = "bidi-bulk-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCache(cacheId);
+
+        final BulkCacheOpsRequest request = BulkCacheOpsRequest.builder()
+                .requestId(UUID.randomUUID().toString())
+                .addOperation(CacheOperationRequest.builder()
+                        .operationType(BulkOperationType.ADD_ITEM)
+                        .requestId("op-1").cacheId(cacheId).key("bk1").value("bv1").build())
+                .addOperation(CacheOperationRequest.builder()
+                        .operationType(BulkOperationType.ADD_ITEM)
+                        .requestId("op-2").cacheId(cacheId).key("bk2").value("bv2").build())
+                .addOperation(CacheOperationRequest.builder()
+                        .operationType(BulkOperationType.GET_ITEM)
+                        .requestId("op-3").cacheId(cacheId).key("bk1").build())
+                .build();
+
+        final BulkCacheOpsResponse response = client.bulkOps(request);
+        assertEquals(request.getRequestId(), response.getRequestId());
+        assertNotNull(response.getOperationResponses());
+        assertEquals(3, response.getOperationResponses().size());
+
+        final CacheOperationResponse getResult = response.getOperationResponses().stream()
+                .filter(r -> "op-3".equals(r.getRequestId()))
+                .findFirst().orElseThrow();
+        assertEquals("bv1", getResult.getValue());
+
+        assertEquals("bv2", client.getItem(cacheId, "bk2").getValue());
         client.deleteCache(cacheId);
     }
 

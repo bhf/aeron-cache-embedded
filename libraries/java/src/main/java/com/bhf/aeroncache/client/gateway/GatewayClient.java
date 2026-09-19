@@ -7,10 +7,12 @@ import com.bhf.aeroncache.gateway.messages.GatewayErrorDecoder;
 import com.bhf.aeroncache.gateway.messages.GatewayStatsDecoder;
 import com.bhf.aeroncache.gateway.messages.GatewayStreamUpdateDecoder;
 import com.bhf.aeroncache.gateway.messages.GatewaySubscribeAckDecoder;
+import com.bhf.aeroncache.gateway.messages.GatewayTimersDecoder;
 import com.bhf.aeroncache.gateway.messages.MessageHeaderDecoder;
 import com.bhf.aeroncache.gateway.messages.SubscriptionMode;
 import com.bhf.aeroncache.models.CacheOperationRequest;
 import com.bhf.aeroncache.models.CacheOperationResponse;
+import com.bhf.aeroncache.models.TimerInfo;
 import io.aeron.Aeron;
 import io.aeron.ChannelUriStringBuilder;
 import io.aeron.ExclusivePublication;
@@ -85,6 +87,7 @@ public class GatewayClient implements Agent, AutoCloseable {
     private final GatewayStreamUpdateDecoder streamUpdateDecoder = new GatewayStreamUpdateDecoder();
     private final GatewayErrorDecoder errorDecoder = new GatewayErrorDecoder();
     private final GatewaySubscribeAckDecoder subscribeAckDecoder = new GatewaySubscribeAckDecoder();
+    private final GatewayTimersDecoder timersDecoder = new GatewayTimersDecoder();
     private final GatewayBulkResponseDecoder bulkResponseDecoder = new GatewayBulkResponseDecoder();
     private final FragmentAssembler fragmentAssembler = new FragmentAssembler(this::onFragment);
 
@@ -232,6 +235,14 @@ public class GatewayClient implements Agent, AutoCloseable {
 
     public long getStats(String correlationId) {
         return sendCommand(CacheRequestMessageTypes.GET_CACHE_STATS_MSG_ID, 0L, 0L, correlationId, null, null, null);
+    }
+
+    /**
+     * Request all pending TTL removal timers across both caches and counter caches. The response arrives
+     * as one or more {@code GatewayTimers} batches, fanned out via {@link GatewayClientListener#onTimers}.
+     */
+    public long getTimers(String correlationId) {
+        return sendCommand(CacheRequestMessageTypes.GET_TIMERS_MSG_ID, 0L, 0L, correlationId, null, null, null);
     }
 
     // ------------------------------------------------------------------ counter commands
@@ -392,6 +403,8 @@ public class GatewayClient implements Agent, AutoCloseable {
             decodeStreamUpdate(buffer, bodyOffset, blockLength, version);
         } else if (templateId == GatewaySubscribeAckDecoder.TEMPLATE_ID) {
             decodeSubscribeAck(buffer, bodyOffset, blockLength, version);
+        } else if (templateId == GatewayTimersDecoder.TEMPLATE_ID) {
+            decodeTimers(buffer, bodyOffset, blockLength, version);
         } else if (templateId == GatewayBulkResponseDecoder.TEMPLATE_ID) {
             decodeBulkResponse(buffer, bodyOffset, blockLength, version);
         } else if (templateId == GatewayErrorDecoder.TEMPLATE_ID) {
@@ -474,8 +487,27 @@ public class GatewayClient implements Agent, AutoCloseable {
         }
     }
 
+    private void decodeTimers(DirectBuffer buffer, int offset, int blockLength, int version) {
+        timersDecoder.wrap(buffer, offset, blockLength, version);
+        final var status = timersDecoder.status();
+        final boolean endOfBatch = timersDecoder.endOfBatch() == com.bhf.aeroncache.gateway.messages.BooleanType.T;
+        final List<TimerInfo> timers = new java.util.ArrayList<>();
+        for (GatewayTimersDecoder.TimersDecoder timer : timersDecoder.timers()) {
+            final String timerType = timer.timerType().name();
+            final long deadline = timer.deadline();
+            final String cacheId = timer.cacheId();
+            final String key = timer.key();
+            timers.add(new TimerInfo(timerType, cacheId, key, deadline));
+        }
+        final String correlationId = timersDecoder.correlationId();
+        for (GatewayClientListener listener : listeners) {
+            listener.onTimers(correlationId, status, timers, endOfBatch);
+        }
+    }
+
     private void decodeBulkResponse(DirectBuffer buffer, int offset, int blockLength, int version) {
         bulkResponseDecoder.wrap(buffer, offset, blockLength, version);
+        final boolean endOfBatch = bulkResponseDecoder.endOfBatch() == com.bhf.aeroncache.gateway.messages.BooleanType.T;
         final List<CacheOperationResponse> operations = new java.util.ArrayList<>();
         for (GatewayBulkResponseDecoder.OperationsDecoder op : bulkResponseDecoder.operations()) {
             final CacheOperationResponse response = new CacheOperationResponse();
@@ -488,7 +520,7 @@ public class GatewayClient implements Agent, AutoCloseable {
         }
         final String correlationId = bulkResponseDecoder.correlationId();
         for (GatewayClientListener listener : listeners) {
-            listener.onBulkResponse(correlationId, operations);
+            listener.onBulkResponse(correlationId, operations, endOfBatch);
         }
     }
 

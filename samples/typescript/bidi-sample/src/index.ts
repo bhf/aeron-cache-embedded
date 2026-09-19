@@ -1,4 +1,4 @@
-import { AeronBidiClient, CacheUpdateEvent } from '@aeron-cache/embedded-client';
+import { AeronBidiClient, CacheUpdateEvent, BulkCacheOpsRequest } from '@aeron-cache/embedded-client';
 
 async function main() {
     const wsUrl = process.argv[2] || 'ws://localhost:7071';
@@ -58,6 +58,32 @@ async function main() {
         console.log('Cache stats (per-cache):');
         for (const stat of await client.getStats()) {
             console.log(`  - ${stat.cacheId}: size=${stat.size} added=${stat.addedCount} removed=${stat.removedCount} cleared=${stat.clearedCount}`);
+        }
+
+        // --- Bulk operations ---
+        // A single bulk request carries a batch of operations (regular-cache and counter ops may be
+        // mixed); the server streams back per-operation results, each echoing its own requestId.
+        console.log('--- Bulk operations ---');
+        const bulkRequest: BulkCacheOpsRequest = {
+            requestId: 'bidi-bulk-1',
+            operations: [
+                { operationType: 'ADD_ITEM', requestId: 'op-1', cacheId, key: 'bk1', value: 'bv1' },
+                { operationType: 'ADD_ITEM', requestId: 'op-2', cacheId, key: 'bk2', value: 'bv2' },
+                { operationType: 'GET_ITEM', requestId: 'op-3', cacheId, key: 'bk1' }
+            ]
+        };
+        const bulkResponse = await client.bulkOps(bulkRequest);
+        for (const op of bulkResponse.operationResponses) {
+            console.log(`  ${op.requestId} -> ${op.status}${op.value ? ` (${op.value})` : ''}`);
+        }
+
+        // --- Timers ---
+        // A timed entry schedules a pending TTL removal timer; getTimers lists all pending timers
+        // (cache + counter), each tagged with its type.
+        console.log('--- Timers ---');
+        await client.putTimedItem(cacheId, 'expiring', 'gone-soon', 600000);
+        for (const timer of await client.getTimers()) {
+            console.log(`  [${timer.timerType}] ${timer.cacheId}/${timer.key} fires at ${timer.deadline}`);
         }
 
         // --- Live subscription over the same connection ---

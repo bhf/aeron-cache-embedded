@@ -189,6 +189,7 @@ pub enum BulkOperationType {
     ClearCache,
     GetItem,
     DeleteCache,
+    PatchItem,
     CreateCounterCache,
     AddCounter,
     RemoveCounter,
@@ -198,6 +199,8 @@ pub enum BulkOperationType {
     IncrementCounter,
     DecrementCounter,
     SetCounter,
+    CancelItem,
+    CancelCounter,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -229,9 +232,9 @@ pub struct CacheOperationResponse {
     pub request_id: String,
     pub status: String,
     pub cache_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
 }
 
@@ -279,6 +282,26 @@ pub struct CacheStatsResponse {
     pub total_caches_count: i32,
     pub total_items_count: i32,
     pub error_count: i32,
+}
+
+/// A single pending TTL removal timer, as returned by the `getTimers` operation. `timer_type` is
+/// `"CACHE"` or `"COUNTER"`; `deadline` is the epoch time (millis) at which removal is scheduled.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TimerInfo {
+    pub timer_type: String,
+    pub cache_id: String,
+    pub key: String,
+    pub deadline: i64,
+}
+
+/// The response from `GET /api/v1/timers`: all pending TTL removal timers across caches and counters.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GetTimersResponse {
+    pub operation_status: String,
+    #[serde(default)]
+    pub timers: Vec<TimerInfo>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -574,6 +597,15 @@ impl AeronCacheClient {
         Ok(resp.json::<CacheStatsResponse>()?)
     }
 
+    pub fn get_timers(&self) -> Result<GetTimersResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/timers", self.base_url);
+        let resp = self.get_sync_client().get(&url).send()?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
+        }
+        Ok(resp.json::<GetTimersResponse>()?)
+    }
+
     // --- Additional Cache Operations (Async) ---
 
     pub async fn patch_item_async(&self, cache_id: &str, key: &str, value: &str) -> Result<PatchItemResponse, Box<dyn Error>> {
@@ -611,6 +643,15 @@ impl AeronCacheClient {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
         }
         Ok(resp.json::<CacheStatsResponse>().await?)
+    }
+
+    pub async fn get_timers_async(&self) -> Result<GetTimersResponse, Box<dyn Error>> {
+        let url = format!("{}/api/v1/timers", self.base_url);
+        let resp = self.async_client.get(&url).send().await?;
+        if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
+            return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
+        }
+        Ok(resp.json::<GetTimersResponse>().await?)
     }
 
     pub fn get_cache(&self, cache_id: &str) -> EmbeddedAeronCache<'_> {
