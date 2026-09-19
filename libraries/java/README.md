@@ -77,7 +77,7 @@ The library offers two transports for the same operations. Pick whichever suits 
 - **Aeron gateway** — [`AeronGatewayClient`](src/main/java/com/bhf/aeroncache/client/gateway/AeronGatewayClient.java): a single low-latency, bidirectional Aeron connection carrying both commands and streaming updates, using the shared SBE wire protocol (`gateway-schema.xml`).
 - **Bidirectional WebSocket** — [`AeronBidiClient`](src/main/java/com/bhf/aeroncache/client/bidi/AeronBidiClient.java): a single WebSocket connection to `/api/ws/v1/bidi` carrying the full cache + counter command surface plus dynamic subscribe/unsubscribe as JSON frames. The JSON/WebSocket analogue of the Aeron gateway, with no media driver required.
 
-Enable the Aeron gateway on the backend with `-Daeron.transport.gateway.enabled=true` (or `AERON_TRANSPORT_GATEWAY_ENABLED=true`). By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`).
+Enable the Aeron gateway on the backend with `-Daeron.gateway.enabled=true` (or `AERON_GATEWAY_ENABLED=true`). By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`).
 
 ### Aeron usage
 

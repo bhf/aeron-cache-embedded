@@ -61,7 +61,7 @@ jobs:
       - name: Start Aeron Cache Backend
         env:
           # Enable the Aeron SBE gateway so the Aeron transport integration tests can connect.
-          AERON_TRANSPORT_GATEWAY_ENABLED: "true"
+          AERON_GATEWAY_ENABLED: "true"
           # The gateway's response-control endpoint defaults to the machine hostname; the integration
           # tests connect over loopback, so pin both gateway endpoints to 127.0.0.1 to match.
           GATEWAY_REQUEST_ENDPOINT: "127.0.0.1:7075"
@@ -99,10 +99,13 @@ jobs:
             exit 1
           fi
 
-          # Give the gateway a moment to bind, then surface its status for diagnostics.
+          # Give the gateway a moment to bind, then surface its status for diagnostics. The brew
+          # wrapper sends the monolith's own output to ~/.aeron-cache/aeron-cache.log, so check both
+          # that log and the launcher stdout.
           sleep 5
-          echo "::group::Aeron Gateway status (from backend log)"
-          grep -iE "gateway" aeron-cache-log.txt || echo "(no gateway lines in backend log)"
+          echo "::group::Aeron Gateway status (from backend logs)"
+          grep -iE "gateway" "$HOME/.aeron-cache/aeron-cache.log" aeron-cache-log.txt \
+            || echo "(no gateway lines in backend logs)"
           echo "::endgroup::"
           
       - name: Build and test

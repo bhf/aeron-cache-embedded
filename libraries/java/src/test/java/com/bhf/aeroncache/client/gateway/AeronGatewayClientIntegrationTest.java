@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Enabled only when {@code -Daeron.gateway.it=true} is set, so it does not run in the default unit-test
  * build. The gateway must be reachable at {@code aeron.gateway.host} (default {@code 127.0.0.1}) on the
  * default request/response ports. Enable the gateway on the monolith with
- * {@code -Daeron.transport.gateway.enabled=true} (or {@code AERON_TRANSPORT_GATEWAY_ENABLED=true}), and
+ * {@code -Daeron.gateway.enabled=true} (or {@code AERON_GATEWAY_ENABLED=true}), and
  * pin its endpoints to loopback with {@code GATEWAY_REQUEST_ENDPOINT=127.0.0.1:7075} and
  * {@code GATEWAY_RESPONSE_CONTROL_ENDPOINT=127.0.0.1:7076}.
  * <p>

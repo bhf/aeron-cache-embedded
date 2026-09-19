@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit;
  * Demonstrates the Aeron gateway transport — the alternative to the HTTP+WS client.
  * <p>
  * Launches an embedded media driver and talks to a gateway over UDP. Enable the gateway on the
- * backend with {@code -Daeron.transport.gateway.enabled=true}. Override the host with
+ * backend with {@code -Daeron.gateway.enabled=true}. Override the host with
  * {@code -Daeron.gateway.host=<host>} (default {@code 127.0.0.1}).
  */
 public class AeronSample {

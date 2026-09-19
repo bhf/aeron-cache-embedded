@@ -2,7 +2,7 @@
 //!
 //! Enabled only when `AERON_GATEWAY_IT=true` is set, so they do not run in the default `cargo test`.
 //! The gateway must be reachable at `AERON_GATEWAY_HOST` (default `127.0.0.1`) on the default
-//! request/response ports. Enable the gateway on the backend with `AERON_TRANSPORT_GATEWAY_ENABLED=true`
+//! request/response ports. Enable the gateway on the backend with `AERON_GATEWAY_ENABLED=true`
 //! and pin its endpoints to loopback with `GATEWAY_REQUEST_ENDPOINT=127.0.0.1:7075` and
 //! `GATEWAY_RESPONSE_CONTROL_ENDPOINT=127.0.0.1:7076`.
 //!

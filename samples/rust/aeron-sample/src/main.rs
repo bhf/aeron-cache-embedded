@@ -2,7 +2,7 @@
 //! alternative to the HTTP+WS client.
 //!
 //! Launches an embedded media driver and talks to a gateway over UDP. Enable the gateway on the
-//! backend with `AERON_TRANSPORT_GATEWAY_ENABLED=true`. Override the host with the first CLI argument
+//! backend with `AERON_GATEWAY_ENABLED=true`. Override the host with the first CLI argument
 //! (default `127.0.0.1`).
 
 use aeron_cache_embedded_client::{AeronGatewayClient, CacheTransport};
