@@ -2,8 +2,13 @@ package com.aeron.cache.sample;
 
 import com.bhf.aeroncache.client.bidi.AeronBidiClient;
 import com.bhf.aeroncache.client.bidi.BidiSubscription;
+import com.bhf.aeroncache.models.BulkCacheOpsRequest;
+import com.bhf.aeroncache.models.BulkOperationType;
 import com.bhf.aeroncache.models.CacheItem;
+import com.bhf.aeroncache.models.CacheOperationRequest;
+import com.bhf.aeroncache.models.CacheOperationResponse;
 import com.bhf.aeroncache.models.StatEntry;
+import com.bhf.aeroncache.models.TimerInfo;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -64,6 +69,39 @@ public class BidiSample {
             for (StatEntry stat : client.getStats()) {
                 System.out.println("  " + stat.getCacheId() + " size=" + stat.getSize()
                         + " added=" + stat.getAddedCount() + " removed=" + stat.getRemovedCount());
+            }
+
+            // --- Bulk operations ---
+            // A single `bulk` frame carries a batch of operations (regular-cache and counter ops may be
+            // mixed); the server streams back per-operation results, each echoing its own requestId.
+            System.out.println();
+            System.out.println("--- Bulk operations ---");
+            final BulkCacheOpsRequest bulk = BulkCacheOpsRequest.builder()
+                    .requestId("bidi-bulk-1")
+                    .addOperation(CacheOperationRequest.builder()
+                            .operationType(BulkOperationType.ADD_ITEM)
+                            .requestId("op-1").cacheId(cacheId).key("bk1").value("bv1").build())
+                    .addOperation(CacheOperationRequest.builder()
+                            .operationType(BulkOperationType.ADD_ITEM)
+                            .requestId("op-2").cacheId(cacheId).key("bk2").value("bv2").build())
+                    .addOperation(CacheOperationRequest.builder()
+                            .operationType(BulkOperationType.GET_ITEM)
+                            .requestId("op-3").cacheId(cacheId).key("bk1").build())
+                    .build();
+            for (CacheOperationResponse op : client.bulkOps(bulk).getOperationResponses()) {
+                System.out.println("  " + op.getRequestId() + " -> " + op.getStatus()
+                        + (op.getValue() != null ? " (" + op.getValue() + ")" : ""));
+            }
+
+            // --- Timers ---
+            // A timed entry schedules a pending TTL removal timer; getTimers lists all pending timers
+            // (cache + counter), each tagged with its type.
+            System.out.println();
+            System.out.println("--- Timers ---");
+            client.putTimedItem(cacheId, "expiring", "gone-soon", 600_000);
+            for (TimerInfo timer : client.getTimers()) {
+                System.out.println("  [" + timer.getTimerType() + "] " + timer.getCacheId()
+                        + "/" + timer.getKey() + " fires at " + timer.getDeadline());
             }
 
             // --- Live subscription ---

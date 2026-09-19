@@ -4,7 +4,9 @@
 //!
 //! Override the WebSocket URL with the first CLI argument (default `ws://localhost:7071`).
 
-use aeron_cache_embedded_client::AeronBidiClient;
+use aeron_cache_embedded_client::{
+    AeronBidiClient, BulkCacheOpsRequest, BulkOperationType, CacheOperationRequest,
+};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -59,6 +61,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "  {} size={} added={} removed={} cleared={}",
             entry.cache_id, entry.size, entry.added_count, entry.removed_count, entry.cleared_count
+        );
+    }
+
+    // --- Bulk operations ---
+    // A single `bulk` frame carries a batch of operations (regular-cache and counter ops may be
+    // mixed); the server streams back per-operation results, each echoing its own requestId.
+    println!("\n--- Bulk operations ---");
+    let bulk = BulkCacheOpsRequest {
+        request_id: "bidi-bulk-1".to_string(),
+        operations: vec![
+            CacheOperationRequest {
+                operation_type: BulkOperationType::AddItem,
+                request_id: "op-1".to_string(),
+                cache_id: cache_id.to_string(),
+                key: Some("bk1".to_string()),
+                value: Some("bv1".to_string()),
+                ttl: None,
+                counter_value: None,
+            },
+            CacheOperationRequest {
+                operation_type: BulkOperationType::AddItem,
+                request_id: "op-2".to_string(),
+                cache_id: cache_id.to_string(),
+                key: Some("bk2".to_string()),
+                value: Some("bv2".to_string()),
+                ttl: None,
+                counter_value: None,
+            },
+            CacheOperationRequest {
+                operation_type: BulkOperationType::GetItem,
+                request_id: "op-3".to_string(),
+                cache_id: cache_id.to_string(),
+                key: Some("bk1".to_string()),
+                value: None,
+                ttl: None,
+                counter_value: None,
+            },
+        ],
+    };
+    for op in client.bulk_ops(&bulk)?.operation_responses {
+        match op.value.filter(|v| !v.is_empty()) {
+            Some(value) => println!("  {} -> {} ({})", op.request_id, op.status, value),
+            None => println!("  {} -> {}", op.request_id, op.status),
+        }
+    }
+
+    // --- Timers ---
+    // A timed entry schedules a pending TTL removal timer; getTimers lists all pending timers
+    // (cache + counter), each tagged with its type.
+    println!("\n--- Timers ---");
+    client.put_timed_item(cache_id, "expiring", "gone-soon", 600_000)?;
+    for timer in client.get_timers()? {
+        println!(
+            "  [{}] {}/{} fires at {}",
+            timer.timer_type, timer.cache_id, timer.key, timer.deadline
         );
     }
 

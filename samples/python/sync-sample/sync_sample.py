@@ -67,6 +67,13 @@ def main():
     stats = client.get_stats()
     print(f"Cache stats: caches={stats.totalCachesCount} items={stats.totalItemsCount} ops={stats.totalOpsCount} errors={stats.errorCount}")
 
+    # A timed entry schedules a pending TTL removal timer; get_timers lists all pending timers
+    # across both caches and counter caches, each tagged CACHE or COUNTER.
+    client.put_timed_item("sync-sample-cache", "expiring", "gone-soon", 600000)
+    print("Listing all pending TTL timers:")
+    for timer in client.get_timers().timers:
+        print(f"  - [{timer.timerType}] {timer.cacheId}/{timer.key} fires at {timer.deadline}")
+
     print("Listing all counters in 'sync-counter-cache':")
     for item in client.get_counter_items("sync-counter-cache").items:
         print(f"  - {item.key} = {item.value}")

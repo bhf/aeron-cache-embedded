@@ -75,6 +75,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stats.total_caches_count, stats.total_items_count, stats.total_ops_count, stats.error_count
     );
 
+    // A timed entry schedules a pending TTL removal timer; getTimers lists all pending timers
+    // across both caches and counter caches, each tagged CACHE or COUNTER.
+    client.put_timed_item(cache_id, "expiring", "gone-soon", 600_000)?;
+    println!("Listing all pending TTL timers:");
+    for timer in client.get_timers()?.timers {
+        println!(
+            "  - [{}] {}/{} fires at {}",
+            timer.timer_type, timer.cache_id, timer.key, timer.deadline
+        );
+    }
+
     println!("Listing all counters in '{}':", counter_cache_id);
     for item in client.get_counter_items(counter_cache_id)?.items {
         println!("  - {} = {}", item.key, item.value);

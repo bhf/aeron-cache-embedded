@@ -66,6 +66,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("decrement hits -3 -> {}", client.decrement_counter(counter_cache, "hits", 3)?.value);
     println!("set hits = 100 -> {}", client.set_counter(counter_cache, "hits", 100)?.value);
 
+    // --- Timers ---
+    // A timed entry schedules a pending TTL removal timer; getTimers streams all pending timers
+    // (cache + counter) as one or more batches, reassembled here into a single list.
+    println!("\n--- Timers ---");
+    client.put_timed_item(cache_id, "expiring", "gone-soon", 600_000)?;
+    for timer in client.get_timers()? {
+        println!(
+            "  [{}] {}/{} fires at {}",
+            timer.timer_type, timer.cache_id, timer.key, timer.deadline
+        );
+    }
+
     client.delete_cache(cache_id)?;
     client.delete_counter_cache(counter_cache)?;
     println!("Done.");

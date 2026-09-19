@@ -4,6 +4,11 @@ import sys
 import websockets
 
 from aeron_cache.bidi_client import AeronBidiClient, BidiError
+from aeron_cache.models import (
+    BulkCacheOpsRequest,
+    BulkOperationType,
+    CacheOperationRequest,
+)
 
 
 async def main():
@@ -59,6 +64,40 @@ async def main():
             print(f"Cache stats ({len(stats)} entries):")
             for stat in stats:
                 print(f"  {stat.cacheId}: size={stat.size} added={stat.addedCount} removed={stat.removedCount}")
+
+            # --- bulk operations ---
+            # A single bulk frame carries a batch of operations; the server streams back
+            # per-operation results, each echoing its own requestId.
+            bulk_request = BulkCacheOpsRequest(
+                requestId="bidi-bulk-1",
+                operations=[
+                    CacheOperationRequest(
+                        operationType=BulkOperationType.ADD_ITEM,
+                        requestId="op-1", cacheId=cache_id, key="bk1", value="bv1"
+                    ),
+                    CacheOperationRequest(
+                        operationType=BulkOperationType.ADD_ITEM,
+                        requestId="op-2", cacheId=cache_id, key="bk2", value="bv2"
+                    ),
+                    CacheOperationRequest(
+                        operationType=BulkOperationType.GET_ITEM,
+                        requestId="op-3", cacheId=cache_id, key="bk1"
+                    ),
+                ],
+            )
+            bulk_response = await client.bulk_ops(bulk_request)
+            print("Bulk operation responses:")
+            for op_resp in bulk_response.operationResponses:
+                suffix = f" ({op_resp.value})" if op_resp.value else ""
+                print(f"  {op_resp.requestId} -> {op_resp.status}{suffix}")
+
+            # --- timers ---
+            # A timed entry schedules a pending TTL removal timer; get_timers lists all pending
+            # timers (cache + counter), each tagged with its type.
+            await client.put_timed_item(cache_id, "expiring", "gone-soon", 600000)
+            print("Listing all pending TTL timers:")
+            for timer in await client.get_timers():
+                print(f"  [{timer.timerType}] {timer.cacheId}/{timer.key} fires at {timer.deadline}")
 
             # --- live subscription ---
             received = asyncio.Event()
