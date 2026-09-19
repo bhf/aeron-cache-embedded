@@ -18,6 +18,7 @@ import com.bhf.aeroncache.models.DeleteItemResponse;
 import com.bhf.aeroncache.models.GetCacheResponse;
 import com.bhf.aeroncache.models.GetItemResponse;
 import com.bhf.aeroncache.models.PutItemResponse;
+import com.bhf.aeroncache.models.TimerInfo;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import org.agrona.CloseHelper;
@@ -124,6 +125,24 @@ class AeronGatewayClientIntegrationTest {
                 .findFirst().orElse(null);
         assertNotNull(stat, "expected stats for cache " + cacheId);
         assertEquals(2, stat.size());
+
+        client.deleteCache(cacheId);
+    }
+
+    @Test
+    void getTimersReturnsPendingTimers() throws Exception {
+        final String cacheId = "it-timers-" + UUID.randomUUID();
+        client.createCache(cacheId);
+        // A timed entry schedules a pending TTL removal timer.
+        client.putTimedItem(cacheId, "ttl-key", "v", 600_000L);
+
+        final List<TimerInfo> timers = client.getTimers();
+        final TimerInfo timer = timers.stream()
+                .filter(t -> cacheId.equals(t.getCacheId()) && "ttl-key".equals(t.getKey()))
+                .findFirst().orElse(null);
+        assertNotNull(timer, "expected a pending timer for " + cacheId + "/ttl-key");
+        assertEquals("CACHE", timer.getTimerType());
+        assertTrue(timer.getDeadline() > 0, "timer deadline should be a positive epoch millis");
 
         client.deleteCache(cacheId);
     }

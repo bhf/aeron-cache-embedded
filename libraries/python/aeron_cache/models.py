@@ -125,6 +125,7 @@ class BulkOperationType(str, Enum):
     CLEAR_CACHE = "CLEAR_CACHE"
     GET_ITEM = "GET_ITEM"
     DELETE_CACHE = "DELETE_CACHE"
+    PATCH_ITEM = "PATCH_ITEM"
     CREATE_COUNTER_CACHE = "CREATE_COUNTER_CACHE"
     ADD_COUNTER = "ADD_COUNTER"
     REMOVE_COUNTER = "REMOVE_COUNTER"
@@ -134,6 +135,8 @@ class BulkOperationType(str, Enum):
     INCREMENT_COUNTER = "INCREMENT_COUNTER"
     DECREMENT_COUNTER = "DECREMENT_COUNTER"
     SET_COUNTER = "SET_COUNTER"
+    CANCEL_ITEM = "CANCEL_ITEM"
+    CANCEL_COUNTER = "CANCEL_COUNTER"
 
 @dataclass
 class CacheOperationRequest:
@@ -211,6 +214,26 @@ class StatEntry:
     removedCount: int = 0
     clearedCount: int = 0
     size: int = 0
+
+@dataclass
+class TimerInfo:
+    timerType: str
+    cacheId: str
+    key: str
+    deadline: int
+
+@dataclass
+class GetTimersResponse:
+    operationStatus: str
+    timers: list[TimerInfo]
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        timers = [TimerInfo(**t) for t in data.get('timers', [])]
+        return cls(
+            operationStatus=data.get('operationStatus'),
+            timers=timers
+        )
 
 @dataclass
 class GetCountersResponse:

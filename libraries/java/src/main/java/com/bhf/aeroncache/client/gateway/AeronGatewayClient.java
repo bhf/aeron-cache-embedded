@@ -14,6 +14,7 @@ import com.bhf.aeroncache.models.CounterUpdateEvent;
 import com.bhf.aeroncache.models.CreateResponse;
 import com.bhf.aeroncache.models.DeleteCacheResponse;
 import com.bhf.aeroncache.models.DeleteItemResponse;
+import com.bhf.aeroncache.models.TimerInfo;
 import com.bhf.aeroncache.models.GetCacheResponse;
 import com.bhf.aeroncache.models.GetItemResponse;
 import com.bhf.aeroncache.models.CounterResponse;
@@ -84,8 +85,10 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     private final Map<String, EntriesAccumulator> pendingEntries = new ConcurrentHashMap<>();
     // correlationId -> accumulating getStats request
     private final Map<String, StatsAccumulator> pendingStats = new ConcurrentHashMap<>();
-    // correlationId -> pending bulk-operations request
-    private final Map<String, CompletableFuture<BulkCacheOpsResponse>> pendingBulk = new ConcurrentHashMap<>();
+    // correlationId -> accumulating getTimers request
+    private final Map<String, TimersAccumulator> pendingTimers = new ConcurrentHashMap<>();
+    // correlationId -> accumulating bulk-operations request
+    private final Map<String, BulkAccumulator> pendingBulk = new ConcurrentHashMap<>();
     // subscribe correlationId -> pending subscribe-ack barrier
     private final Map<String, CompletableFuture<Void>> pendingSubscribeAcks = new ConcurrentHashMap<>();
 
@@ -303,6 +306,24 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         return await(getStatsAsync());
     }
 
+    /**
+     * Request all pending TTL removal timers across both caches and counter caches. Results arrive in one
+     * or more {@code GatewayTimers} batches which are accumulated until the end-of-batch frame, then the
+     * future completes with the full list (each timer tagged {@code CACHE} or {@code COUNTER}).
+     */
+    public CompletableFuture<List<TimerInfo>> getTimersAsync() {
+        final String cid = UUID.randomUUID().toString();
+        final CompletableFuture<List<TimerInfo>> future = new CompletableFuture<>();
+        pendingTimers.put(cid, new TimersAccumulator(future));
+        scheduleTimeout(cid, future);
+        offer(() -> gatewayClient.getTimers(cid), future);
+        return future;
+    }
+
+    public List<TimerInfo> getTimers() throws Exception {
+        return await(getTimersAsync());
+    }
+
     // ------------------------------------------------------------------ bulk operations
 
     /**
@@ -314,7 +335,7 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     public CompletableFuture<BulkCacheOpsResponse> bulkOpsAsync(BulkCacheOpsRequest req) {
         final String cid = UUID.randomUUID().toString();
         final CompletableFuture<BulkCacheOpsResponse> future = new CompletableFuture<>();
-        pendingBulk.put(cid, future);
+        pendingBulk.put(cid, new BulkAccumulator(future));
         scheduleTimeout(cid, future);
         final List<CacheOperationRequest> ops = req.getOperations() == null ? List.of() : req.getOperations();
         offer(() -> gatewayClient.bulkOps(cid, ops), future);
@@ -539,6 +560,24 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         }
     }
 
+    private final class TimersAccumulator {
+        final CompletableFuture<List<TimerInfo>> future;
+        final List<TimerInfo> timers = new ArrayList<>();
+
+        TimersAccumulator(CompletableFuture<List<TimerInfo>> future) {
+            this.future = future;
+        }
+    }
+
+    private final class BulkAccumulator {
+        final CompletableFuture<BulkCacheOpsResponse> future;
+        final List<CacheOperationResponse> operations = new ArrayList<>();
+
+        BulkAccumulator(CompletableFuture<BulkCacheOpsResponse> future) {
+            this.future = future;
+        }
+    }
+
     private <T> CompletableFuture<T> command(java.util.function.Function<String, Long> send, ResponseMapper<T> mapper) {
         final String cid = UUID.randomUUID().toString();
         final CompletableFuture<T> future = new CompletableFuture<>();
@@ -574,6 +613,7 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
                 pendingCommands.remove(correlationId);
                 pendingEntries.remove(correlationId);
                 pendingStats.remove(correlationId);
+                pendingTimers.remove(correlationId);
                 pendingBulk.remove(correlationId);
                 future.completeExceptionally(new TimeoutException("Gateway request timed out: " + correlationId));
             }
@@ -629,7 +669,9 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         pendingEntries.clear();
         pendingStats.values().forEach(a -> a.future.completeExceptionally(cause));
         pendingStats.clear();
-        pendingBulk.values().forEach(f -> f.completeExceptionally(cause));
+        pendingTimers.values().forEach(a -> a.future.completeExceptionally(cause));
+        pendingTimers.clear();
+        pendingBulk.values().forEach(a -> a.future.completeExceptionally(cause));
         pendingBulk.clear();
         pendingSubscribeAcks.values().forEach(f -> f.completeExceptionally(cause));
         pendingSubscribeAcks.clear();
@@ -783,6 +825,19 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         }
 
         @Override
+        public void onTimers(String correlationId, OperationStatus status, List<TimerInfo> timers, boolean endOfBatch) {
+            final TimersAccumulator acc = pendingTimers.get(correlationId);
+            if (acc == null) {
+                return;
+            }
+            acc.timers.addAll(timers);
+            if (endOfBatch) {
+                pendingTimers.remove(correlationId);
+                acc.future.complete(acc.timers);
+            }
+        }
+
+        @Override
         public void onStreamUpdate(String correlationId, UpdateEventType eventType, String cacheId, String key, String value) {
             final List<Consumer<CacheUpdateEvent>> cacheSubs = cacheListeners.get(cacheId);
             if (cacheSubs != null && !cacheSubs.isEmpty()) {
@@ -819,14 +874,18 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         }
 
         @Override
-        public void onBulkResponse(String correlationId, List<CacheOperationResponse> operations) {
-            final CompletableFuture<BulkCacheOpsResponse> future = pendingBulk.remove(correlationId);
-            if (future == null) {
+        public void onBulkResponse(String correlationId, List<CacheOperationResponse> operations, boolean endOfBatch) {
+            final BulkAccumulator acc = pendingBulk.get(correlationId);
+            if (acc == null) {
                 return;
             }
-            final BulkCacheOpsResponse response = new BulkCacheOpsResponse();
-            response.setOperationResponses(new ArrayList<>(operations));
-            future.complete(response);
+            acc.operations.addAll(operations);
+            if (endOfBatch) {
+                pendingBulk.remove(correlationId);
+                final BulkCacheOpsResponse response = new BulkCacheOpsResponse();
+                response.setOperationResponses(new ArrayList<>(acc.operations));
+                acc.future.complete(response);
+            }
         }
 
         @Override
@@ -847,9 +906,14 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
                 stats.future.completeExceptionally(error);
                 return;
             }
-            final CompletableFuture<BulkCacheOpsResponse> bulk = pendingBulk.remove(correlationId);
+            final TimersAccumulator timers = pendingTimers.remove(correlationId);
+            if (timers != null) {
+                timers.future.completeExceptionally(error);
+                return;
+            }
+            final BulkAccumulator bulk = pendingBulk.remove(correlationId);
             if (bulk != null) {
-                bulk.completeExceptionally(error);
+                bulk.future.completeExceptionally(error);
                 return;
             }
             final CompletableFuture<Void> ack = pendingSubscribeAcks.remove(correlationId);

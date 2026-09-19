@@ -110,6 +110,7 @@ export type BulkOperationType =
     | 'CLEAR_CACHE'
     | 'GET_ITEM'
     | 'DELETE_CACHE'
+    | 'PATCH_ITEM'
     | 'CREATE_COUNTER_CACHE'
     | 'ADD_COUNTER'
     | 'REMOVE_COUNTER'
@@ -118,7 +119,9 @@ export type BulkOperationType =
     | 'DELETE_COUNTER_CACHE'
     | 'INCREMENT_COUNTER'
     | 'DECREMENT_COUNTER'
-    | 'SET_COUNTER';
+    | 'SET_COUNTER'
+    | 'CANCEL_ITEM'
+    | 'CANCEL_COUNTER';
 
 export interface CacheOperationRequest {
     operationType: BulkOperationType;
@@ -197,4 +200,23 @@ export interface GetCountersResponse {
     cacheId: string;
     operationStatus: string;
     items: CounterItem[];
+}
+
+// --- Timers ---
+
+// A single pending TTL removal timer. `timerType` is 'CACHE' or 'COUNTER', distinguishing cache
+// timers from counter timers. `deadline` is the epoch time (millis) at which removal is scheduled
+// to fire; it is a 64-bit integer on the server, subject to the usual JavaScript precision limits.
+export interface TimerInfo {
+    timerType: string;
+    cacheId: string;
+    key: string;
+    deadline: number;
+}
+
+// The response from getting all pending TTL removal timers across caches and counter caches, as
+// returned by the HTTP transport's `GET /api/v1/timers` endpoint and the bidi transport's getTimers.
+export interface GetTimersResponse {
+    operationStatus: string;
+    timers: TimerInfo[];
 }

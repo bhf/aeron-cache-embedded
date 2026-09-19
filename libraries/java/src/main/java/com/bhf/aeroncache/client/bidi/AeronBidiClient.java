@@ -1,6 +1,10 @@
 package com.bhf.aeroncache.client.bidi;
 
+import com.bhf.aeroncache.models.BulkCacheOpsRequest;
+import com.bhf.aeroncache.models.BulkCacheOpsResponse;
 import com.bhf.aeroncache.models.CacheItem;
+import com.bhf.aeroncache.models.CacheOperationRequest;
+import com.bhf.aeroncache.models.CacheOperationResponse;
 import com.bhf.aeroncache.models.CacheUpdateEvent;
 import com.bhf.aeroncache.models.CancelItemRemovalResponse;
 import com.bhf.aeroncache.models.ClearCacheResponse;
@@ -16,6 +20,7 @@ import com.bhf.aeroncache.models.GetItemResponse;
 import com.bhf.aeroncache.models.PatchItemResponse;
 import com.bhf.aeroncache.models.PutItemResponse;
 import com.bhf.aeroncache.models.StatEntry;
+import com.bhf.aeroncache.models.TimerInfo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -73,6 +78,7 @@ public class AeronBidiClient implements AutoCloseable {
     private static final String CANCEL_CACHE_ITEM_REMOVAL = "CANCEL_CACHE_ITEM_REMOVAL";
     private static final String GET_CACHE_ENTRIES = "GET_CACHE_ENTRIES";
     private static final String GET_CACHE_STATS = "GET_CACHE_STATS";
+    private static final String GET_TIMERS = "GET_TIMERS";
     private static final String CREATE_COUNTER_CACHE = "CREATE_COUNTER_CACHE";
     private static final String ADD_COUNTER_ENTRY = "ADD_COUNTER_ENTRY";
     private static final String GET_COUNTER_ENTRY = "GET_COUNTER_ENTRY";
@@ -102,6 +108,10 @@ public class AeronBidiClient implements AutoCloseable {
     private final Map<String, EntriesAccumulator> pendingEntries = new ConcurrentHashMap<>();
     // correlationId -> accumulating stats request.
     private final Map<String, StatsAccumulator> pendingStats = new ConcurrentHashMap<>();
+    // correlationId -> accumulating timers request.
+    private final Map<String, TimersAccumulator> pendingTimers = new ConcurrentHashMap<>();
+    // correlationId -> accumulating bulk-operations request.
+    private final Map<String, BulkAccumulator> pendingBulk = new ConcurrentHashMap<>();
     // subscribe correlationId -> pending subscribe-ack barrier (resolves to the acked cacheIds).
     private final Map<String, CompletableFuture<List<String>>> pendingSubscribeAcks = new ConcurrentHashMap<>();
     // cacheId -> subscription registrations. Stream updates route by cacheId (see class javadoc).
@@ -392,6 +402,44 @@ public class AeronBidiClient implements AutoCloseable {
         return await(getCounterStatsAsync());
     }
 
+    // ------------------------------------------------------------------ timers
+
+    /**
+     * Request all pending TTL removal timers across both caches and counter caches. The server streams
+     * one or more {@code timers} frames, accumulated until the end-of-batch frame; the future then
+     * completes with the full list (each timer tagged {@code CACHE} or {@code COUNTER}).
+     */
+    public CompletableFuture<List<TimerInfo>> getTimersAsync() {
+        return timers().thenApply(acc -> acc.timers);
+    }
+
+    public List<TimerInfo> getTimers() throws Exception {
+        return await(getTimersAsync());
+    }
+
+    // ------------------------------------------------------------------ bulk operations
+
+    /**
+     * Apply a batch of cache/counter operations in one {@code bulk} frame, mirroring
+     * {@link com.bhf.aeroncache.client.AeronCacheClient#bulkOpsAsync}. A batch may freely mix regular-cache
+     * and counter operations, applied in request order by the cluster. Per-operation results are streamed
+     * back as one or more {@code bulkResponse} frames, accumulated until the end-of-batch frame; each
+     * result echoes its operation's {@code requestId}.
+     */
+    public CompletableFuture<BulkCacheOpsResponse> bulkOpsAsync(BulkCacheOpsRequest req) {
+        final List<CacheOperationRequest> ops = req.getOperations() == null ? List.of() : req.getOperations();
+        return bulk(ops).thenApply(acc -> {
+            final BulkCacheOpsResponse response = new BulkCacheOpsResponse();
+            response.setRequestId(req.getRequestId());
+            response.setOperationResponses(new ArrayList<>(acc.operations));
+            return response;
+        });
+    }
+
+    public BulkCacheOpsResponse bulkOps(BulkCacheOpsRequest req) throws Exception {
+        return await(bulkOpsAsync(req));
+    }
+
     // ------------------------------------------------------------------ subscriptions
 
     public BidiSubscription subscribe(String cacheId, Consumer<CacheUpdateEvent> listener) {
@@ -539,6 +587,35 @@ public class AeronBidiClient implements AutoCloseable {
         return acc.future;
     }
 
+    private CompletableFuture<TimersAccumulator> timers() {
+        final String cid = UUID.randomUUID().toString();
+        final TimersAccumulator acc = new TimersAccumulator();
+        pendingTimers.put(cid, acc);
+        acc.future.whenComplete((r, e) -> pendingTimers.remove(cid));
+        sendBatchCommand(cid, GET_TIMERS, null);
+        acc.future.orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS);
+        return acc.future;
+    }
+
+    private CompletableFuture<BulkAccumulator> bulk(List<CacheOperationRequest> ops) {
+        final String cid = UUID.randomUUID().toString();
+        final BulkAccumulator acc = new BulkAccumulator();
+        pendingBulk.put(cid, acc);
+        acc.future.whenComplete((r, e) -> pendingBulk.remove(cid));
+
+        final ObjectNode frame = objectMapper.createObjectNode();
+        frame.put("type", "bulk");
+        frame.put("correlationId", cid);
+        final var opsArray = frame.putArray("operations");
+        for (CacheOperationRequest op : ops) {
+            opsArray.add(objectMapper.valueToTree(op));
+        }
+        send(frame);
+
+        acc.future.orTimeout(requestTimeoutMs, TimeUnit.MILLISECONDS);
+        return acc.future;
+    }
+
     private void sendBatchCommand(String cid, String op, String cacheId) {
         final ObjectNode frame = objectMapper.createObjectNode();
         frame.put("type", "command");
@@ -625,6 +702,33 @@ public class AeronBidiClient implements AutoCloseable {
                     }
                 }
             }
+            case "timers" -> {
+                final TimersAccumulator acc = pendingTimers.get(cid);
+                if (acc != null) {
+                    final JsonNode timersArray = msg.get("timers");
+                    if (timersArray != null && timersArray.isArray()) {
+                        timersArray.forEach(t -> acc.timers.add(timerInfo(t)));
+                    }
+                    acc.status = text(msg, "status");
+                    if (msg.path("endOfBatch").asBoolean(false)) {
+                        pendingTimers.remove(cid);
+                        acc.future.complete(acc);
+                    }
+                }
+            }
+            case "bulkResponse" -> {
+                final BulkAccumulator acc = pendingBulk.get(cid);
+                if (acc != null) {
+                    final JsonNode opsArray = msg.get("operationResponses");
+                    if (opsArray != null && opsArray.isArray()) {
+                        opsArray.forEach(o -> acc.operations.add(operationResponse(o)));
+                    }
+                    if (msg.path("endOfBatch").asBoolean(false)) {
+                        pendingBulk.remove(cid);
+                        acc.future.complete(acc);
+                    }
+                }
+            }
             case "subscribed" -> {
                 final CompletableFuture<List<String>> ack = pendingSubscribeAcks.remove(cid);
                 if (ack != null) {
@@ -698,6 +802,16 @@ public class AeronBidiClient implements AutoCloseable {
             stats.future.completeExceptionally(error);
             return;
         }
+        final TimersAccumulator timers = pendingTimers.remove(cid);
+        if (timers != null) {
+            timers.future.completeExceptionally(error);
+            return;
+        }
+        final BulkAccumulator bulk = pendingBulk.remove(cid);
+        if (bulk != null) {
+            bulk.future.completeExceptionally(error);
+            return;
+        }
         final CompletableFuture<List<String>> ack = pendingSubscribeAcks.remove(cid);
         if (ack != null) {
             ack.completeExceptionally(error);
@@ -711,6 +825,10 @@ public class AeronBidiClient implements AutoCloseable {
         pendingEntries.clear();
         pendingStats.values().forEach(a -> a.future.completeExceptionally(cause));
         pendingStats.clear();
+        pendingTimers.values().forEach(a -> a.future.completeExceptionally(cause));
+        pendingTimers.clear();
+        pendingBulk.values().forEach(a -> a.future.completeExceptionally(cause));
+        pendingBulk.clear();
         pendingSubscribeAcks.values().forEach(f -> f.completeExceptionally(cause));
         pendingSubscribeAcks.clear();
     }
@@ -772,6 +890,17 @@ public class AeronBidiClient implements AutoCloseable {
         volatile String status;
     }
 
+    private static final class TimersAccumulator {
+        final CompletableFuture<TimersAccumulator> future = new CompletableFuture<>();
+        final List<TimerInfo> timers = new ArrayList<>();
+        volatile String status;
+    }
+
+    private static final class BulkAccumulator {
+        final CompletableFuture<BulkAccumulator> future = new CompletableFuture<>();
+        final List<CacheOperationResponse> operations = new ArrayList<>();
+    }
+
     private static final class SubRegistration {
         final Consumer<CacheUpdateEvent> cacheListener;
         final Consumer<CounterUpdateEvent> counterListener;
@@ -800,6 +929,24 @@ public class AeronBidiClient implements AutoCloseable {
                 node.path("removedCount").asLong(0L),
                 node.path("clearedCount").asLong(0L),
                 node.path("size").asLong(0L));
+    }
+
+    private static TimerInfo timerInfo(JsonNode node) {
+        return new TimerInfo(
+                text(node, "timerType"),
+                text(node, "cacheId"),
+                text(node, "key"),
+                node.path("deadline").asLong(0L));
+    }
+
+    private static CacheOperationResponse operationResponse(JsonNode node) {
+        final CacheOperationResponse r = new CacheOperationResponse();
+        r.setRequestId(text(node, "requestId"));
+        r.setStatus(text(node, "status"));
+        r.setCacheId(text(node, "cacheId"));
+        r.setKey(text(node, "key"));
+        r.setValue(text(node, "value"));
+        return r;
     }
 
     private CounterResponse counterResponse(JsonNode r) {

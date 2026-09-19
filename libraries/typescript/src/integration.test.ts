@@ -184,6 +184,22 @@ if (shouldRun && !wsUrl) {
         expect(response.operationResponses[2].value).toBe('bulk-val');
     });
 
+    test('get_timers returns a pending cache timer', async () => {
+        const cacheId = `it-timers-${crypto.randomUUID()}`;
+        await client.createCache(cacheId);
+        await client.putTimedItem(cacheId, 'timed', 'val', 600000);
+
+        const resp = await client.getTimers();
+        expect(resp.operationStatus).toBe('SUCCESS');
+        expect(Array.isArray(resp.timers)).toBe(true);
+        const timer = resp.timers.find(t => t.cacheId === cacheId && t.key === 'timed');
+        expect(timer).toBeDefined();
+        expect(timer!.timerType).toBe('CACHE');
+        expect(timer!.deadline).toBeGreaterThan(0);
+
+        await client.deleteCache(cacheId);
+    });
+
     it("should handle putTimedItem correctly", async () => {
         const cacheId = `it-timed-${Date.now()}`;
         await client.createCache(cacheId);

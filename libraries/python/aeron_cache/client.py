@@ -24,7 +24,8 @@ from .models import (
     CancelItemRemovalResponse,
     CacheDetails,
     CacheStatsResponse,
-    GetCountersResponse
+    GetCountersResponse,
+    GetTimersResponse
 )
 
 class AeronCacheClient:
@@ -218,6 +219,13 @@ class AeronCacheClient:
         if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
              response.raise_for_status()
         return CacheStatsResponse(**response.json())
+
+    def get_timers(self) -> GetTimersResponse:
+        url = f"{self.base_url}/api/v1/timers"
+        response = requests.get(url)
+        if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
+             response.raise_for_status()
+        return GetTimersResponse.from_dict(response.json())
 
     # --- Additional Counter Operations (Sync) ---
 
@@ -485,6 +493,14 @@ class AeronCacheClient:
                 if response.status >= 400 and response.status not in [400, 401, 404]:
                     response.raise_for_status()
                 return CacheStatsResponse(**await response.json())
+
+    async def get_timers_async(self) -> GetTimersResponse:
+        url = f"{self.base_url}/api/v1/timers"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status >= 400 and response.status not in [400, 401, 404]:
+                    response.raise_for_status()
+                return GetTimersResponse.from_dict(await response.json())
 
     # --- Additional Counter Operations (Async) ---
 

@@ -234,6 +234,10 @@ public class AeronCacheClient implements CacheTransport {
         return getStatsAsync().get();
     }
 
+    public GetTimersResponse getTimers() throws Exception {
+        return getTimersAsync().get();
+    }
+
     // --- Additional Counter Operations (Sync) ---
 
     public GetCountersResponse getCounterItems(String cacheId) throws Exception {
@@ -517,6 +521,9 @@ public class AeronCacheClient implements CacheTransport {
 
     public CompletableFuture<CacheStatsResponse> getStatsAsync() {
         return sendAsync(URI.create(baseUrl + "/api/v1/stats"), "GET", null, CacheStatsResponse.class);
+    }
+    public CompletableFuture<GetTimersResponse> getTimersAsync() {
+        return sendAsync(URI.create(baseUrl + "/api/v1/timers"), "GET", null, GetTimersResponse.class);
     }
 
     // --- Additional Counter Operations (Async) ---

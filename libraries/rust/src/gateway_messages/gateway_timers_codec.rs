@@ -1,10 +1,10 @@
 use crate::gateway_messages::*;
 
-pub use decoder::GatewayBulkResponseDecoder;
-pub use encoder::GatewayBulkResponseEncoder;
+pub use decoder::GatewayTimersDecoder;
+pub use encoder::GatewayTimersEncoder;
 
-pub const SBE_BLOCK_LENGTH: u16 = 1;
-pub const SBE_TEMPLATE_ID: u16 = 16;
+pub const SBE_BLOCK_LENGTH: u16 = 2;
+pub const SBE_TEMPLATE_ID: u16 = 17;
 pub const SBE_SCHEMA_ID: u16 = 7;
 pub const SBE_SCHEMA_VERSION: u16 = 0;
 pub const SBE_SEMANTIC_VERSION: &str = "0.1";
@@ -14,21 +14,21 @@ pub mod encoder {
     use message_header_codec::*;
 
     #[derive(Debug, Default)]
-    pub struct GatewayBulkResponseEncoder<'a> {
+    pub struct GatewayTimersEncoder<'a> {
         buf: WriteBuf<'a>,
         initial_offset: usize,
         offset: usize,
         limit: usize,
     }
 
-    impl<'a> Writer<'a> for GatewayBulkResponseEncoder<'a> {
+    impl<'a> Writer<'a> for GatewayTimersEncoder<'a> {
         #[inline]
         fn get_buf_mut(&mut self) -> &mut WriteBuf<'a> {
             &mut self.buf
         }
     }
 
-    impl<'a> Encoder<'a> for GatewayBulkResponseEncoder<'a> {
+    impl<'a> Encoder<'a> for GatewayTimersEncoder<'a> {
         #[inline]
         fn get_limit(&self) -> usize {
             self.limit
@@ -40,7 +40,7 @@ pub mod encoder {
         }
     }
 
-    impl<'a> GatewayBulkResponseEncoder<'a> {
+    impl<'a> GatewayTimersEncoder<'a> {
         pub fn wrap(mut self, buf: WriteBuf<'a>, offset: usize) -> Self {
             let limit = offset + SBE_BLOCK_LENGTH as usize;
             self.buf = buf;
@@ -66,15 +66,22 @@ pub mod encoder {
 
         /// REQUIRED enum
         #[inline]
-        pub fn end_of_batch(&mut self, value: boolean_type::BooleanType) {
+        pub fn status(&mut self, value: operation_status::OperationStatus) {
             let offset = self.offset;
             self.get_buf_mut().put_u8_at(offset, value as u8)
         }
 
-        /// GROUP ENCODER (id=60)
+        /// REQUIRED enum
         #[inline]
-        pub fn operations_encoder(self, count: u16, operations_encoder: OperationsEncoder<Self>) -> OperationsEncoder<Self> {
-            operations_encoder.wrap(self, count)
+        pub fn end_of_batch(&mut self, value: boolean_type::BooleanType) {
+            let offset = self.offset + 1;
+            self.get_buf_mut().put_u8_at(offset, value as u8)
+        }
+
+        /// GROUP ENCODER (id=70)
+        #[inline]
+        pub fn timers_encoder(self, count: u16, timers_encoder: TimersEncoder<Self>) -> TimersEncoder<Self> {
+            timers_encoder.wrap(self, count)
         }
 
         /// VAR_DATA ENCODER - character encoding: 'UTF-8'
@@ -90,7 +97,7 @@ pub mod encoder {
     }
 
     #[derive(Debug, Default)]
-    pub struct OperationsEncoder<P> {
+    pub struct TimersEncoder<P> {
         parent: Option<P>,
         count: u16,
         index: usize,
@@ -98,7 +105,7 @@ pub mod encoder {
         initial_limit: usize,
     }
 
-    impl<'a, P> Writer<'a> for OperationsEncoder<P> where P: Writer<'a> + Default {
+    impl<'a, P> Writer<'a> for TimersEncoder<P> where P: Writer<'a> + Default {
         #[inline]
         fn get_buf_mut(&mut self) -> &mut WriteBuf<'a> {
             if let Some(parent) = self.parent.as_mut() {
@@ -109,7 +116,7 @@ pub mod encoder {
         }
     }
 
-    impl<'a, P> Encoder<'a> for OperationsEncoder<P> where P: Encoder<'a> + Default {
+    impl<'a, P> Encoder<'a> for TimersEncoder<P> where P: Encoder<'a> + Default {
         #[inline]
         fn get_limit(&self) -> usize {
             self.parent.as_ref().expect("parent missing").get_limit()
@@ -121,7 +128,7 @@ pub mod encoder {
         }
     }
 
-    impl<'a, P> OperationsEncoder<P> where P: Encoder<'a> + Default {
+    impl<'a, P> TimersEncoder<P> where P: Encoder<'a> + Default {
         #[inline]
         pub fn wrap(
             mut self,
@@ -142,7 +149,7 @@ pub mod encoder {
 
         #[inline]
         pub fn block_length() -> u16 {
-            1
+            9
         }
 
         #[inline]
@@ -169,19 +176,24 @@ pub mod encoder {
 
         /// REQUIRED enum
         #[inline]
-        pub fn status(&mut self, value: operation_status::OperationStatus) {
+        pub fn timer_type(&mut self, value: timer_type::TimerType) {
             let offset = self.offset;
             self.get_buf_mut().put_u8_at(offset, value as u8)
         }
 
-        /// VAR_DATA ENCODER - character encoding: 'UTF-8'
+        /// primitive field 'deadline'
+        /// - min value: -9223372036854775807
+        /// - max value: 9223372036854775807
+        /// - null value: -9223372036854775808
+        /// - characterEncoding: null
+        /// - semanticType: null
+        /// - encodedOffset: 1
+        /// - encodedLength: 8
+        /// - version: 0
         #[inline]
-        pub fn request_id(&mut self, value: &str) {
-            let limit = self.get_limit();
-            let data_length = value.len();
-            self.set_limit(limit + 4 + data_length);
-            self.get_buf_mut().put_u32_at(limit, data_length as u32);
-            self.get_buf_mut().put_slice_at(limit + 4, value.as_bytes());
+        pub fn deadline(&mut self, value: i64) {
+            let offset = self.offset + 1;
+            self.get_buf_mut().put_i64_at(offset, value);
         }
 
         /// VAR_DATA ENCODER - character encoding: 'UTF-8'
@@ -204,16 +216,6 @@ pub mod encoder {
             self.get_buf_mut().put_slice_at(limit + 4, value.as_bytes());
         }
 
-        /// VAR_DATA ENCODER - character encoding: 'UTF-8'
-        #[inline]
-        pub fn value(&mut self, value: &str) {
-            let limit = self.get_limit();
-            let data_length = value.len();
-            self.set_limit(limit + 4 + data_length);
-            self.get_buf_mut().put_u32_at(limit, data_length as u32);
-            self.get_buf_mut().put_slice_at(limit + 4, value.as_bytes());
-        }
-
     }
 
 } // end encoder
@@ -223,7 +225,7 @@ pub mod decoder {
     use message_header_codec::*;
 
     #[derive(Clone, Copy, Debug, Default)]
-    pub struct GatewayBulkResponseDecoder<'a> {
+    pub struct GatewayTimersDecoder<'a> {
         buf: ReadBuf<'a>,
         initial_offset: usize,
         offset: usize,
@@ -232,21 +234,21 @@ pub mod decoder {
         pub acting_version: u16,
     }
 
-    impl<'a> ActingVersion for GatewayBulkResponseDecoder<'a> {
+    impl<'a> ActingVersion for GatewayTimersDecoder<'a> {
         #[inline]
         fn acting_version(&self) -> u16 {
             self.acting_version
         }
     }
 
-    impl<'a> Reader<'a> for GatewayBulkResponseDecoder<'a> {
+    impl<'a> Reader<'a> for GatewayTimersDecoder<'a> {
         #[inline]
         fn get_buf(&self) -> &ReadBuf<'a> {
             &self.buf
         }
     }
 
-    impl<'a> Decoder<'a> for GatewayBulkResponseDecoder<'a> {
+    impl<'a> Decoder<'a> for GatewayTimersDecoder<'a> {
         #[inline]
         fn get_limit(&self) -> usize {
             self.limit
@@ -258,7 +260,7 @@ pub mod decoder {
         }
     }
 
-    impl<'a> GatewayBulkResponseDecoder<'a> {
+    impl<'a> GatewayTimersDecoder<'a> {
         pub fn wrap(
             mut self,
             buf: ReadBuf<'a>,
@@ -296,14 +298,20 @@ pub mod decoder {
 
         /// REQUIRED enum
         #[inline]
-        pub fn end_of_batch(&self) -> boolean_type::BooleanType {
+        pub fn status(&self) -> operation_status::OperationStatus {
             self.get_buf().get_u8_at(self.offset).into()
         }
 
-        /// GROUP DECODER (id=60)
+        /// REQUIRED enum
         #[inline]
-        pub fn operations_decoder(self) -> OperationsDecoder<Self> {
-            OperationsDecoder::default().wrap(self)
+        pub fn end_of_batch(&self) -> boolean_type::BooleanType {
+            self.get_buf().get_u8_at(self.offset + 1).into()
+        }
+
+        /// GROUP DECODER (id=70)
+        #[inline]
+        pub fn timers_decoder(self) -> TimersDecoder<Self> {
+            TimersDecoder::default().wrap(self)
         }
 
         /// VAR_DATA DECODER - character encoding: 'UTF-8'
@@ -324,7 +332,7 @@ pub mod decoder {
     }
 
     #[derive(Debug, Default)]
-    pub struct OperationsDecoder<P> {
+    pub struct TimersDecoder<P> {
         parent: Option<P>,
         block_length: u16,
         count: u16,
@@ -332,21 +340,21 @@ pub mod decoder {
         offset: usize,
     }
 
-    impl<'a, P> ActingVersion for OperationsDecoder<P> where P: Reader<'a> + ActingVersion + Default {
+    impl<'a, P> ActingVersion for TimersDecoder<P> where P: Reader<'a> + ActingVersion + Default {
         #[inline]
         fn acting_version(&self) -> u16 {
             self.parent.as_ref().unwrap().acting_version()
         }
     }
 
-    impl<'a, P> Reader<'a> for OperationsDecoder<P> where P: Reader<'a> + Default {
+    impl<'a, P> Reader<'a> for TimersDecoder<P> where P: Reader<'a> + Default {
         #[inline]
         fn get_buf(&self) -> &ReadBuf<'a> {
             self.parent.as_ref().expect("parent missing").get_buf()
         }
     }
 
-    impl<'a, P> Decoder<'a> for OperationsDecoder<P> where P: Decoder<'a> + ActingVersion + Default {
+    impl<'a, P> Decoder<'a> for TimersDecoder<P> where P: Decoder<'a> + ActingVersion + Default {
         #[inline]
         fn get_limit(&self) -> usize {
             self.parent.as_ref().expect("parent missing").get_limit()
@@ -358,7 +366,7 @@ pub mod decoder {
         }
     }
 
-    impl<'a, P> OperationsDecoder<P> where P: Decoder<'a> + ActingVersion + Default {
+    impl<'a, P> TimersDecoder<P> where P: Decoder<'a> + ActingVersion + Default {
         pub fn wrap(
             mut self,
             mut parent: P,
@@ -375,7 +383,7 @@ pub mod decoder {
             self
         }
 
-        /// group token - Token{signal=BEGIN_GROUP, name='operations', referencedName='null', description='null', packageName='null', id=60, version=0, deprecated=0, encodedLength=1, offset=1, componentTokenCount=42, encoding=Encoding{presence=REQUIRED, primitiveType=null, byteOrder=LITTLE_ENDIAN, minValue=null, maxValue=null, nullValue=null, constValue=null, characterEncoding='null', epoch='null', timeUnit=null, semanticType='null'}}
+        /// group token - Token{signal=BEGIN_GROUP, name='timers', referencedName='null', description='null', packageName='null', id=70, version=0, deprecated=0, encodedLength=9, offset=2, componentTokenCount=27, encoding=Encoding{presence=REQUIRED, primitiveType=null, byteOrder=LITTLE_ENDIAN, minValue=null, maxValue=null, nullValue=null, constValue=null, characterEncoding='null', epoch='null', timeUnit=null, semanticType='null'}}
         #[inline]
         pub fn parent(&mut self) -> SbeResult<P> {
             self.parent.take().ok_or(SbeErr::ParentNotSet)
@@ -409,23 +417,14 @@ pub mod decoder {
 
         /// REQUIRED enum
         #[inline]
-        pub fn status(&self) -> operation_status::OperationStatus {
+        pub fn timer_type(&self) -> timer_type::TimerType {
             self.get_buf().get_u8_at(self.offset).into()
         }
 
-        /// VAR_DATA DECODER - character encoding: 'UTF-8'
+        /// primitive field - 'REQUIRED'
         #[inline]
-        pub fn request_id_decoder(&mut self) -> (usize, usize) {
-            let offset = self.parent.as_ref().expect("parent missing").get_limit();
-            let data_length = self.get_buf().get_u32_at(offset) as usize;
-            self.parent.as_mut().unwrap().set_limit(offset + 4 + data_length);
-            (offset + 4, data_length)
-        }
-
-        #[inline]
-        pub fn request_id_slice(&'a self, coordinates: (usize, usize)) -> &'a [u8] {
-            debug_assert!(self.get_limit() >= coordinates.0 + coordinates.1);
-            self.get_buf().get_slice_at(coordinates.0, coordinates.1)
+        pub fn deadline(&self) -> i64 {
+            self.get_buf().get_i64_at(self.offset + 1)
         }
 
         /// VAR_DATA DECODER - character encoding: 'UTF-8'
@@ -454,21 +453,6 @@ pub mod decoder {
 
         #[inline]
         pub fn key_slice(&'a self, coordinates: (usize, usize)) -> &'a [u8] {
-            debug_assert!(self.get_limit() >= coordinates.0 + coordinates.1);
-            self.get_buf().get_slice_at(coordinates.0, coordinates.1)
-        }
-
-        /// VAR_DATA DECODER - character encoding: 'UTF-8'
-        #[inline]
-        pub fn value_decoder(&mut self) -> (usize, usize) {
-            let offset = self.parent.as_ref().expect("parent missing").get_limit();
-            let data_length = self.get_buf().get_u32_at(offset) as usize;
-            self.parent.as_mut().unwrap().set_limit(offset + 4 + data_length);
-            (offset + 4, data_length)
-        }
-
-        #[inline]
-        pub fn value_slice(&'a self, coordinates: (usize, usize)) -> &'a [u8] {
             debug_assert!(self.get_limit() >= coordinates.0 + coordinates.1);
             self.get_buf().get_slice_at(coordinates.0, coordinates.1)
         }

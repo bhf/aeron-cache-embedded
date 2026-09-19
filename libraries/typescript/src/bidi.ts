@@ -27,7 +27,11 @@ import {
     CancelItemRemovalResponse,
     StatEntry,
     CacheUpdateEvent,
-    CounterUpdateEvent
+    CounterUpdateEvent,
+    TimerInfo,
+    BulkCacheOpsRequest,
+    BulkCacheOpsResponse,
+    CacheOperationResponse
 } from './models';
 
 /** WsOp values accepted by the bidi command frame. */
@@ -42,6 +46,7 @@ export type WsOp =
     | 'CANCEL_CACHE_ITEM_REMOVAL'
     | 'GET_CACHE_ENTRIES'
     | 'GET_CACHE_STATS'
+    | 'GET_TIMERS'
     | 'CREATE_COUNTER_CACHE'
     | 'ADD_COUNTER_ENTRY'
     | 'GET_COUNTER_ENTRY'
@@ -86,9 +91,17 @@ interface Pending {
 interface BatchAcc {
     items: Record<string, any>;
     stats: any[];
+    timers: any[];
     cacheId: string | null;
     status: string | null;
     resolve: (acc: BatchAcc) => void;
+    reject: (err: any) => void;
+    timer: any;
+}
+
+interface BulkAcc {
+    operations: any[];
+    resolve: (acc: BulkAcc) => void;
     reject: (err: any) => void;
     timer: any;
 }
@@ -129,6 +142,10 @@ export class AeronBidiClient {
     // correlationId -> accumulating entries/stats batch
     private readonly entries = new Map<string, BatchAcc>();
     private readonly statsBatches = new Map<string, BatchAcc>();
+    // correlationId -> accumulating timers batch
+    private readonly timersBatches = new Map<string, BatchAcc>();
+    // correlationId -> accumulating bulk-operations batch
+    private readonly bulkBatches = new Map<string, BulkAcc>();
     // correlationId -> subscribe ack resolver
     private readonly subAcks = new Map<string, { resolve: (ids: string[]) => void; reject: (err: any) => void; timer: any }>();
     // cacheId -> listeners. Stream updates are routed by cacheId because the server stamps
@@ -242,6 +259,35 @@ export class AeronBidiClient {
                 }
                 break;
             }
+            case 'timers': {
+                const acc = this.timersBatches.get(cid);
+                if (acc) {
+                    if (Array.isArray(msg.timers)) {
+                        acc.timers.push(...msg.timers);
+                    }
+                    acc.status = msg.status;
+                    if (msg.endOfBatch) {
+                        this.timersBatches.delete(cid);
+                        clearTimeout(acc.timer);
+                        acc.resolve(acc);
+                    }
+                }
+                break;
+            }
+            case 'bulkResponse': {
+                const acc = this.bulkBatches.get(cid);
+                if (acc) {
+                    if (Array.isArray(msg.operationResponses)) {
+                        acc.operations.push(...msg.operationResponses);
+                    }
+                    if (msg.endOfBatch) {
+                        this.bulkBatches.delete(cid);
+                        clearTimeout(acc.timer);
+                        acc.resolve(acc);
+                    }
+                }
+                break;
+            }
             case 'subscribed': {
                 const a = this.subAcks.get(cid);
                 if (a) {
@@ -318,6 +364,20 @@ export class AeronBidiClient {
             s.reject(err);
             return;
         }
+        const t = this.timersBatches.get(cid);
+        if (t) {
+            this.timersBatches.delete(cid);
+            clearTimeout(t.timer);
+            t.reject(err);
+            return;
+        }
+        const b = this.bulkBatches.get(cid);
+        if (b) {
+            this.bulkBatches.delete(cid);
+            clearTimeout(b.timer);
+            b.reject(err);
+            return;
+        }
         const a = this.subAcks.get(cid);
         if (a) {
             this.subAcks.delete(cid);
@@ -342,6 +402,16 @@ export class AeronBidiClient {
             acc.reject(err);
         }
         this.statsBatches.clear();
+        for (const acc of this.timersBatches.values()) {
+            clearTimeout(acc.timer);
+            acc.reject(err);
+        }
+        this.timersBatches.clear();
+        for (const acc of this.bulkBatches.values()) {
+            clearTimeout(acc.timer);
+            acc.reject(err);
+        }
+        this.bulkBatches.clear();
         for (const a of this.subAcks.values()) {
             clearTimeout(a.timer);
             a.reject(err);
@@ -376,18 +446,32 @@ export class AeronBidiClient {
         return promise;
     }
 
-    private async batched(op: WsOp, cacheId: string | null, kind: 'entries' | 'stats'): Promise<BatchAcc> {
+    private async batched(op: WsOp, cacheId: string | null, kind: 'entries' | 'stats' | 'timers'): Promise<BatchAcc> {
         const cid = uuid();
-        const map = kind === 'entries' ? this.entries : this.statsBatches;
+        const map = kind === 'entries' ? this.entries : kind === 'stats' ? this.statsBatches : this.timersBatches;
         const promise = new Promise<BatchAcc>((resolve, reject) => {
             const timer = setTimeout(() => {
                 map.delete(cid);
                 reject(new Error(`bidi command ${op} timed out`));
             }, this.requestTimeout);
-            const acc: BatchAcc = { items: {}, stats: [], cacheId, status: null, resolve, reject, timer };
+            const acc: BatchAcc = { items: {}, stats: [], timers: [], cacheId, status: null, resolve, reject, timer };
             map.set(cid, acc);
         });
         await this.send({ type: 'command', correlationId: cid, op, cacheId, key: null, value: null, ttl: 0, counterValue: 0 });
+        return promise;
+    }
+
+    private async bulk(operations: any[]): Promise<BulkAcc> {
+        const cid = uuid();
+        const promise = new Promise<BulkAcc>((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.bulkBatches.delete(cid);
+                reject(new Error('bidi bulk operation timed out'));
+            }, this.requestTimeout);
+            const acc: BulkAcc = { operations: [], resolve, reject, timer };
+            this.bulkBatches.set(cid, acc);
+        });
+        await this.send({ type: 'bulk', correlationId: cid, operations });
         return promise;
     }
 
@@ -452,6 +536,43 @@ export class AeronBidiClient {
             clearedCount: s.clearedCount,
             size: s.size
         }));
+    }
+
+    // ------------------------------------------------------------------ timers
+
+    /**
+     * Get all pending TTL removal timers across both caches and counter caches. The server streams
+     * one or more `timers` frames, accumulated until the end-of-batch frame; the returned list
+     * carries every timer.
+     */
+    async getTimers(): Promise<TimerInfo[]> {
+        const acc = await this.batched('GET_TIMERS', null, 'timers');
+        return acc.timers.map((t) => ({
+            timerType: t.timerType,
+            cacheId: t.cacheId,
+            key: t.key,
+            deadline: Number(t.deadline)
+        }));
+    }
+
+    // ------------------------------------------------------------------ bulk operations
+
+    /**
+     * Apply a batch of cache/counter operations in one `bulk` frame, mirroring the HTTP client's
+     * {@link AeronCacheClient.bulkOps}. A batch may freely mix regular-cache and counter operations.
+     * The server streams one or more `bulkResponse` frames, accumulated until the end-of-batch frame.
+     */
+    async bulkOps(request: BulkCacheOpsRequest): Promise<BulkCacheOpsResponse> {
+        const operations = request.operations ?? [];
+        const acc = await this.bulk(operations);
+        const operationResponses: CacheOperationResponse[] = acc.operations.map((o) => ({
+            requestId: o.requestId,
+            status: o.status,
+            cacheId: o.cacheId,
+            key: o.key,
+            value: o.value
+        }));
+        return { requestId: request.requestId, operationResponses };
     }
 
     // ------------------------------------------------------------------ counter commands

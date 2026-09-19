@@ -402,6 +402,31 @@ fn test_integration_get_caches_and_stats() {
 }
 
 #[test]
+fn test_integration_get_timers() {
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_get_timers: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-timers");
+    client.create_cache(&cache_id).unwrap();
+    // A timed entry schedules a pending TTL removal timer.
+    client.put_timed_item(&cache_id, "ttl-key", "v", 600_000).unwrap();
+
+    let resp = client.get_timers().expect("Failed to get timers");
+    let timer = resp
+        .timers
+        .iter()
+        .find(|t| t.cache_id == cache_id && t.key == "ttl-key")
+        .expect("a pending timer for our cache/key");
+    assert_eq!(timer.timer_type, "CACHE");
+    assert!(timer.deadline > 0, "timer deadline should be a positive epoch millis");
+
+    client.delete_cache(&cache_id).ok();
+}
+
+#[test]
 fn test_integration_get_counter_items_and_clear() {
     let Some((base_url, ws_url)) = get_urls() else {
         println!("Skipping test_integration_get_counter_items_and_clear: AERON_CACHE_BASE_URL not set");

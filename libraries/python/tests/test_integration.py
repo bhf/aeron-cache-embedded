@@ -296,6 +296,24 @@ def test_get_caches_and_stats(client):
     assert stats.totalCachesCount >= 1
     assert stats.totalItemsCount >= 1
 
+def test_get_timers(client):
+    cache_id = f"it-timers-{uuid.uuid4().hex[:8]}"
+    client.create_cache(cache_id)
+    # A timed entry schedules a pending TTL removal timer.
+    client.put_timed_item(cache_id, "ttl-key", "v", 600000)
+
+    resp = client.get_timers()
+    assert resp is not None
+    assert resp.timers is not None
+    timer = next(
+        (t for t in resp.timers if t.cacheId == cache_id and t.key == "ttl-key"),
+        None,
+    )
+    assert timer is not None, f"expected a pending timer for {cache_id}/ttl-key"
+    assert timer.timerType == "CACHE"
+    assert timer.deadline > 0, "timer deadline should be a positive epoch millis"
+    client.delete_cache(cache_id)
+
 def test_get_counter_items_and_clear(client):
     cache_id = f"it-citems-{uuid.uuid4().hex[:8]}"
     client.create_counter_cache(cache_id)
