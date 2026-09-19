@@ -243,9 +243,16 @@ impl<'a> EmbeddedObjects<'a> {
     }
 
     pub fn subscribe_ext(&self, hydrate: bool) -> Result<Box<dyn CacheSubscription>, Box<dyn Error>> {
+        self.subscribe_filtered(hydrate, None, None)
+    }
+
+    /// Subscribe with an optional key filter and subscription mode. `"patch"` streams only changed
+    /// fields as `PATCH_ITEM`, which are deep-merged into the local objects; `"full"` (or `None`) streams
+    /// full values as `ADD_ITEM`.
+    pub fn subscribe_filtered(&self, hydrate: bool, keys: Option<&str>, mode: Option<&str>) -> Result<Box<dyn CacheSubscription>, Box<dyn Error>> {
         let local = self.local.clone();
         let handler: CacheHandler = Arc::new(move |event: CacheUpdateEvent| update_object_local(&local, event));
-        self.transport.subscribe_cache_updates(&self.cache_id, hydrate, handler)
+        self.transport.subscribe_cache_updates_filtered(&self.cache_id, hydrate, keys, mode, handler)
     }
 }
 
