@@ -538,44 +538,51 @@ fn test_integration_websocket_key_filter() {
 }
 
 #[test]
-fn test_integration_websocket_patch_mode() {
+fn test_integration_object_cache_patch_merge() {
     let Some((base_url, ws_url)) = get_urls() else {
-        println!("Skipping test_integration_websocket_patch_mode: AERON_CACHE_BASE_URL not set");
+        println!("Skipping test_integration_object_cache_patch_merge: AERON_CACHE_BASE_URL not set");
         return;
     };
 
     let client = AeronCacheClient::new(base_url, ws_url);
-    let cache_id = generate_id("it-ws-patch");
+    let cache_id = generate_id("it-obj-patch");
 
     client.create_cache(&cache_id).expect("Failed to create cache");
+    // Seed the initial object before subscribing so hydration delivers it to the mirror.
     client.put_item(&cache_id, "doc", r#"{"a":1}"#).unwrap();
 
-    let cache = client.get_cache(&cache_id);
-
-    // Subscribe in patch mode (cache-only): changed fields arrive as PATCH_ITEM events.
-    let mut ws = cache
-        .subscribe_filtered(false, None, Some("patch"))
+    // Subscribe in patch mode with hydration: the current contents arrive as a snapshot, then changed
+    // fields arrive as PATCH_ITEM deltas that are deep-merged into the mirrored object.
+    let objects = client.embedded_object_cache(&cache_id);
+    let sub = objects
+        .subscribe_filtered(true, None, Some("patch"))
         .expect("Failed to subscribe in patch mode");
-    thread::sleep(Duration::from_secs(1));
+
+    // Wait for hydration to mirror the initial field before patching, so the patch cannot race ahead of
+    // the snapshot.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while objects.get_local("doc").and_then(|v| v.get("a").cloned()).is_none() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(objects.get_local("doc").is_some(), "hydration should mirror the initial object");
 
     client.patch_item(&cache_id, "doc", r#"{"b":2}"#).unwrap();
 
-    let mut found = false;
-    for _ in 0..5 {
-        if let Ok(msg) = ws.read_message() {
-            if let tungstenite::Message::Text(text) = msg {
-                if text.contains("doc") && text.contains("PATCH_ITEM") {
-                    found = true;
-                    break;
-                }
-            }
-        }
-        thread::sleep(Duration::from_millis(500));
+    // Wait for the patched field to be deep-merged in.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while objects.get_local("doc").and_then(|v| v.get("b").cloned()).is_none() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
     }
 
-    assert!(found, "Should have received PATCH_ITEM for doc through patch-mode websocket");
+    let doc = objects.get_local("doc").expect("doc should be mirrored locally");
+    assert_eq!(
+        doc.to_string(),
+        r#"{"a":1,"b":2}"#,
+        "patch delta should deep-merge into the mirrored object without dropping untouched fields"
+    );
 
-    cache.clear().unwrap();
+    drop(sub);
+    client.delete_cache(&cache_id).ok();
 }
 
 #[test]

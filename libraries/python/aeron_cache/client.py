@@ -6,6 +6,7 @@ import websockets
 from urllib.parse import urlencode
 from .embedded_cache import EmbeddedAeronCache
 from .embedded_counter_cache import EmbeddedCounterCache
+from .embedded_object_cache import EmbeddedObjectCache
 from .models import (
     CreateResponse,
     PutItemResponse,
@@ -553,6 +554,9 @@ class AeronCacheClient:
 
     def get_counter_cache(self, cache_id: str) -> EmbeddedCounterCache:
         return EmbeddedCounterCache(self, cache_id)
+
+    def get_object_cache(self, cache_id: str) -> EmbeddedObjectCache:
+        return EmbeddedObjectCache(self, cache_id)
 
     @staticmethod
     def _ws_query(keys=None, mode=None) -> str:

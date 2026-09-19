@@ -44,6 +44,12 @@ export class EmbeddedAeronCache {
         keys?: string,
         mode?: 'full' | 'patch'
     ): { close: () => void } {
+        if (mode && mode.toLowerCase() === 'patch') {
+            throw new Error(
+                'EmbeddedAeronCache does not support patch-mode subscriptions: PATCH_ITEM deltas cannot ' +
+                'be merged into opaque string values. Use EmbeddedObjectCache instead.'
+            );
+        }
         const wrappedOnMessage = (data: CacheUpdateEvent) => {
             this.updateLocalCache(data);
             onMessage(data);
@@ -56,10 +62,14 @@ export class EmbeddedAeronCache {
 
         switch (event.eventType) {
             case 'ADD_ITEM':
-            case 'PATCH_ITEM':
                 if (event.itemKey && event.itemValue) {
                     this.localCache.set(event.itemKey, event.itemValue);
                 }
+                break;
+            case 'PATCH_ITEM':
+                // Intentionally ignored: PATCH_ITEM carries only the changed fields (a delta), so applying
+                // it to this string mirror would overwrite the full stored value with the fragment and lose
+                // the untouched fields. Use EmbeddedObjectCache, which deep-merges deltas, for patch mode.
                 break;
             case 'REMOVE_ITEM':
                 if (event.itemKey) {

@@ -9,7 +9,7 @@
 
 use crate::{
     AeronCacheClient, CacheUpdateEvent, CounterResponse, CounterUpdateEvent, CreateResponse,
-    DeleteCacheResponse, DeleteItemResponse, GetItemResponse, PutItemResponse,
+    DeleteCacheResponse, DeleteItemResponse, GetItemResponse, PatchItemResponse, PutItemResponse,
 };
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,6 +34,9 @@ pub trait CacheTransport {
     fn get_item(&self, cache_id: &str, key: &str) -> Result<GetItemResponse, Box<dyn Error>>;
     fn delete_item(&self, cache_id: &str, key: &str) -> Result<DeleteItemResponse, Box<dyn Error>>;
     fn delete_cache(&self, cache_id: &str) -> Result<DeleteCacheResponse, Box<dyn Error>>;
+    /// Deep-merge a JSON fragment into a stored value instead of replacing it (RFC 7386 JSON Merge
+    /// Patch: a `null` field in the fragment deletes that field). Underpins [`crate::EmbeddedObjects`].
+    fn patch_item(&self, cache_id: &str, key: &str, value: &str) -> Result<PatchItemResponse, Box<dyn Error>>;
 
     // ---- counter ops ----
     fn create_counter_cache(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>>;
@@ -48,7 +51,13 @@ pub trait CacheTransport {
 
     // ---- subscriptions ----
     /// Subscribe to streaming updates for a cache; `handler` is invoked in the background per event.
-    fn subscribe_cache_updates(&self, cache_id: &str, hydrate: bool, handler: CacheHandler) -> Result<Box<dyn CacheSubscription>, Box<dyn Error>>;
+    fn subscribe_cache_updates(&self, cache_id: &str, hydrate: bool, handler: CacheHandler) -> Result<Box<dyn CacheSubscription>, Box<dyn Error>> {
+        self.subscribe_cache_updates_filtered(cache_id, hydrate, None, None, handler)
+    }
+    /// Subscribe to streaming updates for a cache with an optional key filter and subscription mode
+    /// (`"full"` — streams full values as `ADD_ITEM` — or `"patch"` — streams only changed fields as
+    /// `PATCH_ITEM`). Underpins [`crate::EmbeddedObjects`]'s patch-mode subscriptions.
+    fn subscribe_cache_updates_filtered(&self, cache_id: &str, hydrate: bool, keys: Option<&str>, mode: Option<&str>, handler: CacheHandler) -> Result<Box<dyn CacheSubscription>, Box<dyn Error>>;
     /// Subscribe to streaming updates for a counter cache.
     fn subscribe_counter_updates(&self, cache_id: &str, hydrate: bool, handler: CounterHandler) -> Result<Box<dyn CacheSubscription>, Box<dyn Error>>;
 
@@ -67,6 +76,15 @@ pub trait CacheTransport {
         Self: Sized,
     {
         crate::EmbeddedCounters::new(self, cache_id.to_string())
+    }
+
+    /// A transport-neutral local-mirroring cache whose values are JSON objects. Unlike
+    /// [`Self::embedded_cache`], it deep-merges `PATCH_ITEM` deltas into the stored object.
+    fn embedded_object_cache(&self, cache_id: &str) -> crate::EmbeddedObjects<'_>
+    where
+        Self: Sized,
+    {
+        crate::EmbeddedObjects::new(self, cache_id.to_string())
     }
 }
 
@@ -154,6 +172,9 @@ impl CacheTransport for AeronCacheClient {
     fn delete_cache(&self, cache_id: &str) -> Result<DeleteCacheResponse, Box<dyn Error>> {
         self.delete_cache(cache_id)
     }
+    fn patch_item(&self, cache_id: &str, key: &str, value: &str) -> Result<PatchItemResponse, Box<dyn Error>> {
+        self.patch_item(cache_id, key, value)
+    }
 
     fn create_counter_cache(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
         self.create_counter_cache(cache_id)
@@ -183,8 +204,8 @@ impl CacheTransport for AeronCacheClient {
         self.delete_counter_cache(cache_id)
     }
 
-    fn subscribe_cache_updates(&self, cache_id: &str, hydrate: bool, handler: CacheHandler) -> Result<Box<dyn CacheSubscription>, Box<dyn Error>> {
-        let socket = self.subscribe_ext(cache_id, hydrate)?;
+    fn subscribe_cache_updates_filtered(&self, cache_id: &str, hydrate: bool, keys: Option<&str>, mode: Option<&str>, handler: CacheHandler) -> Result<Box<dyn CacheSubscription>, Box<dyn Error>> {
+        let socket = self.subscribe_filtered(cache_id, hydrate, keys, mode)?;
         let base = self.ws_url.trim_end_matches('/').to_string();
         let reconnect_url = format!("{base}/api/ws/v1/cache/{cache_id}");
         let sub = spawn_ws_reader(socket, reconnect_url, move |text| {
@@ -230,6 +251,9 @@ impl CacheTransport for AeronGatewayClient {
     fn delete_cache(&self, cache_id: &str) -> Result<DeleteCacheResponse, Box<dyn Error>> {
         self.delete_cache(cache_id)
     }
+    fn patch_item(&self, cache_id: &str, key: &str, value: &str) -> Result<PatchItemResponse, Box<dyn Error>> {
+        self.patch_item(cache_id, key, value)
+    }
 
     fn create_counter_cache(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
         self.create_counter_cache(cache_id)
@@ -259,8 +283,8 @@ impl CacheTransport for AeronGatewayClient {
         self.delete_counter_cache(cache_id)
     }
 
-    fn subscribe_cache_updates(&self, cache_id: &str, hydrate: bool, handler: CacheHandler) -> Result<Box<dyn CacheSubscription>, Box<dyn Error>> {
-        let sub = self.subscribe_ext(cache_id, hydrate, move |event| handler(event))?;
+    fn subscribe_cache_updates_filtered(&self, cache_id: &str, hydrate: bool, keys: Option<&str>, mode: Option<&str>, handler: CacheHandler) -> Result<Box<dyn CacheSubscription>, Box<dyn Error>> {
+        let sub = self.subscribe_with(cache_id, hydrate, mode, keys, move |event| handler(event))?;
         Ok(Box::new(sub))
     }
 

@@ -118,10 +118,18 @@ public class EmbeddedAeronCache {
      *
      * @param keys optional comma-separated key filter(s); each token is {@code cacheId:key} or a bare
      *             {@code key}. Pass {@code null} for no filtering.
-     * @param mode optional subscription mode, {@code "full"} (default) or {@code "patch"} (emits
-     *             {@code PATCH_ITEM} events). Pass {@code null} for the server default.
+     * @param mode optional subscription mode. Only {@code "full"} (or {@code null} for the server
+     *             default) is supported here; {@code "patch"} is rejected because delta fragments cannot
+     *             be merged into an opaque string value without corrupting it &mdash; use
+     *             {@link EmbeddedObjectCache} for patch-mode subscriptions.
+     * @throws IllegalArgumentException if {@code mode} requests {@code "patch"}.
      */
     public ReconnectingWebSocket subscribe(AeronCacheSubscriber subscriber, boolean hydrate, String keys, String mode) {
+        if (mode != null && mode.equalsIgnoreCase("patch")) {
+            throw new IllegalArgumentException(
+                    "EmbeddedAeronCache does not support patch-mode subscriptions: PATCH_ITEM deltas "
+                            + "cannot be merged into opaque string values. Use EmbeddedObjectCache instead.");
+        }
         if (httpClient == null) {
             throw new UnsupportedOperationException(
                     "The WebSocket-listener subscribe API requires the HTTP transport; "
@@ -136,10 +144,15 @@ public class EmbeddedAeronCache {
         String key = event.getItemKey();
         String value = event.getItemValue();
 
-        if ("ADD_ITEM".equals(eventType) || "PATCH_ITEM".equals(eventType)) {
+        if ("ADD_ITEM".equals(eventType)) {
             if (key != null && value != null) {
                 localCache.put(key, value);
             }
+        } else if ("PATCH_ITEM".equals(eventType)) {
+            // Intentionally ignored: PATCH_ITEM carries only the changed fields (a delta), so applying it
+            // to this string mirror would overwrite the full stored value with the fragment and lose the
+            // untouched fields. Use EmbeddedObjectCache, which deep-merges deltas, for patch-mode
+            // subscriptions. The event is still forwarded to the caller's listener.
         } else if ("REMOVE_ITEM".equals(eventType)) {
             if (key != null) {
                 localCache.remove(key);

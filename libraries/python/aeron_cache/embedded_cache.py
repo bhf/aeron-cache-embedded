@@ -47,6 +47,12 @@ class EmbeddedAeronCache:
         return await self.client.delete_cache_async(self.cache_id)
 
     async def subscribe(self, callback, hydrate: bool = False, keys=None, mode=None):
+        if mode is not None and str(getattr(mode, 'value', mode)).lower() == 'patch':
+            raise ValueError(
+                "EmbeddedAeronCache does not support patch-mode subscriptions: PATCH_ITEM deltas "
+                "cannot be merged into opaque string values. Use EmbeddedObjectCache instead."
+            )
+
         async def wrapped_callback(event: CacheUpdateEvent):
             self._update_local_cache(event)
             if callback:
@@ -59,9 +65,14 @@ class EmbeddedAeronCache:
 
     def _update_local_cache(self, event: CacheUpdateEvent):
         event_type = event.eventType
-        if event_type in ('ADD_ITEM', 'PATCH_ITEM'):
+        if event_type == 'ADD_ITEM':
             if event.itemKey and event.itemValue:
                 self.local_cache[event.itemKey] = event.itemValue
+        elif event_type == 'PATCH_ITEM':
+            # Intentionally ignored: PATCH_ITEM carries only the changed fields (a delta), so applying it
+            # to this string mirror would overwrite the full stored value with the fragment and lose the
+            # untouched fields. Use EmbeddedObjectCache, which deep-merges deltas, for patch mode.
+            pass
         elif event_type == 'REMOVE_ITEM':
             if event.itemKey:
                 self.local_cache.pop(event.itemKey, None)
