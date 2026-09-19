@@ -78,4 +78,30 @@ public class EmbeddedAeronCacheTest {
         registeredSubscriber.onText(baseMockWs, "{\"eventType\":\"REMOVE_ITEM\",\"itemKey\":\"my-key\"}", true);
         assertNull(cache.getLocal("my-key"));
     }
+
+    @Test
+    public void testPatchModeSubscriptionIsRejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> cache.subscribe(new AeronCacheSubscriber() {}, false, null, "patch"));
+        assertTrue(ex.getMessage().contains("EmbeddedObjectCache"));
+        // case-insensitive
+        assertThrows(IllegalArgumentException.class,
+                () -> cache.subscribe(new AeronCacheSubscriber() {}, false, null, "PATCH"));
+    }
+
+    @Test
+    public void testPatchItemEventDoesNotOverwriteLocalValue() {
+        ReconnectingWebSocket mockWebSocket = mock(ReconnectingWebSocket.class);
+        ArgumentCaptor<AeronCacheSubscriber> captor = ArgumentCaptor.forClass(AeronCacheSubscriber.class);
+        when(mockClient.subscribe(eq("test-cache"), anyBoolean(), isNull(), isNull(), captor.capture())).thenReturn(mockWebSocket);
+
+        cache.subscribe(new AeronCacheSubscriber() {});
+        AeronCacheSubscriber registeredSubscriber = captor.getValue();
+        WebSocket baseMockWs = mock(WebSocket.class);
+
+        registeredSubscriber.onText(baseMockWs, "{\"eventType\":\"ADD_ITEM\",\"itemKey\":\"my-key\",\"itemValue\":\"{\\\"a\\\":1,\\\"b\\\":2}\"}", true);
+        // A stray PATCH_ITEM delta must NOT clobber the full stored value.
+        registeredSubscriber.onText(baseMockWs, "{\"eventType\":\"PATCH_ITEM\",\"itemKey\":\"my-key\",\"itemValue\":\"{\\\"b\\\":3}\"}", true);
+        assertEquals("{\"a\":1,\"b\":2}", cache.getLocal("my-key"));
+    }
 }

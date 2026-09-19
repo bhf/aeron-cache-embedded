@@ -26,11 +26,15 @@ impl UpdatingWebSocket {
                         if let Ok(event) = serde_json::from_str::<CacheUpdateEvent>(text) {
                             if let Ok(mut cache) = self.local_cache.write() {
                                 match event.event_type.as_str() {
-                                    "ADD_ITEM" | "PATCH_ITEM" => {
+                                    "ADD_ITEM" => {
                                         if let (Some(k), Some(v)) = (event.item_key, event.item_value) {
                                             cache.insert(k, v);
                                         }
                                     }
+                                    // PATCH_ITEM is intentionally ignored: a delta cannot be merged into
+                                    // an opaque string without losing untouched fields. Use
+                                    // `EmbeddedObjects` for patch-mode subscriptions.
+                                    "PATCH_ITEM" => {}
                                     "REMOVE_ITEM" => {
                                         if let Some(ref k) = event.item_key {
                                             cache.remove(k);
@@ -127,9 +131,15 @@ impl<'a> EmbeddedAeronCache<'a> {
         self.subscribe_filtered(hydrate, None, None)
     }
 
-    /// Subscribe with optional key filters and subscription mode (`"full"` / `"patch"`).
-    /// `PATCH_ITEM` events update the local mirror just like `ADD_ITEM`.
+    /// Subscribe with optional key filters and subscription mode. Only `"full"` (or `None` for the
+    /// server default) is supported; `"patch"` is rejected because a delta cannot be merged into an
+    /// opaque string value without corrupting it — use [`crate::EmbeddedObjects`] for patch mode.
     pub fn subscribe_filtered(&self, hydrate: bool, keys: Option<&str>, mode: Option<&str>) -> Result<UpdatingWebSocket, Box<dyn Error>> {
+        if matches!(mode, Some(m) if m.eq_ignore_ascii_case("patch")) {
+            return Err("EmbeddedAeronCache does not support patch-mode subscriptions: PATCH_ITEM deltas \
+                cannot be merged into opaque string values. Use EmbeddedObjects instead."
+                .into());
+        }
         let socket = self.client.subscribe_filtered(&self.cache_id, hydrate, keys, mode)?;
         Ok(UpdatingWebSocket {
             socket,

@@ -7,6 +7,7 @@ import com.bhf.aeroncache.models.CreateResponse;
 import com.bhf.aeroncache.models.DeleteCacheResponse;
 import com.bhf.aeroncache.models.DeleteItemResponse;
 import com.bhf.aeroncache.models.GetItemResponse;
+import com.bhf.aeroncache.models.PatchItemResponse;
 import com.bhf.aeroncache.models.PutItemResponse;
 
 import java.util.concurrent.CompletableFuture;
@@ -37,6 +38,12 @@ public interface CacheTransport {
 
     DeleteItemResponse deleteItem(String cacheId, String key) throws Exception;
 
+    /**
+     * Deep-merge a JSON fragment into a stored value instead of replacing it (RFC 7386 JSON Merge Patch:
+     * a {@code null} field in the fragment deletes that field). Underpins {@link EmbeddedObjectCache}.
+     */
+    PatchItemResponse patchItem(String cacheId, String key, String value) throws Exception;
+
     DeleteCacheResponse deleteCache(String cacheId) throws Exception;
 
     CompletableFuture<CreateResponse> createCacheAsync(String cacheId);
@@ -48,6 +55,8 @@ public interface CacheTransport {
     CompletableFuture<GetItemResponse> getItemAsync(String cacheId, String key);
 
     CompletableFuture<DeleteItemResponse> deleteItemAsync(String cacheId, String key);
+
+    CompletableFuture<PatchItemResponse> patchItemAsync(String cacheId, String key, String value);
 
     CompletableFuture<DeleteCacheResponse> deleteCacheAsync(String cacheId);
 
@@ -121,5 +130,13 @@ public interface CacheTransport {
      */
     default EmbeddedCounterCache getCounterCache(String cacheId) {
         return new EmbeddedCounterCache(this, cacheId);
+    }
+
+    /**
+     * A local-mirroring cache whose values are structured JSON objects. Unlike {@link #getCache(String)},
+     * it deep-merges {@code PATCH_ITEM} deltas into the stored object instead of overwriting it.
+     */
+    default EmbeddedObjectCache getObjectCache(String cacheId) {
+        return new EmbeddedObjectCache(this, cacheId);
     }
 }

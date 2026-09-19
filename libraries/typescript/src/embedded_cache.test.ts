@@ -84,4 +84,23 @@ describe('EmbeddedAeronCache', () => {
         // Check local read (should be removed)
         expect(cache.getLocal('my-key')).toBeUndefined();
     });
+
+    it('rejects patch-mode subscriptions', () => {
+        expect(() => cache.subscribe(jest.fn(), undefined, undefined, false, undefined, 'patch'))
+            .toThrow(/EmbeddedObjectCache/);
+    });
+
+    it('does not overwrite the local value on PATCH_ITEM', () => {
+        let subscriptionCallback: any;
+        mockClient.subscribe.mockImplementation((cacheId, onMessage) => {
+            subscriptionCallback = onMessage;
+            return { close: jest.fn() };
+        });
+
+        cache.subscribe(jest.fn());
+        subscriptionCallback({ eventType: 'ADD_ITEM', itemKey: 'my-key', itemValue: '{"a":1,"b":2}' });
+        // A stray PATCH_ITEM delta must NOT clobber the full stored value.
+        subscriptionCallback({ eventType: 'PATCH_ITEM', itemKey: 'my-key', itemValue: '{"b":3}' });
+        expect(cache.getLocal('my-key')).toEqual('{"a":1,"b":2}');
+    });
 });

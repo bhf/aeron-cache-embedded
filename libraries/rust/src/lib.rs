@@ -27,7 +27,7 @@ pub mod transport;
 pub use transport::{CacheSubscription, CacheTransport};
 
 pub mod unified_cache;
-pub use unified_cache::{EmbeddedCache, EmbeddedCounters};
+pub use unified_cache::{EmbeddedCache, EmbeddedCounters, EmbeddedObjects};
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

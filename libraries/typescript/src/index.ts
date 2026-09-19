@@ -1,5 +1,6 @@
 import { EmbeddedAeronCache } from './embedded_cache';
 import { EmbeddedCounterCache } from './embedded_counter_cache';
+import { EmbeddedObjectCache } from './embedded_object_cache';
 import {
     CreateResponse,
     PutItemResponse,
@@ -23,6 +24,8 @@ import {
 
 export { EmbeddedAeronCache };
 export { EmbeddedCounterCache };
+export { EmbeddedObjectCache };
+export type { JsonObject } from './embedded_object_cache';
 export { AeronBidiClient, BidiError } from './bidi';
 export type { BidiSubscription, WsOp, SubscriptionMode } from './bidi';
 export * from './models';
@@ -154,6 +157,10 @@ export class AeronCacheClient {
 
     getCache(cacheId: string): EmbeddedAeronCache {
         return new EmbeddedAeronCache(this, cacheId);
+    }
+
+    getObjectCache(cacheId: string): EmbeddedObjectCache {
+        return new EmbeddedObjectCache(this, cacheId);
     }
 
     // --- Counter Operations ---

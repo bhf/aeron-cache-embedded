@@ -9,7 +9,7 @@
 
 use crate::{
     AeronCacheClient, CacheUpdateEvent, CounterResponse, CounterUpdateEvent, CreateResponse,
-    DeleteCacheResponse, DeleteItemResponse, GetItemResponse, PutItemResponse,
+    DeleteCacheResponse, DeleteItemResponse, GetItemResponse, PatchItemResponse, PutItemResponse,
 };
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,6 +34,9 @@ pub trait CacheTransport {
     fn get_item(&self, cache_id: &str, key: &str) -> Result<GetItemResponse, Box<dyn Error>>;
     fn delete_item(&self, cache_id: &str, key: &str) -> Result<DeleteItemResponse, Box<dyn Error>>;
     fn delete_cache(&self, cache_id: &str) -> Result<DeleteCacheResponse, Box<dyn Error>>;
+    /// Deep-merge a JSON fragment into a stored value instead of replacing it (RFC 7386 JSON Merge
+    /// Patch: a `null` field in the fragment deletes that field). Underpins [`crate::EmbeddedObjects`].
+    fn patch_item(&self, cache_id: &str, key: &str, value: &str) -> Result<PatchItemResponse, Box<dyn Error>>;
 
     // ---- counter ops ----
     fn create_counter_cache(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>>;
@@ -67,6 +70,15 @@ pub trait CacheTransport {
         Self: Sized,
     {
         crate::EmbeddedCounters::new(self, cache_id.to_string())
+    }
+
+    /// A transport-neutral local-mirroring cache whose values are JSON objects. Unlike
+    /// [`Self::embedded_cache`], it deep-merges `PATCH_ITEM` deltas into the stored object.
+    fn embedded_object_cache(&self, cache_id: &str) -> crate::EmbeddedObjects<'_>
+    where
+        Self: Sized,
+    {
+        crate::EmbeddedObjects::new(self, cache_id.to_string())
     }
 }
 
@@ -154,6 +166,9 @@ impl CacheTransport for AeronCacheClient {
     fn delete_cache(&self, cache_id: &str) -> Result<DeleteCacheResponse, Box<dyn Error>> {
         self.delete_cache(cache_id)
     }
+    fn patch_item(&self, cache_id: &str, key: &str, value: &str) -> Result<PatchItemResponse, Box<dyn Error>> {
+        self.patch_item(cache_id, key, value)
+    }
 
     fn create_counter_cache(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
         self.create_counter_cache(cache_id)
@@ -229,6 +244,9 @@ impl CacheTransport for AeronGatewayClient {
     }
     fn delete_cache(&self, cache_id: &str) -> Result<DeleteCacheResponse, Box<dyn Error>> {
         self.delete_cache(cache_id)
+    }
+    fn patch_item(&self, cache_id: &str, key: &str, value: &str) -> Result<PatchItemResponse, Box<dyn Error>> {
+        self.patch_item(cache_id, key, value)
     }
 
     fn create_counter_cache(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
