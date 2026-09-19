@@ -548,26 +548,29 @@ fn test_integration_object_cache_patch_merge() {
     let cache_id = generate_id("it-obj-patch");
 
     client.create_cache(&cache_id).expect("Failed to create cache");
+    // Seed the initial object before subscribing so hydration delivers it to the mirror.
+    client.put_item(&cache_id, "doc", r#"{"a":1}"#).unwrap();
 
-    // The object cache subscribes in patch mode: changed fields arrive as PATCH_ITEM deltas and are
-    // deep-merged into the locally mirrored JSON object rather than overwriting it.
+    // Subscribe in patch mode with hydration: the current contents arrive as a snapshot, then changed
+    // fields arrive as PATCH_ITEM deltas that are deep-merged into the mirrored object.
     let objects = client.embedded_object_cache(&cache_id);
     let sub = objects
-        .subscribe_filtered(false, None, Some("patch"))
+        .subscribe_filtered(true, None, Some("patch"))
         .expect("Failed to subscribe in patch mode");
-    thread::sleep(Duration::from_millis(500));
 
-    client.put_item(&cache_id, "doc", r#"{"a":1}"#).unwrap();
+    // Wait for hydration to mirror the initial field before patching, so the patch cannot race ahead of
+    // the snapshot.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while objects.get_local("doc").and_then(|v| v.get("a").cloned()).is_none() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(objects.get_local("doc").is_some(), "hydration should mirror the initial object");
+
     client.patch_item(&cache_id, "doc", r#"{"b":2}"#).unwrap();
 
-    // Wait until both the initial field and the patched field are present in the mirror.
+    // Wait for the patched field to be deep-merged in.
     let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-        if let Some(v) = objects.get_local("doc") {
-            if v.get("a").is_some() && v.get("b").is_some() {
-                break;
-            }
-        }
+    while objects.get_local("doc").and_then(|v| v.get("b").cloned()).is_none() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(50));
     }
 
