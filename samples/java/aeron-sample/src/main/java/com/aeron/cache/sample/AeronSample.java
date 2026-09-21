@@ -3,6 +3,7 @@ package com.aeron.cache.sample;
 import com.bhf.aeroncache.client.EmbeddedAeronCache;
 import com.bhf.aeroncache.client.gateway.AeronGatewayClient;
 import com.bhf.aeroncache.client.gateway.GatewaySubscription;
+import com.bhf.aeroncache.client.gateway.TransportMedia;
 import com.bhf.aeroncache.models.TimerInfo;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
@@ -12,25 +13,45 @@ import java.util.concurrent.TimeUnit;
 /**
  * Demonstrates the Aeron gateway transport — the alternative to the HTTP+WS client.
  * <p>
- * Launches an embedded media driver and talks to a gateway over UDP. Enable the gateway on the
- * backend with {@code -Daeron.gateway.enabled=true}. Override the host with
+ * By default this launches an embedded media driver and talks to a gateway over UDP. Enable the
+ * gateway on the backend with {@code -Daeron.gateway.enabled=true}. Override the host with
  * {@code -Daeron.gateway.host=<host>} (default {@code 127.0.0.1}).
+ * <p>
+ * Pass {@code -Daeron.gateway.media=ipc} to instead connect over IPC. IPC has no network endpoints —
+ * this process must run on the same host as the gateway server and share its media driver directory,
+ * so no embedded driver is launched; instead {@code -Daeron.dir=<dir>} (or the {@code AERON_DIR} env
+ * var, matching what the backend was started with) selects the shared driver. Start the backend with
+ * {@code GATEWAY_TRANSPORT_MEDIA=ipc AERON_DIR=<dir> aeron-cache} so the client and server agree.
  */
 public class AeronSample {
 
     public static void main(String[] args) throws Exception {
-        final String host = System.getProperty("aeron.gateway.host", "127.0.0.1");
-        System.out.println("Starting Aeron Sample against gateway " + host);
+        final TransportMedia media = TransportMedia.parse(System.getProperty("aeron.gateway.media", "udp"));
 
-        // Embedded media driver so the sample is self-contained; the gateway is reached over UDP.
-        try (MediaDriver driver = MediaDriver.launchEmbedded(new MediaDriver.Context()
-                .threadingMode(ThreadingMode.SHARED)
-                .dirDeleteOnStart(true)
-                .dirDeleteOnShutdown(true));
-             AeronGatewayClient client = AeronGatewayClient.connect(driver.aeronDirectoryName(), host)) {
+        MediaDriver embeddedDriver = null;
+        AeronGatewayClient client;
+        if (media.isIpc()) {
+            final String aeronDir = System.getProperty("aeron.dir",
+                    System.getenv().getOrDefault("AERON_DIR", "aeron"));
+            System.out.println("Starting Aeron Sample over IPC, shared media driver at " + aeronDir);
+            client = AeronGatewayClient.connectIpc(aeronDir);
+        } else {
+            final String host = System.getProperty("aeron.gateway.host", "127.0.0.1");
+            System.out.println("Starting Aeron Sample against gateway " + host + " over UDP");
+            // Embedded media driver so the UDP sample is self-contained.
+            embeddedDriver = MediaDriver.launchEmbedded(new MediaDriver.Context()
+                    .threadingMode(ThreadingMode.SHARED)
+                    .dirDeleteOnStart(true)
+                    .dirDeleteOnShutdown(true));
+            client = AeronGatewayClient.connect(embeddedDriver.aeronDirectoryName(), host);
+        }
+
+        try (MediaDriver ignoredDriver = embeddedDriver;
+             AeronGatewayClient ignoredClient = client) {
 
             if (!client.awaitConnected(10, TimeUnit.SECONDS)) {
-                System.err.println("Could not connect to the gateway — is it enabled and reachable?");
+                System.err.println("Could not connect to the gateway — is it enabled and reachable, "
+                        + "and (for IPC) is aeron.dir the same directory the gateway server is using?");
                 return;
             }
             System.out.println("Connected to gateway.");

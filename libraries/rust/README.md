@@ -120,7 +120,7 @@ The library offers three transports for the same cache and counter operations:
 - **Bidirectional WebSocket** — [`AeronBidiClient`](src/bidi.rs): a single WebSocket connection to `/api/ws/v1/bidi` carrying both commands and streaming updates as JSON frames. Pure Rust, no native dependencies.
 - **Aeron gateway** — [`AeronGatewayClient`](src/gateway.rs): a single low-latency, bidirectional Aeron connection carrying both commands and streaming updates, using the shared SBE wire protocol (`sbe/gateway-schema.xml`).
 
-Enable the Aeron gateway on the backend with `AERON_GATEWAY_ENABLED=true`. By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`).
+Enable the Aeron gateway on the backend with `AERON_GATEWAY_ENABLED=true`. By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`), over **UDP**. The gateway also supports **IPC** (`GATEWAY_TRANSPORT_MEDIA=ipc` on the backend) for clients co-located on the same host and media driver — see [Aeron transport media](#aeron-transport-media) below.
 
 > **Native build dependency:** the Aeron transport uses [`rusteron-client`](https://crates.io/crates/rusteron-client), which builds the Aeron C client. Building the crate therefore requires a C compiler, `cmake`, and `libclang` (for bindgen). The SBE codecs are pre-generated from the schema and vendored under `src/gateway_messages/`.
 
@@ -155,6 +155,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The Aeron transport also exposes operations not available over HTTP+WS: `get_cache_items` (full snapshot) and `get_stats`.
+
+### Aeron transport media
+
+`AeronGatewayClient` connects over **UDP** by default (`connect`/`connect_with`). It also supports **IPC** via `connect_ipc`/`connect_ipc_with` — lower latency, no network stack, but the client and gateway server must share the same media driver (same host, same `aeron.dir`/`AERON_DIR`):
+
+```rust
+use aeron_cache_embedded_client::AeronGatewayClient;
+
+// aeron_dir must be the SAME directory the gateway server's media driver is using
+// (start the backend with GATEWAY_TRANSPORT_MEDIA=ipc AERON_DIR=<aeron_dir>).
+let client = AeronGatewayClient::connect_ipc(aeron_dir)?;
+client.await_connected(Duration::from_secs(10));
+client.create_cache("my-cache")?;
+```
+
+For IPC there is no embedded media driver to launch and no host/port to reach — `connect_ipc` connects to the driver already running at `aeron_dir`, which must be the same one the gateway server was started with.
 
 ### Bidirectional WebSocket usage
 

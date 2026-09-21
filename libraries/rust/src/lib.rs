@@ -16,7 +16,7 @@ pub mod gateway_messages;
 
 // Aeron gateway transport (SBE over Aeron response channels).
 pub mod gateway;
-pub use gateway::AeronGatewayClient;
+pub use gateway::{AeronGatewayClient, TransportMedia};
 
 // Bidirectional WebSocket transport (JSON over a single /api/ws/v1/bidi connection).
 pub mod bidi;
