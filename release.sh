@@ -37,7 +37,12 @@ git tag "rust-v$NEW_VERSION"
 
 echo "☁️  Pushing changes and tags to GitHub..."
 git push origin HEAD
-git push origin "java-v$NEW_VERSION" "ts-v$NEW_VERSION" "py-v$NEW_VERSION" "rust-v$NEW_VERSION"
+# Tags are pushed one at a time: GitHub Actions silently drops push-triggered
+# workflow runs when more than 3 refs are pushed in a single `git push`.
+git push origin "java-v$NEW_VERSION"
+git push origin "ts-v$NEW_VERSION"
+git push origin "py-v$NEW_VERSION"
+git push origin "rust-v$NEW_VERSION"
 
 echo ""
 echo "✅ Successfully initiated release process for version $NEW_VERSION!"
