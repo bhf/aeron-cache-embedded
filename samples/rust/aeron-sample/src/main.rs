@@ -1,25 +1,46 @@
 //! Demonstrates the Aeron gateway transport for Aeron Cache — the low-latency, bidirectional
 //! alternative to the HTTP+WS client.
 //!
-//! Launches an embedded media driver and talks to a gateway over UDP. Enable the gateway on the
-//! backend with `AERON_GATEWAY_ENABLED=true`. Override the host with the first CLI argument
-//! (default `127.0.0.1`).
+//! By default this launches an embedded media driver and talks to a gateway over UDP. Enable the
+//! gateway on the backend with `AERON_GATEWAY_ENABLED=true`. Override the host with the first CLI
+//! argument (default `127.0.0.1`).
+//!
+//! Set `AERON_GATEWAY_MEDIA=ipc` to instead connect over IPC. IPC has no network endpoints — this
+//! process must run on the same host as the gateway server and share its media driver directory, so
+//! no embedded driver is launched; `AERON_DIR` (matching what the backend was started with) selects
+//! the shared driver instead. Start the backend with `GATEWAY_TRANSPORT_MEDIA=ipc AERON_DIR=<dir>
+//! aeron-cache` so the client and server agree.
 
-use aeron_cache_embedded_client::{AeronGatewayClient, CacheTransport};
+use aeron_cache_embedded_client::{AeronGatewayClient, CacheTransport, TransportMedia};
 use rusteron_media_driver::testing::EmbeddedDriver;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let host = std::env::args().nth(1).unwrap_or_else(|| "127.0.0.1".to_string());
-    println!("Starting Aeron Sample against gateway {host}");
+    let media = TransportMedia::parse(&std::env::var("AERON_GATEWAY_MEDIA").unwrap_or_default());
 
-    // Embedded media driver so the sample is self-contained; the gateway is reached over UDP.
-    let driver = EmbeddedDriver::launch()?;
-    let client = AeronGatewayClient::connect(driver.dir(), &host)?;
+    // Keeps the embedded driver alive for the process lifetime in UDP mode; unused (and unlaunched)
+    // for IPC, which shares the gateway server's own driver instead.
+    let mut _embedded_driver: Option<EmbeddedDriver> = None;
+    let client = if media == TransportMedia::Ipc {
+        let aeron_dir = std::env::var("AERON_DIR").unwrap_or_else(|_| "aeron".to_string());
+        println!("Starting Aeron Sample over IPC, shared media driver at {aeron_dir}");
+        AeronGatewayClient::connect_ipc(&aeron_dir)?
+    } else {
+        let host = std::env::args().nth(1).unwrap_or_else(|| "127.0.0.1".to_string());
+        println!("Starting Aeron Sample against gateway {host} over UDP");
+        // Embedded media driver so the UDP sample is self-contained.
+        let driver = EmbeddedDriver::launch()?;
+        let client = AeronGatewayClient::connect(driver.dir(), &host)?;
+        _embedded_driver = Some(driver);
+        client
+    };
 
     if !client.await_connected(Duration::from_secs(10)) {
-        eprintln!("Could not connect to the gateway — is it enabled and reachable?");
+        eprintln!(
+            "Could not connect to the gateway — is it enabled and reachable, and (for IPC) \
+             is AERON_DIR the same directory the gateway server is using?"
+        );
         return Ok(());
     }
     println!("Connected to gateway.");

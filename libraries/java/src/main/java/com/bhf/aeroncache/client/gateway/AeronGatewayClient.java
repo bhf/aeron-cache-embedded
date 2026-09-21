@@ -99,19 +99,38 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     // ------------------------------------------------------------------ construction
 
     /**
-     * Connect using an existing {@link Aeron} instance and explicit endpoints/streams. The Aeron
-     * instance is <em>not</em> owned by this client and will not be closed by {@link #close()}.
+     * Connect over UDP (the default transport media) using an existing {@link Aeron} instance and
+     * explicit endpoints/streams. The Aeron instance is <em>not</em> owned by this client and will not
+     * be closed by {@link #close()}.
      */
     public AeronGatewayClient(Aeron aeron,
                               String requestEndpoint,
                               int requestStreamId,
                               String responseControl,
                               int responseStreamId) {
-        this(aeron, false, requestEndpoint, requestStreamId, responseControl, responseStreamId, DEFAULT_REQUEST_TIMEOUT_MS);
+        this(aeron, false, TransportMedia.UDP, requestEndpoint, requestStreamId, responseControl, responseStreamId,
+                DEFAULT_REQUEST_TIMEOUT_MS);
+    }
+
+    /**
+     * Connect using an existing {@link Aeron} instance and an explicit transport {@code media}. The
+     * Aeron instance is <em>not</em> owned by this client and will not be closed by {@link #close()}.
+     * For {@link TransportMedia#IPC}, {@code requestEndpoint}/{@code responseControl} are ignored and
+     * this client's {@code aeron} must be connected to the same media driver as the gateway server.
+     */
+    public AeronGatewayClient(Aeron aeron,
+                              TransportMedia media,
+                              String requestEndpoint,
+                              int requestStreamId,
+                              String responseControl,
+                              int responseStreamId) {
+        this(aeron, false, media, requestEndpoint, requestStreamId, responseControl, responseStreamId,
+                DEFAULT_REQUEST_TIMEOUT_MS);
     }
 
     private AeronGatewayClient(Aeron aeron,
                                boolean ownsAeron,
+                               TransportMedia media,
                                String requestEndpoint,
                                int requestStreamId,
                                String responseControl,
@@ -120,7 +139,7 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         this.aeron = aeron;
         this.ownsAeron = ownsAeron;
         this.requestTimeoutMs = requestTimeoutMs;
-        this.gatewayClient = new GatewayClient(aeron, requestEndpoint, requestStreamId,
+        this.gatewayClient = new GatewayClient(aeron, media, requestEndpoint, requestStreamId,
                 responseControl, responseStreamId, new DispatchingListener());
         final IdleStrategy idleStrategy = new BackoffIdleStrategy();
         this.agentRunner = new AgentRunner(idleStrategy, Throwable::printStackTrace, null, gatewayClient);
@@ -128,8 +147,8 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     }
 
     /**
-     * Connect to a gateway on the given host using the default ports and stream ids, creating and owning
-     * an {@link Aeron} instance bound to {@code aeronDir}.
+     * Connect to a gateway on the given host over UDP using the default ports and stream ids, creating
+     * and owning an {@link Aeron} instance bound to {@code aeronDir}.
      *
      * @param aeronDir the media driver's aeron directory (see {@code aeron.dir}/{@code AERON_DIR}).
      * @param host     the gateway host.
@@ -140,10 +159,28 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     }
 
     /**
-     * Connect with fully explicit endpoints/streams, creating and owning an {@link Aeron} instance bound
-     * to {@code aeronDir}. The created Aeron instance is closed by {@link #close()}.
+     * Connect over UDP with fully explicit endpoints/streams, creating and owning an {@link Aeron}
+     * instance bound to {@code aeronDir}. The created Aeron instance is closed by {@link #close()}.
      */
     public static AeronGatewayClient connect(String aeronDir,
+                                             String requestEndpoint,
+                                             int requestStreamId,
+                                             String responseControl,
+                                             int responseStreamId) {
+        return connect(aeronDir, TransportMedia.UDP, requestEndpoint, requestStreamId, responseControl, responseStreamId);
+    }
+
+    /**
+     * Connect with an explicit transport {@code media} and fully explicit endpoints/streams, creating
+     * and owning an {@link Aeron} instance bound to {@code aeronDir}. The created Aeron instance is
+     * closed by {@link #close()}.
+     * <p>
+     * For {@link TransportMedia#IPC}, {@code requestEndpoint}/{@code responseControl} are ignored (pass
+     * {@code null}); {@code aeronDir} must be the <em>same</em> media driver directory the gateway
+     * server is using, since IPC requires client and server to be co-located on one driver.
+     */
+    public static AeronGatewayClient connect(String aeronDir,
+                                             TransportMedia media,
                                              String requestEndpoint,
                                              int requestStreamId,
                                              String responseControl,
@@ -153,8 +190,25 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
             ctx.aeronDirectoryName(aeronDir);
         }
         final Aeron aeron = Aeron.connect(ctx);
-        return new AeronGatewayClient(aeron, true, requestEndpoint, requestStreamId,
+        return new AeronGatewayClient(aeron, true, media, requestEndpoint, requestStreamId,
                 responseControl, responseStreamId, DEFAULT_REQUEST_TIMEOUT_MS);
+    }
+
+    /**
+     * Connect over IPC using the default stream ids, creating and owning an {@link Aeron} instance bound
+     * to {@code aeronDir}. {@code aeronDir} must be the <em>same</em> media driver directory the gateway
+     * server is using (same host, same {@code aeron.dir}/{@code AERON_DIR}); IPC does not cross hosts.
+     */
+    public static AeronGatewayClient connectIpc(String aeronDir) {
+        return connectIpc(aeronDir, DEFAULT_REQUEST_STREAM_ID, DEFAULT_RESPONSE_STREAM_ID);
+    }
+
+    /**
+     * Connect over IPC with explicit stream ids, creating and owning an {@link Aeron} instance bound to
+     * {@code aeronDir}. See {@link #connectIpc(String)} for the co-location requirement.
+     */
+    public static AeronGatewayClient connectIpc(String aeronDir, int requestStreamId, int responseStreamId) {
+        return connect(aeronDir, TransportMedia.IPC, null, requestStreamId, null, responseStreamId);
     }
 
     /**

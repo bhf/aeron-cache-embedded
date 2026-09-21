@@ -1,0 +1,142 @@
+name: Rust CI (Aeron gateway, IPC)
+
+# Mirrors rust-ci.yml but exercises the Aeron gateway's IPC transport media instead of UDP: the
+# backend and this job's test process share one media driver directory (no network endpoints). Runs
+# as a separate workflow so it executes in parallel with rust-ci.yml.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'libraries/rust/**'
+      - '.github/workflows/rust-ci-ipc.yml'
+  pull_request:
+    paths:
+      - 'libraries/rust/**'
+      - '.github/workflows/rust-ci-ipc.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: libraries/rust
+    steps:
+      - uses: actions/checkout@v4
+
+      # rusteron-client builds the Aeron C client via cmake and generates bindings with bindgen, so a
+      # C toolchain, cmake and libclang are required.
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake libbsd-dev uuid-dev
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Set up Homebrew
+        run: |
+          echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+      - name: Install Aeron Cache Backend
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          set +e
+          brew tap bhf/aeroncache > tap.log 2>&1
+          tap_rc=$?
+          brew install --verbose aeron-cache > install.log 2>&1
+          inst_rc=$?
+          if [ "$inst_rc" -ne 0 ]; then
+            echo "::group::tap.log (exit $tap_rc)"; cat tap.log; echo "::endgroup::"
+            echo "::group::install.log (exit $inst_rc)"; cat install.log; echo "::endgroup::"
+            exit 1
+          fi
+          echo "Aeron Cache backend installed (tap exit $tap_rc, install exit $inst_rc)."
+
+      - name: Start Aeron Cache Backend (IPC gateway)
+        env:
+          AERON_GATEWAY_ENABLED: "true"
+          GATEWAY_TRANSPORT_MEDIA: "ipc"
+        run: |
+          # An absolute path keeps this unambiguous regardless of each step's/process's working
+          # directory. The backend embeds its own media driver here; the test process below shares it.
+          AERON_DIR="${{ github.workspace }}/.aeron-ipc"
+          echo "AERON_DIR=$AERON_DIR" >> $GITHUB_ENV
+
+          CONFIG_DIR="$HOME/.aeron-cache"
+          mkdir -p "$CONFIG_DIR"
+
+          # The `aeron-cache` wrapper auto-generates $CONFIG_DIR/backend.env on first run (only if
+          # absent), and its run_with_env.sh unconditionally `export`s every key from that file —
+          # including a hardcoded AERON_DIR=aeron — which would silently override the AERON_DIR set
+          # above. Pre-create it ourselves with our own AERON_DIR so the wrapper finds one already
+          # present and skips generating its default. Mirrors the wrapper's own default template
+          # (see its source in the Homebrew formula); only AERON_DIR differs.
+          cat > "$CONFIG_DIR/backend.env" <<ENVEOF
+          CLUSTER_NODE=0
+          CLUSTER_ADDRESSES=localhost
+          EGRESS_IP=localhost
+          POD_ADDRESS=aeron-cache-http
+          HTTP_RESPONSE_PUB_HOST=localhost
+          WS_RESPONSE_PUB_HOST=localhost
+          SSE_RESPONSE_PUB_HOST=localhost
+          REQUEST_PUB_HOST=localhost
+          CACHE_MODE=RAFT
+          LAUNCH_EMBEDDED=false
+          CACHE_DATA_DIR=$CONFIG_DIR
+          AERON_DIR=$AERON_DIR
+          CLUSTER_FOLDER=$CONFIG_DIR/node0/cluster/
+          ENVEOF
+
+          # Always surface backend logs on the way out, whether this step ultimately succeeds or
+          # fails, so a readiness timeout is actually debuggable from the Actions log.
+          trap 'echo "::group::Aeron backend/gateway logs"; grep -iE "gateway|aeron" "$CONFIG_DIR/aeron-cache.log" aeron-cache-log.txt 2>/dev/null || echo "(no matching log lines)"; echo "::endgroup::"' EXIT
+
+          nohup aeron-cache > aeron-cache-log.txt 2>&1 &
+          ENV_FILE="$CONFIG_DIR/aeron-cache-ui.env"
+
+          for i in {1..30}; do
+            if [ -f "$ENV_FILE" ]; then
+              echo "Environment file found"
+              break
+            fi
+            echo "Waiting for $ENV_FILE..."
+            sleep 1
+          done
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "Error: $ENV_FILE not found after timeout"
+            exit 1
+          fi
+
+          # The embedded media driver writes cnc.dat into AERON_DIR once it's up; wait for it so the
+          # IPC client below doesn't race the driver's own startup.
+          for i in {1..30}; do
+            if [ -f "$AERON_DIR/cnc.dat" ]; then
+              echo "Aeron IPC media driver ready at $AERON_DIR"
+              break
+            fi
+            echo "Waiting for $AERON_DIR/cnc.dat..."
+            sleep 1
+          done
+          if [ ! -f "$AERON_DIR/cnc.dat" ]; then
+            echo "Error: $AERON_DIR/cnc.dat not found after timeout"
+            exit 1
+          fi
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Run Aeron gateway IPC integration tests
+        # AERON_DIR (set above via $GITHUB_ENV) is the shared media driver directory; no network
+        # endpoints are used. Each test connects independently; run them sequentially.
+        env:
+          AERON_GATEWAY_IPC_IT: "true"
+        run: cargo test --test gateway_ipc_integration_tests -- --test-threads=1

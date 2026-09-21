@@ -77,7 +77,7 @@ The library offers two transports for the same operations. Pick whichever suits 
 - **Aeron gateway** — [`AeronGatewayClient`](src/main/java/com/bhf/aeroncache/client/gateway/AeronGatewayClient.java): a single low-latency, bidirectional Aeron connection carrying both commands and streaming updates, using the shared SBE wire protocol (`gateway-schema.xml`).
 - **Bidirectional WebSocket** — [`AeronBidiClient`](src/main/java/com/bhf/aeroncache/client/bidi/AeronBidiClient.java): a single WebSocket connection to `/api/ws/v1/bidi` carrying the full cache + counter command surface plus dynamic subscribe/unsubscribe as JSON frames. The JSON/WebSocket analogue of the Aeron gateway, with no media driver required.
 
-Enable the Aeron gateway on the backend with `-Daeron.gateway.enabled=true` (or `AERON_GATEWAY_ENABLED=true`). By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`).
+Enable the Aeron gateway on the backend with `-Daeron.gateway.enabled=true` (or `AERON_GATEWAY_ENABLED=true`). By default it binds the request endpoint on port `7075` (stream `100`) and the response control endpoint on port `7076` (stream `101`), over **UDP**. The gateway also supports **IPC** (`GATEWAY_TRANSPORT_MEDIA=ipc` on the backend) for clients co-located on the same host and media driver — see [Aeron transport media](#aeron-transport-media) below.
 
 ### Aeron usage
 
@@ -112,6 +112,23 @@ try (MediaDriver driver = MediaDriver.launchEmbedded();
     client.incrementCounter("counters", "hits", 5);
 }
 ```
+
+### Aeron transport media
+
+`AeronGatewayClient` and the lower-level `GatewayClient` connect over **UDP** by default. They also support **IPC** via `TransportMedia.IPC` — lower latency, no network stack, but the client and gateway server must share the same media driver (same host, same `aeron.dir`/`AERON_DIR`):
+
+```java
+import com.bhf.aeroncache.client.gateway.AeronGatewayClient;
+
+// aeronDir must be the SAME directory the gateway server's media driver is using
+// (start the backend with GATEWAY_TRANSPORT_MEDIA=ipc AERON_DIR=<aeronDir>).
+try (AeronGatewayClient client = AeronGatewayClient.connectIpc(aeronDir)) {
+    client.awaitConnected(10, TimeUnit.SECONDS);
+    client.createCache("my-cache");
+}
+```
+
+For IPC there is no embedded media driver to launch and no host/port to reach — `connectIpc` connects to the driver already running at `aeronDir`, which must be the same one the gateway server was started with.
 
 The Aeron transport also exposes operations not available over HTTP+WS: `getCacheItems` (full snapshot), `getStats`, and `clearCache`.
 

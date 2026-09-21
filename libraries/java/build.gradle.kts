@@ -69,9 +69,10 @@ tasks.test {
     // Aeron/Agrona need these opens on modern JDKs.
     jvmArgs("--add-opens", "java.base/jdk.internal.misc=ALL-UNNAMED")
     jvmArgs("--add-opens", "java.base/java.util.zip=ALL-UNNAMED")
-    // Forward the Aeron gateway integration-test gate (and host) from the Gradle CLI to the test JVM,
-    // so `-Daeron.gateway.it=true` actually reaches the JUnit condition.
-    listOf("aeron.gateway.it", "aeron.gateway.host").forEach { key ->
+    // Forward the Aeron gateway integration-test gates (and connection info) from the Gradle CLI to the
+    // test JVM, so e.g. `-Daeron.gateway.it=true` actually reaches the JUnit condition. `aeron.dir` is
+    // the IPC test's shared media driver directory (must match the gateway server's own `aeron.dir`).
+    listOf("aeron.gateway.it", "aeron.gateway.host", "aeron.gateway.ipc.it", "aeron.dir").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
 }

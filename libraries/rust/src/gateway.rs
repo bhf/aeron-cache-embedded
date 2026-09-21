@@ -44,6 +44,65 @@ pub const DEFAULT_RESPONSE_STREAM_ID: i32 = 101;
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const FRAGMENT_LIMIT: usize = 16;
 
+// ------------------------------------------------------------------ transport media
+
+/// The Aeron media used for the gateway connection, either UDP (the default) or IPC.
+///
+/// Response channels (`control-mode=response`) work over both media in Aeron: the driver keys each
+/// client's response publication on the request publication's `response-correlation-id` regardless of
+/// media, so no endpoints are required for the correlation itself. The only difference is that UDP
+/// channels carry endpoint addresses, whereas IPC channels have none — those params are simply ignored
+/// for [`TransportMedia::Ipc`].
+///
+/// IPC requires this client and the gateway server to share a single media driver (same host, same
+/// `aeron_dir`/`AERON_DIR`); it is intended for co-located deployments. UDP remains the default for
+/// everything else. Mirrors the server's `TransportMedia` and the Java client's equivalent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TransportMedia {
+    #[default]
+    Udp,
+    Ipc,
+}
+
+impl TransportMedia {
+    /// Parse a media selection (e.g. from a CLI flag or environment variable), defaulting to
+    /// [`TransportMedia::Udp`] when `value` is empty or unrecognised.
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_lowercase().as_str() {
+            "ipc" => TransportMedia::Ipc,
+            _ => TransportMedia::Udp,
+        }
+    }
+
+    /// Builder for the client's request publication. `endpoint` is required (and used) for UDP, ignored
+    /// for IPC.
+    fn request_publication(&self, endpoint: Option<&str>) -> Result<AeronUriStringBuilder, Box<dyn Error>> {
+        match self {
+            TransportMedia::Udp => {
+                let endpoint = endpoint.ok_or("UDP transport requires a request endpoint")?;
+                Ok(AeronUriStringBuilder::udp(endpoint)?)
+            }
+            TransportMedia::Ipc => Ok(AeronUriStringBuilder::ipc()?),
+        }
+    }
+
+    /// Builder for a response channel (`control-mode=response`) — the client's response subscription.
+    /// `control` is required (and used) for UDP, ignored for IPC.
+    fn response_channel(&self, control: Option<&str>) -> Result<AeronUriStringBuilder, Box<dyn Error>> {
+        match self {
+            TransportMedia::Udp => {
+                let control = control.ok_or("UDP transport requires a response control endpoint")?;
+                Ok(AeronUriStringBuilder::udp_control(control, ControlMode::Response)?)
+            }
+            TransportMedia::Ipc => {
+                let builder = AeronUriStringBuilder::ipc()?;
+                builder.control_mode(ControlMode::Response)?;
+                Ok(builder)
+            }
+        }
+    }
+}
+
 /// Message type ids carried in `GatewayCommand.msgType` (mirror the server's `CacheRequestMessageTypes`).
 mod msg {
     pub const CREATE_CACHE: u16 = 1;
@@ -197,8 +256,8 @@ pub struct AeronGatewayClient {
 }
 
 impl AeronGatewayClient {
-    /// Connect to a gateway on `host` using the default ports and stream ids, using the Aeron media
-    /// driver at `aeron_dir`.
+    /// Connect to a gateway on `host` over UDP (the default media) using the default ports and stream
+    /// ids, using the Aeron media driver at `aeron_dir`.
     pub fn connect(aeron_dir: &str, host: &str) -> Result<Self, Box<dyn Error>> {
         Self::connect_with(
             aeron_dir,
@@ -209,12 +268,49 @@ impl AeronGatewayClient {
         )
     }
 
-    /// Connect with fully explicit endpoints and stream ids.
+    /// Connect over UDP with fully explicit endpoints and stream ids.
     pub fn connect_with(
         aeron_dir: &str,
         request_endpoint: &str,
         request_stream_id: i32,
         response_control: &str,
+        response_stream_id: i32,
+    ) -> Result<Self, Box<dyn Error>> {
+        Self::connect_with_media(
+            aeron_dir,
+            TransportMedia::Udp,
+            Some(request_endpoint),
+            request_stream_id,
+            Some(response_control),
+            response_stream_id,
+        )
+    }
+
+    /// Connect over IPC using the default stream ids. `aeron_dir` must be the *same* media driver
+    /// directory the gateway server is using (same host, same `aeron.dir`/`AERON_DIR`) — IPC requires
+    /// client and server to be co-located on one driver and does not cross hosts.
+    pub fn connect_ipc(aeron_dir: &str) -> Result<Self, Box<dyn Error>> {
+        Self::connect_ipc_with(aeron_dir, DEFAULT_REQUEST_STREAM_ID, DEFAULT_RESPONSE_STREAM_ID)
+    }
+
+    /// Connect over IPC with explicit stream ids. See [`Self::connect_ipc`] for the co-location
+    /// requirement.
+    pub fn connect_ipc_with(
+        aeron_dir: &str,
+        request_stream_id: i32,
+        response_stream_id: i32,
+    ) -> Result<Self, Box<dyn Error>> {
+        Self::connect_with_media(aeron_dir, TransportMedia::Ipc, None, request_stream_id, None, response_stream_id)
+    }
+
+    /// Connect with an explicit transport `media` and fully explicit stream ids. For
+    /// [`TransportMedia::Ipc`], `request_endpoint`/`response_control` are ignored (pass `None`).
+    pub fn connect_with_media(
+        aeron_dir: &str,
+        media: TransportMedia,
+        request_endpoint: Option<&str>,
+        request_stream_id: i32,
+        response_control: Option<&str>,
         response_stream_id: i32,
     ) -> Result<Self, Box<dyn Error>> {
         let ctx = AeronContext::new()?;
@@ -223,17 +319,15 @@ impl AeronGatewayClient {
         aeron.start()?;
 
         // 1. Response subscription (control-mode=response).
-        let response_channel =
-            AeronUriStringBuilder::udp_control(response_control, ControlMode::Response)?
-                .build(256)?
-                .into_c_string();
+        let response_channel = media.response_channel(response_control)?.build(256)?.into_c_string();
         let subscription = aeron
             .async_add_subscription(&response_channel, response_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
 
         // 2. Request publication carrying the response subscription's registration id.
         let registration_id = subscription.get_constants()?.registration_id();
-        let request_channel = AeronUriStringBuilder::udp(request_endpoint)?
+        let request_channel = media
+            .request_publication(request_endpoint)?
             .response_correlation_id(registration_id)?
             .build(256)?
             .into_c_string();
@@ -1032,6 +1126,49 @@ mod tests {
 
     fn decode_header(frame: &[u8]) -> message_header_codec::decoder::MessageHeaderDecoder<ReadBuf<'_>> {
         message_header_codec::decoder::MessageHeaderDecoder::default().wrap(ReadBuf::new(frame), 0)
+    }
+
+    #[test]
+    fn transport_media_defaults_to_udp() {
+        assert_eq!(TransportMedia::default(), TransportMedia::Udp);
+    }
+
+    #[test]
+    fn udp_media_builds_channels_with_endpoints() {
+        let request = TransportMedia::Udp
+            .request_publication(Some("127.0.0.1:7075"))
+            .unwrap()
+            .build(256)
+            .unwrap();
+        assert!(request.contains("aeron:udp"));
+        assert!(request.contains("endpoint=127.0.0.1:7075"));
+
+        let response = TransportMedia::Udp
+            .response_channel(Some("127.0.0.1:7076"))
+            .unwrap()
+            .build(256)
+            .unwrap();
+        assert!(response.contains("aeron:udp"));
+        assert!(response.contains("control-mode=response"));
+        assert!(response.contains("control=127.0.0.1:7076"));
+    }
+
+    #[test]
+    fn ipc_media_builds_channels_without_endpoints() {
+        let request = TransportMedia::Ipc.request_publication(None).unwrap().build(256).unwrap();
+        assert!(request.contains("aeron:ipc"));
+        assert!(!request.contains("endpoint"));
+
+        let response = TransportMedia::Ipc.response_channel(None).unwrap().build(256).unwrap();
+        assert!(response.contains("aeron:ipc"));
+        assert!(response.contains("control-mode=response"));
+        assert!(!response.contains("control="));
+    }
+
+    #[test]
+    fn udp_media_without_endpoint_is_an_error() {
+        assert!(TransportMedia::Udp.request_publication(None).is_err());
+        assert!(TransportMedia::Udp.response_channel(None).is_err());
     }
 
     #[test]
