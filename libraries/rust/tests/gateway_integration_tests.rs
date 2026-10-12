@@ -34,7 +34,7 @@ fn connect() -> Option<(EmbeddedDriver, AeronGatewayClient)> {
     // on a cold CI RAFT cluster, where individual operations run far slower than locally.
     let client = AeronGatewayClient::connect(driver.dir(), &host())
         .expect("failed to connect")
-        .with_request_timeout(Duration::from_secs(120));
+        .with_request_timeout(Duration::from_secs(300));
     assert!(client.await_connected(Duration::from_secs(10)), "gateway did not connect");
     Some((driver, client))
 }
@@ -478,11 +478,12 @@ fn bulk_response_reassembles_across_multiple_batches() {
     let cache = unique("rs-it-batch-bulk");
     client.create_cache(&cache).unwrap();
 
-    // One bulk request of many GET_ITEM ops; the response carries one result per op and, with this
-    // many 300-char values, spans multiple batch frames (the gateway packs ~100 results per batch).
-    // 150 ops gives ~2 batches; executing many individual gets is the slow part on a cold CI cluster,
-    // so we only populate what the bulk reads back and lean on the client's raised request timeout.
-    let bulk_op_count = 150usize;
+    // One bulk request of many GET_ITEM ops; the response carries one result per op. The bulk response
+    // batches by op COUNT (~100 results per frame, regardless of value size), so 120 ops gives 2
+    // batches. Executing many individual gets is slow on a cold CI cluster, so this is kept just over
+    // the ~100 threshold, only populates what the bulk reads back, and leans on the client's raised
+    // request timeout (120 gets have been observed near ~100s on CI).
+    let bulk_op_count = 120usize;
     populate_entries(&client, &cache, bulk_op_count, None);
     let operations = (0..bulk_op_count)
         .map(|i| CacheOperationRequest {

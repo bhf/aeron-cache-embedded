@@ -53,7 +53,7 @@ if (shouldRun && !wsUrl) {
             const timeout = setTimeout(() => {
                 ws.close();
                 reject(new Error('Websocket event not received within timeout'));
-            }, 10000);
+            }, 30000);
 
             let openedTriggered = false;
 
@@ -91,7 +91,7 @@ if (shouldRun && !wsUrl) {
 
             const ws = embedded.subscribe(onMessage, onError, onStatusChange);
         });
-    }, 15000); // Give Jest 15s before failing
+    }, 45000); // Give Jest 45s before failing (WS event waits are slow on CI)
 
     it('should hydrate existing data when subscribing', async () => {
         const cacheId = `it-hydrate-${Math.random().toString(36).substring(7)}`;
@@ -108,7 +108,7 @@ if (shouldRun && !wsUrl) {
             const timeout = setTimeout(() => {
                 if (wsResult) wsResult.close();
                 reject(new Error('Hydration event not received within timeout'));
-            }, 5000);
+            }, 30000);
 
             const onStatusChange = (status: 'Connected' | 'Disconnected') => {
                 if (status === 'Connected') {
@@ -250,7 +250,7 @@ if (shouldRun && !wsUrl) {
             const timeout = setTimeout(() => {
                 ws.close();
                 reject(new Error('Counter websocket event not received within timeout'));
-            }, 10000);
+            }, 30000);
 
             let opened = false;
 
@@ -280,7 +280,7 @@ if (shouldRun && !wsUrl) {
 
             const ws = counters.subscribe(onMessage, () => {}, onStatusChange);
         });
-    }, 15000);
+    }, 45000);
 
     test('patch_item deep-merges document', async () => {
         const cacheId = `it-patch-${Date.now()}`;
@@ -381,7 +381,7 @@ if (shouldRun && !wsUrl) {
                 } catch (e) {
                     reject(e);
                 }
-            }, 4000);
+            }, 30000);
 
             const onMessage = (event: any) => {
                 if (event.eventType === 'ADD_ITEM' && event.itemKey) {
@@ -408,7 +408,7 @@ if (shouldRun && !wsUrl) {
             // Subscribe filtered to only "key1".
             const ws = client.subscribe(cacheId, onMessage, () => {}, onStatusChange, false, 'key1');
         });
-    }, 15000);
+    }, 45000);
 
     it('should receive PATCH_ITEM events in patch mode', async () => {
         const cacheId = `it-ws-patch-${Math.random().toString(36).substring(7)}`;
@@ -421,7 +421,7 @@ if (shouldRun && !wsUrl) {
             const timeout = setTimeout(() => {
                 ws.close();
                 reject(new Error('PATCH_ITEM event not received within timeout'));
-            }, 8000);
+            }, 30000);
 
             const onMessage = (event: any) => {
                 if (event.eventType === 'PATCH_ITEM' && event.itemKey === 'doc') {
@@ -446,5 +446,5 @@ if (shouldRun && !wsUrl) {
 
             const ws = client.subscribe(cacheId, onMessage, () => {}, onStatusChange, false, undefined, 'patch');
         });
-    }, 15000);
+    }, 45000);
 });
