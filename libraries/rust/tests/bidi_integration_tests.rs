@@ -23,6 +23,54 @@ fn unique(prefix: &str) -> String {
     format!("{prefix}-{ts:x}")
 }
 
+// ------------------------------------------------------------------ multi-batch reassembly helpers
+//
+// The bidi transport streams getEntries/getTimers responses as one or more JSON batch frames
+// terminated by `endOfBatch=true`; the client accumulates them internally keyed on correlationId
+// (see `src/bidi.rs`) and exposes only the fully reassembled high-level result — there is no public
+// per-batch callback where the flag is observable. So these are REASSEMBLY-COMPLETENESS tests:
+// populating enough large entries forces the server to split the response across multiple batches, and
+// asserting all N come back intact proves reassembly. The existing single-item bidi tests fit in one
+// batch and never exercise this.
+
+// 300 entries force the server to split the getCacheItems/getTimers response across multiple batch
+// frames while keeping the write load light enough for a cold CI RAFT cluster (populating 1000
+// entries timed out on CI).
+const BATCH_ENTRY_COUNT: usize = 300;
+// Small so each populate bulk commits well within the bidi request timeout on a slow CI cluster, and
+// well under the bidi WebSocket ~64KB max text-message limit (else the server closes with 1009).
+const BATCH_CHUNK: usize = 20;
+
+fn big_value() -> String {
+    "v".repeat(300)
+}
+
+/// Inserts `count` entries (keys `k0..k{count-1}`) into `cache_id` via chunked bulk ADD_ITEM. A
+/// positive `ttl` schedules a pending TTL removal timer per entry (used by the timers test).
+fn populate_entries(client: &AeronBidiClient, cache_id: &str, count: usize, ttl: Option<i64>) {
+    use aeron_cache_embedded_client::{BulkCacheOpsRequest, BulkOperationType, CacheOperationRequest};
+    let value = big_value();
+    let mut start = 0;
+    while start < count {
+        let end = (start + BATCH_CHUNK).min(count);
+        let operations = (start..end)
+            .map(|i| CacheOperationRequest {
+                operation_type: BulkOperationType::AddItem,
+                request_id: format!("add-{i}"),
+                cache_id: cache_id.to_string(),
+                key: Some(format!("k{i}")),
+                value: Some(value.clone()),
+                ttl,
+                counter_value: None,
+            })
+            .collect();
+        let req = BulkCacheOpsRequest { request_id: unique("populate"), operations };
+        let resp = client.bulk_ops(&req).unwrap();
+        assert_eq!(resp.operation_responses.len(), end - start, "populate chunk should ack every op");
+        start = end;
+    }
+}
+
 #[test]
 fn bidi_cache_lifecycle() {
     let Some(url) = ws_url() else {
@@ -178,6 +226,65 @@ fn bidi_cancel_item_removal() {
 }
 
 #[test]
+fn bidi_get_cache_items_reassembles_across_multiple_batches() {
+    // Reassembly-completeness (the bidi client hides batches behind its high-level API — see the
+    // module comment above).
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_get_cache_items_reassembles_across_multiple_batches: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-batch-entries");
+    client.create_cache(&cache_id).unwrap();
+    populate_entries(&client, &cache_id, BATCH_ENTRY_COUNT, None);
+
+    let resp = client.get_cache_items(&cache_id).unwrap();
+    assert_eq!(
+        resp.items.len(),
+        BATCH_ENTRY_COUNT,
+        "every entry should be reassembled from the batched response"
+    );
+    let value = big_value();
+    let map: std::collections::HashMap<_, _> =
+        resp.items.iter().map(|i| (i.key.clone(), i.value.clone())).collect();
+    for i in 0..BATCH_ENTRY_COUNT {
+        assert_eq!(map.get(&format!("k{i}")), Some(&value), "missing/incorrect value for k{i}");
+    }
+
+    client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
+fn bidi_get_timers_reassembles_across_multiple_batches() {
+    // Reassembly-completeness (the bidi client hides batches behind its high-level API — see the
+    // module comment above).
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_get_timers_reassembles_across_multiple_batches: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-batch-timers");
+    client.create_cache(&cache_id).unwrap();
+    // A large TTL keeps every scheduled removal timer pending so all N are returned by get_timers.
+    populate_entries(&client, &cache_id, BATCH_ENTRY_COUNT, Some(600_000));
+
+    let timers = client.get_timers().unwrap();
+    let mut ours: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for t in timers.iter().filter(|t| t.cache_id == cache_id) {
+        assert_eq!(t.timer_type, "CACHE");
+        assert!(t.deadline > 0, "timer deadline should be a positive epoch millis");
+        ours.insert(t.key.clone());
+    }
+    assert_eq!(
+        ours.len(),
+        BATCH_ENTRY_COUNT,
+        "every pending timer for the cache should be reassembled from the batched response"
+    );
+
+    client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
 fn bidi_subscription_receives_add_item() {
     let Some(url) = ws_url() else {
         println!("Skipping bidi_subscription_receives_add_item: AERON_CACHE_BASE_URL not set");
@@ -214,4 +321,138 @@ fn bidi_subscription_receives_add_item() {
 
     sub.close().unwrap();
     client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
+fn bidi_subscription_key_filter() {
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_subscription_key_filter: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-sub-keys");
+    client.create_cache(&cache_id).unwrap();
+
+    // Subscribe filtered to only "key1" (no snapshot, full mode).
+    let keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = keys.clone();
+    let sub = client
+        .subscribe_with(&cache_id, false, Some("key1"), None, move |ev| {
+            if ev.event_type == "ADD_ITEM" {
+                if let Some(k) = ev.item_key.clone() {
+                    sink.lock().unwrap().push(k);
+                }
+            }
+        })
+        .expect("subscribe with key filter");
+
+    client.put_item(&cache_id, "key1", "v1").unwrap();
+    client.put_item(&cache_id, "key2", "v2").unwrap();
+
+    // Poll until the subscribed key arrives, then confirm the filtered-out key never does.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if keys.lock().unwrap().iter().any(|k| k == "key1") {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!("did not receive ADD_ITEM for key1 within timeout");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    // Give any stray (incorrectly unfiltered) key2 event a chance to show up.
+    thread::sleep(Duration::from_millis(500));
+    let got = keys.lock().unwrap();
+    assert!(got.iter().any(|k| k == "key1"), "should receive key1 event");
+    assert!(!got.iter().any(|k| k == "key2"), "should NOT receive key2 event (filtered out)");
+    drop(got);
+
+    sub.close().unwrap();
+    client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
+fn bidi_subscription_patch_mode_receives_patch_item() {
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_subscription_patch_mode_receives_patch_item: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-sub-patch");
+    client.create_cache(&cache_id).unwrap();
+    // Seed the initial object so patching it yields a PATCH_ITEM delta.
+    client.put_item(&cache_id, "doc", r#"{"a":1}"#).unwrap();
+
+    // Subscribe in patch mode: changed fields arrive as PATCH_ITEM deltas rather than full ADD_ITEMs.
+    let got: Arc<Mutex<Vec<(String, Option<String>)>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = got.clone();
+    let sub = client
+        .subscribe_with(&cache_id, false, None, Some("patch"), move |ev| {
+            if ev.event_type == "PATCH_ITEM" && ev.item_key.as_deref() == Some("doc") {
+                sink.lock().unwrap().push((ev.event_type.clone(), ev.item_value.clone()));
+            }
+        })
+        .expect("subscribe in patch mode");
+
+    client.patch_item(&cache_id, "doc", r#"{"b":2}"#).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if !got.lock().unwrap().is_empty() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!("did not receive PATCH_ITEM stream update within timeout");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    // The delta carries only the changed field.
+    let delta = got.lock().unwrap()[0].1.clone().expect("PATCH_ITEM should carry a delta value");
+    assert!(delta.contains("\"b\""), "patch delta should contain the changed field, was {delta}");
+
+    sub.close().unwrap();
+    client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
+fn bidi_counter_subscription_receives_update() {
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_counter_subscription_receives_update: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-sub-counter");
+    client.create_counter_cache(&cache_id).unwrap();
+
+    let got: Arc<Mutex<Vec<(String, Option<i64>)>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = got.clone();
+    let sub = client
+        .subscribe_counter(&cache_id, move |ev| {
+            if ev.item_key.as_deref() == Some("ck") {
+                sink.lock().unwrap().push((ev.event_type.clone(), ev.item_value));
+            }
+        })
+        .expect("subscribe counter");
+
+    client.put_counter(&cache_id, "ck", 7).unwrap();
+    client.increment_counter(&cache_id, "ck", 3).unwrap();
+
+    // Poll for the streamed counter update reflecting the latest value.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if got.lock().unwrap().iter().any(|(_, v)| *v == Some(10)) {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!("did not receive counter stream update within timeout");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        got.lock().unwrap().iter().any(|(_, v)| *v == Some(10)),
+        "should receive a counter update with the incremented value"
+    );
+
+    sub.close().unwrap();
+    client.delete_counter_cache(&cache_id).unwrap();
 }

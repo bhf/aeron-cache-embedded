@@ -34,7 +34,11 @@ fn connect() -> Option<AeronGatewayClient> {
         eprintln!("skipping: set AERON_GATEWAY_IPC_IT=true to run gateway IPC integration tests");
         return None;
     }
-    let client = AeronGatewayClient::connect_ipc(&aeron_dir()).expect("failed to connect over IPC");
+    // Generous request timeout: the multi-batch reassembly tests do heavy work on a cold CI RAFT
+    // cluster, where individual operations run far slower than locally.
+    let client = AeronGatewayClient::connect_ipc(&aeron_dir())
+        .expect("failed to connect over IPC")
+        .with_request_timeout(Duration::from_secs(30));
     assert!(client.await_connected(Duration::from_secs(10)), "gateway did not connect over IPC");
     Some(client)
 }
@@ -45,6 +49,55 @@ fn unique(prefix: &str) -> String {
         .unwrap()
         .as_nanos();
     format!("{prefix}-{nanos:x}")
+}
+
+// ------------------------------------------------------------------ multi-batch reassembly helpers
+//
+// Same wire framing as UDP: responses stream as one or more batch frames terminated by
+// `end_of_batch=true`, accumulated internally by the client. The Rust gateway client exposes no
+// per-batch callback (unlike Java's GatewayClientListener), so these are REASSEMBLY-COMPLETENESS tests
+// — populating enough large entries forces a server-side split, and asserting all N come back intact
+// proves reassembly over the IPC channel. This file carries a representative subset (entries + timers)
+// matching its "representative subset" philosophy; the full set lives in gateway_integration_tests.rs.
+
+/// Entry count chosen to overflow a single batch frame; mirrors the Java batch test's 1000.
+// The gateway packs ~100 records per batch frame, so 300 entries/timers span ~3 batches — enough to
+// exercise reassembly with margin, while keeping the write load light enough for a cold CI RAFT
+// cluster (populating 1000 entries timed out on CI; see the small BATCH_CHUNK below).
+const BATCH_ENTRY_COUNT: usize = 300;
+/// Per-bulk chunk size kept well under the command ring buffer's max message length.
+// Small so each populate bulk commits well within the gateway client's request timeout even on a
+// slow CI RAFT cluster (and under the command ring buffer's max message length).
+const BATCH_CHUNK: usize = 20;
+
+/// Value long enough that `BATCH_ENTRY_COUNT` entries comfortably exceed one batch frame (300 chars).
+fn big_value() -> String {
+    "v".repeat(300)
+}
+
+/// Inserts `count` entries (keys `k0..k{count-1}`, each with [`big_value`]) via chunked bulk ADD_ITEM.
+/// A positive `ttl` schedules a pending TTL removal timer per entry (used by the timers test).
+fn populate_entries(client: &AeronGatewayClient, cache: &str, count: usize, ttl: Option<i64>) {
+    let value = big_value();
+    let mut start = 0;
+    while start < count {
+        let end = (start + BATCH_CHUNK).min(count);
+        let operations = (start..end)
+            .map(|i| CacheOperationRequest {
+                operation_type: BulkOperationType::AddItem,
+                request_id: format!("add-{i}"),
+                cache_id: cache.to_string(),
+                key: Some(format!("k{i}")),
+                value: Some(value.clone()),
+                ttl,
+                counter_value: None,
+            })
+            .collect();
+        let req = BulkCacheOpsRequest { request_id: unique("populate"), operations };
+        let resp = client.bulk_ops(&req).unwrap();
+        assert_eq!(resp.operation_responses.len(), end - start, "populate chunk should ack every op");
+        start = end;
+    }
 }
 
 #[test]
@@ -176,6 +229,75 @@ fn bulk_ops_over_gateway() {
         .find(|r| r.request_id == "op-get")
         .expect("response for op-get");
     assert_eq!(get.value.as_deref(), Some("bv"));
+
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn get_cache_items_reassembles_across_multiple_batches() {
+    // Reassembly-completeness over IPC (no per-batch seam — see the module comment above).
+    let Some(client) = connect() else { return };
+    let cache = unique("rs-ipc-it-batch-entries");
+    client.create_cache(&cache).unwrap();
+    populate_entries(&client, &cache, BATCH_ENTRY_COUNT, None);
+
+    let resp = client.get_cache_items(&cache).unwrap();
+    assert_eq!(
+        resp.items.len(),
+        BATCH_ENTRY_COUNT,
+        "every entry should be reassembled from the batched response over IPC"
+    );
+    let value = big_value();
+    let map: std::collections::HashMap<_, _> =
+        resp.items.iter().map(|i| (i.key.clone(), i.value.clone())).collect();
+    for i in 0..BATCH_ENTRY_COUNT {
+        assert_eq!(map.get(&format!("k{i}")), Some(&value), "missing/incorrect value for k{i}");
+    }
+
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn get_timers_reassembles_across_multiple_batches() {
+    // Reassembly-completeness over IPC (no per-batch seam — see the module comment above).
+    let Some(client) = connect() else { return };
+    let cache = unique("rs-ipc-it-batch-timers");
+    client.create_cache(&cache).unwrap();
+    // A large TTL keeps every scheduled removal timer pending so all N are returned by get_timers.
+    populate_entries(&client, &cache, BATCH_ENTRY_COUNT, Some(600_000));
+
+    let timers = client.get_timers().unwrap();
+    let mut ours: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for t in timers.iter().filter(|t| t.cache_id == cache) {
+        assert_eq!(t.timer_type, "CACHE");
+        assert!(t.deadline > 0, "timer deadline should be a positive epoch millis");
+        ours.insert(t.key.clone());
+    }
+    assert_eq!(
+        ours.len(),
+        BATCH_ENTRY_COUNT,
+        "every pending timer for the cache should be reassembled from the batched response over IPC"
+    );
+
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn cancel_item_removal_over_ipc() {
+    let Some(client) = connect() else { return };
+    let cache = unique("rs-ipc-it-cancel");
+    client.create_cache(&cache).unwrap();
+    client.put_timed_item(&cache, "keep", "val", 2000).unwrap();
+
+    let resp = client.cancel_item_removal(&cache, "keep").unwrap();
+    assert_eq!(resp.key, "keep");
+
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(
+        client.get_item(&cache, "keep").unwrap().value,
+        "val",
+        "item should survive past its TTL after cancelling removal over IPC"
+    );
 
     client.delete_cache(&cache).unwrap();
 }

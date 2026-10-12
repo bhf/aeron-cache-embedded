@@ -1,5 +1,5 @@
 import { AeronBidiClient } from './bidi';
-import { CacheUpdateEvent } from './models';
+import { CacheOperationRequest, CacheUpdateEvent, CounterUpdateEvent } from './models';
 
 const baseUrl = process.env.AERON_CACHE_BASE_URL;
 let wsUrl = process.env.AERON_CACHE_WS_URL;
@@ -145,4 +145,171 @@ const rid = () => Math.random().toString(36).substring(2, 10);
         expect(received[0].itemValue).toBe('sv');
         await client.deleteCache(cacheId);
     }, 10000);
+
+    it('keyed subscription receives only the subscribed key', async () => {
+        const cacheId = `bidi-sub-keys-${crypto.randomUUID()}`;
+        await client.createCache(cacheId);
+
+        const received: string[] = [];
+        // Subscribe filtered to only "k1".
+        const sub = await client.subscribe(
+            cacheId,
+            (ev) => {
+                if (ev.eventType === 'ADD_ITEM' && ev.itemKey) {
+                    received.push(ev.itemKey);
+                }
+            },
+            { key: 'k1' }
+        );
+
+        await Promise.all([client.putItem(cacheId, 'k1', 'v1'), client.putItem(cacheId, 'k2', 'v2')]);
+
+        // Allow time for both events to propagate; only the keyed one should have arrived.
+        await new Promise((r) => setTimeout(r, 3000));
+        expect(received).toContain('k1');
+        expect(received).not.toContain('k2');
+
+        await sub.close();
+        await client.deleteCache(cacheId);
+    }, 10000);
+
+    it('patch-mode subscription receives PATCH_ITEM', async () => {
+        const cacheId = `bidi-sub-patch-${crypto.randomUUID()}`;
+        await client.createCache(cacheId);
+        await client.putItem(cacheId, 'doc', '{"a":1}');
+
+        const received: CacheUpdateEvent[] = [];
+        const done = new Promise<void>((resolve) => {
+            client
+                .subscribe(
+                    cacheId,
+                    (ev) => {
+                        if (ev.eventType === 'PATCH_ITEM' && ev.itemKey === 'doc') {
+                            received.push(ev);
+                            resolve();
+                        }
+                    },
+                    { mode: 'patch' }
+                )
+                .then(() => client.patchItem(cacheId, 'doc', '{"b":2}'));
+        });
+
+        await Promise.race([
+            done,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('no PATCH_ITEM update')), 5000))
+        ]);
+        expect(received[0].itemKey).toBe('doc');
+        await client.deleteCache(cacheId);
+    }, 10000);
+
+    it('counter subscription receives updates', async () => {
+        const cacheId = `bidi-sub-counter-${crypto.randomUUID()}`;
+        await client.createCounterCache(cacheId);
+
+        const received: CounterUpdateEvent[] = [];
+        const done = new Promise<void>((resolve) => {
+            client
+                .subscribeCounter(cacheId, (ev) => {
+                    if (ev.itemKey === 'hits') {
+                        received.push(ev);
+                        resolve();
+                    }
+                })
+                .then(() => client.putCounter(cacheId, 'hits', 7));
+        });
+
+        await Promise.race([
+            done,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('no counter update')), 5000))
+        ]);
+        expect(received[0].itemValue).toBe(7);
+        await client.deleteCounterCache(cacheId);
+    }, 10000);
+
+    // ---------------------------------------------------------------- batched-response reassembly
+    //
+    // The bidi transport streams getCacheItems / getTimers / bulkOps responses as one or more
+    // `entries`/`timers`/`bulkResponse` frames sharing a correlationId, each carrying an
+    // `endOfBatch` flag; AeronBidiClient accumulates frames until endOfBatch=true (see dispatch()).
+    // That flag is consumed internally and is NOT observable to callers in TS — the client only ever
+    // hands back the fully-reassembled result. So, unlike the Java batch test which asserts on the
+    // raw per-batch flags, these are REASSEMBLY-COMPLETENESS tests: we populate ENOUGH entries
+    // (N below) to force the server to split the response across multiple batches, then assert that
+    // the reassembled result contains ALL N items with correct values. If accumulation stopped at the
+    // first batch (or dropped a frame), the counts would fall short. The single-item bidi tests above
+    // never cross a batch boundary, so this is the only coverage that exercises multi-batch reassembly.
+
+    // 300 entries force the server to split the response across multiple batch frames while keeping
+    // the write load light enough for a cold CI RAFT cluster (populating 1000 entries timed out on CI).
+    const N = 300;
+    // Small so each populate bulk commits well within the bidi request timeout on a slow CI cluster,
+    // and well under the bidi WebSocket ~64KB max text-message limit (else the server closes with 1009).
+    const CHUNK = 20;
+    // Value long enough that N entries comfortably exceed one batch frame.
+    const VALUE = 'v'.repeat(300);
+    const REASSEMBLY_TIMEOUT = 60000;
+
+    // Populate `count` entries (k0..k{count-1} -> VALUE) via chunked ADD_ITEM bulkOps, with an
+    // optional TTL so each entry also schedules a pending removal timer.
+    const populateEntries = async (cacheId: string, count: number, ttl = 0): Promise<void> => {
+        for (let start = 0; start < count; start += CHUNK) {
+            const end = Math.min(start + CHUNK, count);
+            const operations: CacheOperationRequest[] = [];
+            for (let i = start; i < end; i++) {
+                operations.push({
+                    operationType: 'ADD_ITEM',
+                    requestId: `op-${i}`,
+                    cacheId,
+                    key: `k${i}`,
+                    value: VALUE,
+                    ttl
+                });
+            }
+            await client.bulkOps({ requestId: `populate-${start}-${crypto.randomUUID()}`, operations });
+        }
+    };
+
+    it(
+        'getCacheItems reassembles all entries across multiple batches',
+        async () => {
+            const cacheId = `bidi-batch-entries-${crypto.randomUUID()}`;
+            await client.createCache(cacheId);
+            await populateEntries(cacheId, N);
+
+            const items = (await client.getCacheItems(cacheId)).items;
+            expect(items.length).toBe(N);
+            const map = new Map(items.map((i) => [i.key, i.value]));
+            for (let i = 0; i < N; i++) {
+                expect(map.get(`k${i}`)).toBe(VALUE);
+            }
+
+            await client.deleteCache(cacheId);
+        },
+        REASSEMBLY_TIMEOUT
+    );
+
+    it(
+        'getTimers reassembles all pending timers across multiple batches',
+        async () => {
+            const cacheId = `bidi-batch-timers-${crypto.randomUUID()}`;
+            await client.createCache(cacheId);
+            // A large TTL keeps every scheduled removal timer pending for the duration of the call.
+            await populateEntries(cacheId, N, 600000);
+
+            const timers = await client.getTimers();
+            // getTimers is global (all caches); assert this cache's timers all survived reassembly.
+            const ours = timers.filter((t) => t.cacheId === cacheId);
+            expect(ours.length).toBe(N);
+            for (const timer of ours) {
+                expect(timer.timerType).toBe('CACHE');
+                expect(timer.deadline).toBeGreaterThan(0);
+            }
+            expect(new Set(ours.map((t) => t.key))).toEqual(
+                new Set(Array.from({ length: N }, (_, i) => `k${i}`))
+            );
+
+            await client.deleteCache(cacheId);
+        },
+        REASSEMBLY_TIMEOUT
+    );
 });

@@ -171,4 +171,20 @@ class AeronGatewayClientIpcIntegrationTest {
 
         client.deleteCache(cacheId);
     }
+
+    @Test
+    void cancelItemRemovalOverIpc() throws Exception {
+        final String cacheId = "it-ipc-cancel-" + UUID.randomUUID();
+        client.createCache(cacheId);
+        client.putTimedItem(cacheId, "keep", "val", 2000);
+
+        final var cancelResp = client.cancelItemRemoval(cacheId, "keep");
+        assertEquals("keep", cancelResp.getKey());
+
+        Thread.sleep(3000);
+        assertEquals("val", client.getItem(cacheId, "keep").getValue(),
+                "item should survive past its TTL after cancelling removal over IPC");
+
+        client.deleteCache(cacheId);
+    }
 }

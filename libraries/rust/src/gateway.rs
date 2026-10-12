@@ -372,6 +372,14 @@ impl AeronGatewayClient {
         })
     }
 
+    /// Override the per-request timeout (default [`DEFAULT_REQUEST_TIMEOUT`], 5s). Useful for
+    /// operations that do heavy work on a slow/cold cluster — e.g. large bulk requests in integration
+    /// tests. Mirrors the configurable timeout on the bidi client.
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
+        self.request_timeout = timeout;
+        self
+    }
+
     /// Block until both the request publication and response subscription are connected, or the timeout
     /// elapses. The gateway creates each client's response publication lazily on the first request it
     /// receives, so this sends harmless `getStats` warmup probes until a response has been observed.
