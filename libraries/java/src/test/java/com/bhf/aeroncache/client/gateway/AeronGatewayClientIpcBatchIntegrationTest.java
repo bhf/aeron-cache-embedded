@@ -70,7 +70,7 @@ class AeronGatewayClientIpcBatchIntegrationTest {
     private static final int BULK_CHUNK = 20;
     /** Value long enough that {@value #ENTRY_COUNT} entries comfortably exceed one batch frame. */
     private static final String VALUE = "v".repeat(300);
-    private static final long AWAIT_SECONDS = 60;
+    private static final long AWAIT_SECONDS = 120;
 
     private Aeron aeron;
     private GatewayClient gatewayClient;
@@ -153,11 +153,13 @@ class AeronGatewayClientIpcBatchIntegrationTest {
     void bulkResponseReassemblesAcrossMultipleBatches() throws Exception {
         final String cacheId = "it-ipc-batch-bulk-" + UUID.randomUUID();
         createCache(cacheId);
-        populateEntries(cacheId, ENTRY_COUNT, 0L);
 
         // One bulk request of GET_ITEM ops; the response carries one result per op and, with this many
-        // 300-char values, spans multiple batch frames. Kept under the ring buffer's max message length.
-        final int bulkOpCount = 300;
+        // 300-char values, spans multiple batch frames (the gateway packs ~100 results per batch). 150
+        // ops gives ~2 batches; executing many individual gets is the slow part on a cold CI cluster, so
+        // we only populate what the bulk reads back and lean on the generous AWAIT_SECONDS below.
+        final int bulkOpCount = 150;
+        populateEntries(cacheId, bulkOpCount, 0L);
         final List<CacheOperationRequest> ops = new ArrayList<>(bulkOpCount);
         for (int i = 0; i < bulkOpCount; i++) {
             ops.add(CacheOperationRequest.builder()

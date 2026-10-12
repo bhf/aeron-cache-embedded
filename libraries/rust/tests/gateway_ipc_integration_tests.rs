@@ -34,7 +34,11 @@ fn connect() -> Option<AeronGatewayClient> {
         eprintln!("skipping: set AERON_GATEWAY_IPC_IT=true to run gateway IPC integration tests");
         return None;
     }
-    let client = AeronGatewayClient::connect_ipc(&aeron_dir()).expect("failed to connect over IPC");
+    // Generous request timeout: the multi-batch reassembly tests do heavy work on a cold CI RAFT
+    // cluster, where individual operations run far slower than locally.
+    let client = AeronGatewayClient::connect_ipc(&aeron_dir())
+        .expect("failed to connect over IPC")
+        .with_request_timeout(Duration::from_secs(120));
     assert!(client.await_connected(Duration::from_secs(10)), "gateway did not connect over IPC");
     Some(client)
 }

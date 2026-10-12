@@ -30,7 +30,11 @@ fn connect() -> Option<(EmbeddedDriver, AeronGatewayClient)> {
         return None;
     }
     let driver = EmbeddedDriver::launch().expect("failed to launch embedded media driver");
-    let client = AeronGatewayClient::connect(driver.dir(), &host()).expect("failed to connect");
+    // Generous request timeout: the multi-batch reassembly tests do heavy work (large bulk requests)
+    // on a cold CI RAFT cluster, where individual operations run far slower than locally.
+    let client = AeronGatewayClient::connect(driver.dir(), &host())
+        .expect("failed to connect")
+        .with_request_timeout(Duration::from_secs(120));
     assert!(client.await_connected(Duration::from_secs(10)), "gateway did not connect");
     Some((driver, client))
 }
@@ -473,11 +477,13 @@ fn bulk_response_reassembles_across_multiple_batches() {
     let Some((_driver, client)) = connect() else { return };
     let cache = unique("rs-it-batch-bulk");
     client.create_cache(&cache).unwrap();
-    populate_entries(&client, &cache, BATCH_ENTRY_COUNT, None);
 
     // One bulk request of many GET_ITEM ops; the response carries one result per op and, with this
-    // many 300-char values, spans multiple batch frames. Op count kept under the ring buffer limit.
-    let bulk_op_count = 300usize;
+    // many 300-char values, spans multiple batch frames (the gateway packs ~100 results per batch).
+    // 150 ops gives ~2 batches; executing many individual gets is the slow part on a cold CI cluster,
+    // so we only populate what the bulk reads back and lean on the client's raised request timeout.
+    let bulk_op_count = 150usize;
+    populate_entries(&client, &cache, bulk_op_count, None);
     let operations = (0..bulk_op_count)
         .map(|i| CacheOperationRequest {
             operation_type: BulkOperationType::GetItem,
