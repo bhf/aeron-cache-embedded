@@ -1,5 +1,5 @@
 import { AeronBidiClient } from './bidi';
-import { CacheOperationRequest, CacheUpdateEvent } from './models';
+import { CacheOperationRequest, CacheUpdateEvent, CounterUpdateEvent } from './models';
 
 const baseUrl = process.env.AERON_CACHE_BASE_URL;
 let wsUrl = process.env.AERON_CACHE_WS_URL;
@@ -144,6 +144,86 @@ const rid = () => Math.random().toString(36).substring(2, 10);
         ]);
         expect(received[0].itemValue).toBe('sv');
         await client.deleteCache(cacheId);
+    }, 10000);
+
+    it('keyed subscription receives only the subscribed key', async () => {
+        const cacheId = `bidi-sub-keys-${crypto.randomUUID()}`;
+        await client.createCache(cacheId);
+
+        const received: string[] = [];
+        // Subscribe filtered to only "k1".
+        const sub = await client.subscribe(
+            cacheId,
+            (ev) => {
+                if (ev.eventType === 'ADD_ITEM' && ev.itemKey) {
+                    received.push(ev.itemKey);
+                }
+            },
+            { key: 'k1' }
+        );
+
+        await Promise.all([client.putItem(cacheId, 'k1', 'v1'), client.putItem(cacheId, 'k2', 'v2')]);
+
+        // Allow time for both events to propagate; only the keyed one should have arrived.
+        await new Promise((r) => setTimeout(r, 3000));
+        expect(received).toContain('k1');
+        expect(received).not.toContain('k2');
+
+        await sub.close();
+        await client.deleteCache(cacheId);
+    }, 10000);
+
+    it('patch-mode subscription receives PATCH_ITEM', async () => {
+        const cacheId = `bidi-sub-patch-${crypto.randomUUID()}`;
+        await client.createCache(cacheId);
+        await client.putItem(cacheId, 'doc', '{"a":1}');
+
+        const received: CacheUpdateEvent[] = [];
+        const done = new Promise<void>((resolve) => {
+            client
+                .subscribe(
+                    cacheId,
+                    (ev) => {
+                        if (ev.eventType === 'PATCH_ITEM' && ev.itemKey === 'doc') {
+                            received.push(ev);
+                            resolve();
+                        }
+                    },
+                    { mode: 'patch' }
+                )
+                .then(() => client.patchItem(cacheId, 'doc', '{"b":2}'));
+        });
+
+        await Promise.race([
+            done,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('no PATCH_ITEM update')), 5000))
+        ]);
+        expect(received[0].itemKey).toBe('doc');
+        await client.deleteCache(cacheId);
+    }, 10000);
+
+    it('counter subscription receives updates', async () => {
+        const cacheId = `bidi-sub-counter-${crypto.randomUUID()}`;
+        await client.createCounterCache(cacheId);
+
+        const received: CounterUpdateEvent[] = [];
+        const done = new Promise<void>((resolve) => {
+            client
+                .subscribeCounter(cacheId, (ev) => {
+                    if (ev.itemKey === 'hits') {
+                        received.push(ev);
+                        resolve();
+                    }
+                })
+                .then(() => client.putCounter(cacheId, 'hits', 7));
+        });
+
+        await Promise.race([
+            done,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('no counter update')), 5000))
+        ]);
+        expect(received[0].itemValue).toBe(7);
+        await client.deleteCounterCache(cacheId);
     }, 10000);
 
     // ---------------------------------------------------------------- batched-response reassembly

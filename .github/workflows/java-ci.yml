@@ -94,6 +94,10 @@ jobs:
             echo "Found Base WS URL: $WS_URL"
             echo "AERON_CACHE_BASE_URL=$BASE_URL" >> $GITHUB_ENV
             echo "AERON_CACHE_WS_URL=$WS_URL" >> $GITHUB_ENV
+            # Require the backend: the integration suites skip (green) when AERON_CACHE_BASE_URL is
+            # unset, so this flag makes BackendRequiredIntegrationTest fail the build if the backend
+            # is unreachable rather than letting a dropped env var / dead backend pass silently.
+            echo "AERON_CACHE_REQUIRE_BACKEND=true" >> $GITHUB_ENV
           else
             echo "Error: $ENV_FILE not found after timeout"
             exit 1

@@ -211,6 +211,75 @@ async def test_bidi_subscription():
 
 
 @pytest.mark.asyncio
+async def test_bidi_subscription_key_filter():
+    async with AeronBidiClient(_ws_url()) as client:
+        cache_id = f"bidi-sub-keys-{uuid.uuid4().hex[:8]}"
+        await client.create_cache(cache_id)
+
+        received = []
+
+        def on_event(ev):
+            if ev.eventType == "ADD_ITEM" and ev.itemKey:
+                received.append(ev.itemKey)
+
+        # Subscribe filtered to only "key1".
+        sub = await client.subscribe(cache_id, on_event, key="key1")
+        await client.put_item(cache_id, "key1", "v1")
+        await client.put_item(cache_id, "key2", "v2")
+        await asyncio.sleep(2.0)
+
+        await sub.close()
+        assert "key1" in received, f"Expected key1 event, got {received}"
+        assert "key2" not in received, f"key2 should be filtered out, got {received}"
+        await client.delete_cache(cache_id)
+
+
+@pytest.mark.asyncio
+async def test_bidi_subscription_patch_mode():
+    async with AeronBidiClient(_ws_url()) as client:
+        cache_id = f"bidi-sub-patch-{uuid.uuid4().hex[:8]}"
+        await client.create_cache(cache_id)
+        await client.put_item(cache_id, "doc", '{"a":1}')
+
+        patch_event = asyncio.Event()
+
+        def on_event(ev):
+            if ev.eventType == "PATCH_ITEM" and ev.itemKey == "doc":
+                patch_event.set()
+
+        sub = await client.subscribe(cache_id, on_event, mode="patch")
+        await client.patch_item(cache_id, "doc", '{"b":2}')
+        try:
+            await asyncio.wait_for(patch_event.wait(), timeout=5.0)
+        finally:
+            await sub.close()
+        await client.delete_cache(cache_id)
+
+
+@pytest.mark.asyncio
+async def test_bidi_counter_subscription():
+    async with AeronBidiClient(_ws_url()) as client:
+        cache_id = f"bidi-counter-sub-{uuid.uuid4().hex[:8]}"
+        await client.create_counter_cache(cache_id)
+
+        received = asyncio.Event()
+        got = []
+
+        def on_event(ev):
+            if ev.eventType == "ADD_ITEM" and ev.itemKey == "ws-counter":
+                got.append(ev)
+                received.set()
+
+        sub = await client.subscribe_counter(cache_id, on_event)
+        await client.put_counter(cache_id, "ws-counter", 7)
+        await asyncio.wait_for(received.wait(), timeout=5.0)
+        assert got[0].itemValue == 7
+
+        await sub.close()
+        await client.delete_counter_cache(cache_id)
+
+
+@pytest.mark.asyncio
 async def test_bidi_get_cache_items_multi_batch_reassembly():
     # The server streams GET_CACHE_ENTRIES back as one or more "entries" frames terminated by an
     # endOfBatch marker; AeronBidiClient accumulates them internally and only resolves once the

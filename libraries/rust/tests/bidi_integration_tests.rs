@@ -319,3 +319,137 @@ fn bidi_subscription_receives_add_item() {
     sub.close().unwrap();
     client.delete_cache(&cache_id).unwrap();
 }
+
+#[test]
+fn bidi_subscription_key_filter() {
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_subscription_key_filter: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-sub-keys");
+    client.create_cache(&cache_id).unwrap();
+
+    // Subscribe filtered to only "key1" (no snapshot, full mode).
+    let keys: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = keys.clone();
+    let sub = client
+        .subscribe_with(&cache_id, false, Some("key1"), None, move |ev| {
+            if ev.event_type == "ADD_ITEM" {
+                if let Some(k) = ev.item_key.clone() {
+                    sink.lock().unwrap().push(k);
+                }
+            }
+        })
+        .expect("subscribe with key filter");
+
+    client.put_item(&cache_id, "key1", "v1").unwrap();
+    client.put_item(&cache_id, "key2", "v2").unwrap();
+
+    // Poll until the subscribed key arrives, then confirm the filtered-out key never does.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if keys.lock().unwrap().iter().any(|k| k == "key1") {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!("did not receive ADD_ITEM for key1 within timeout");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    // Give any stray (incorrectly unfiltered) key2 event a chance to show up.
+    thread::sleep(Duration::from_millis(500));
+    let got = keys.lock().unwrap();
+    assert!(got.iter().any(|k| k == "key1"), "should receive key1 event");
+    assert!(!got.iter().any(|k| k == "key2"), "should NOT receive key2 event (filtered out)");
+    drop(got);
+
+    sub.close().unwrap();
+    client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
+fn bidi_subscription_patch_mode_receives_patch_item() {
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_subscription_patch_mode_receives_patch_item: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-sub-patch");
+    client.create_cache(&cache_id).unwrap();
+    // Seed the initial object so patching it yields a PATCH_ITEM delta.
+    client.put_item(&cache_id, "doc", r#"{"a":1}"#).unwrap();
+
+    // Subscribe in patch mode: changed fields arrive as PATCH_ITEM deltas rather than full ADD_ITEMs.
+    let got: Arc<Mutex<Vec<(String, Option<String>)>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = got.clone();
+    let sub = client
+        .subscribe_with(&cache_id, false, None, Some("patch"), move |ev| {
+            if ev.event_type == "PATCH_ITEM" && ev.item_key.as_deref() == Some("doc") {
+                sink.lock().unwrap().push((ev.event_type.clone(), ev.item_value.clone()));
+            }
+        })
+        .expect("subscribe in patch mode");
+
+    client.patch_item(&cache_id, "doc", r#"{"b":2}"#).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if !got.lock().unwrap().is_empty() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!("did not receive PATCH_ITEM stream update within timeout");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    // The delta carries only the changed field.
+    let delta = got.lock().unwrap()[0].1.clone().expect("PATCH_ITEM should carry a delta value");
+    assert!(delta.contains("\"b\""), "patch delta should contain the changed field, was {delta}");
+
+    sub.close().unwrap();
+    client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
+fn bidi_counter_subscription_receives_update() {
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_counter_subscription_receives_update: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-sub-counter");
+    client.create_counter_cache(&cache_id).unwrap();
+
+    let got: Arc<Mutex<Vec<(String, Option<i64>)>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = got.clone();
+    let sub = client
+        .subscribe_counter(&cache_id, move |ev| {
+            if ev.item_key.as_deref() == Some("ck") {
+                sink.lock().unwrap().push((ev.event_type.clone(), ev.item_value));
+            }
+        })
+        .expect("subscribe counter");
+
+    client.put_counter(&cache_id, "ck", 7).unwrap();
+    client.increment_counter(&cache_id, "ck", 3).unwrap();
+
+    // Poll for the streamed counter update reflecting the latest value.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if got.lock().unwrap().iter().any(|(_, v)| *v == Some(10)) {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!("did not receive counter stream update within timeout");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        got.lock().unwrap().iter().any(|(_, v)| *v == Some(10)),
+        "should receive a counter update with the incremented value"
+    );
+
+    sub.close().unwrap();
+    client.delete_counter_cache(&cache_id).unwrap();
+}

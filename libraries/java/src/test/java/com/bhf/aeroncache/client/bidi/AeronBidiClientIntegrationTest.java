@@ -8,6 +8,7 @@ import com.bhf.aeroncache.models.CacheOperationRequest;
 import com.bhf.aeroncache.models.CacheOperationResponse;
 import com.bhf.aeroncache.models.CacheUpdateEvent;
 import com.bhf.aeroncache.models.CounterItem;
+import com.bhf.aeroncache.models.CounterUpdateEvent;
 import com.bhf.aeroncache.models.GetCacheResponse;
 import com.bhf.aeroncache.models.GetCountersResponse;
 import com.bhf.aeroncache.models.StatEntry;
@@ -25,6 +26,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -294,5 +296,88 @@ class AeronBidiClientIntegrationTest {
             assertEquals("sv", events.get(0).getItemValue());
         }
         client.deleteCache(cacheId);
+    }
+
+    /** Keyed subscription: filtered to a single key; updates for other keys must not be delivered. */
+    @Test
+    void keyedSubscription() throws Exception {
+        final String cacheId = "bidi-sub-keys-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCache(cacheId);
+
+        final List<String> received = new CopyOnWriteArrayList<>();
+        try (BidiSubscription ignored = client.subscribe(cacheId, false, "key1", null, ev -> {
+            if ("ADD_ITEM".equals(ev.getEventType()) && ev.getItemKey() != null) {
+                received.add(ev.getItemKey());
+            }
+        })) {
+            // Let the server register the subscription routing before publishing.
+            Thread.sleep(500);
+            client.putItem(cacheId, "key1", "v1");
+            client.putItem(cacheId, "key2", "v2");
+
+            // Wait for the (only expected) key1 event, then a grace period to catch any stray key2 event.
+            final long deadline = System.currentTimeMillis() + 10_000;
+            while (!received.contains("key1") && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50);
+            }
+            Thread.sleep(1000);
+
+            assertTrue(received.contains("key1"), "expected ADD_ITEM for key1, got " + received);
+            assertFalse(received.contains("key2"), "key2 should be filtered out, got " + received);
+        }
+        client.deleteCache(cacheId);
+    }
+
+    /** Patch-mode subscription: a {@code patchItem} should surface a {@code PATCH_ITEM} stream update. */
+    @Test
+    void patchModeSubscription() throws Exception {
+        final String cacheId = "bidi-sub-patch-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCache(cacheId);
+        client.putItem(cacheId, "doc", "{\"a\":1}");
+
+        final List<CacheUpdateEvent> events = new CopyOnWriteArrayList<>();
+        try (BidiSubscription ignored = client.subscribe(cacheId, false, null, "patch", ev -> {
+            if ("PATCH_ITEM".equals(ev.getEventType()) && "doc".equals(ev.getItemKey())) {
+                events.add(ev);
+            }
+        })) {
+            // Let the server register the subscription routing before publishing.
+            Thread.sleep(500);
+            client.patchItem(cacheId, "doc", "{\"b\":2}");
+
+            final long deadline = System.currentTimeMillis() + 10_000;
+            while (events.isEmpty() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50);
+            }
+            assertTrue(!events.isEmpty(), "expected a PATCH_ITEM stream update for key doc");
+        }
+        client.deleteCache(cacheId);
+    }
+
+    /** Counter subscription: a counter put should surface a stream update carrying the new value. */
+    @Test
+    void counterSubscription() throws Exception {
+        final String cacheId = "bidi-sub-counter-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCounterCache(cacheId);
+
+        final List<CounterUpdateEvent> events = new CopyOnWriteArrayList<>();
+        try (BidiSubscription ignored = client.subscribeCounter(cacheId, ev -> {
+            if ("ws-counter".equals(ev.getItemKey())) {
+                events.add(ev);
+            }
+        })) {
+            // Let the server register the subscription routing before publishing.
+            Thread.sleep(500);
+            client.putCounter(cacheId, "ws-counter", 7);
+
+            final long deadline = System.currentTimeMillis() + 10_000;
+            while (events.isEmpty() && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50);
+            }
+            assertTrue(!events.isEmpty(), "expected a counter stream update for key ws-counter");
+            assertEquals(Long.valueOf(7L), events.get(0).getItemValue());
+        }
+        client.clearCounterCache(cacheId);
+        client.deleteCounterCache(cacheId);
     }
 }
