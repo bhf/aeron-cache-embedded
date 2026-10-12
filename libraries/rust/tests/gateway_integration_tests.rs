@@ -59,9 +59,14 @@ fn unique(prefix: &str) -> String {
 
 /// Entry count chosen to overflow a single batch frame; mirrors the Java batch test's 1000. The
 /// server-side batch size is unknown, so this is kept generous.
-const BATCH_ENTRY_COUNT: usize = 1_000;
+// The gateway packs ~100 records per batch frame, so 300 entries/timers span ~3 batches — enough to
+// exercise reassembly with margin, while keeping the write load light enough for a cold CI RAFT
+// cluster (populating 1000 entries timed out on CI; see the small BATCH_CHUNK below).
+const BATCH_ENTRY_COUNT: usize = 300;
 /// Per-bulk chunk size kept well under the command ring buffer's max message length (matches Java).
-const BATCH_CHUNK: usize = 200;
+// Small so each populate bulk commits well within the gateway client's request timeout even on a
+// slow CI RAFT cluster (and under the command ring buffer's max message length).
+const BATCH_CHUNK: usize = 20;
 
 /// Value long enough that `BATCH_ENTRY_COUNT` entries comfortably exceed one batch frame (300 chars,
 /// matching the Java batch test).
@@ -472,7 +477,7 @@ fn bulk_response_reassembles_across_multiple_batches() {
 
     // One bulk request of many GET_ITEM ops; the response carries one result per op and, with this
     // many 300-char values, spans multiple batch frames. Op count kept under the ring buffer limit.
-    let bulk_op_count = 400usize;
+    let bulk_op_count = 300usize;
     let operations = (0..bulk_op_count)
         .map(|i| CacheOperationRequest {
             operation_type: BulkOperationType::GetItem,

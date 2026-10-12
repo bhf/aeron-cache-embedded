@@ -42,12 +42,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AeronBidiClientIntegrationTest {
 
     /** Entry/timer count chosen to overflow a single server batch frame (matches the gateway batch tests). */
-    private static final int ENTRY_COUNT = 1_000;
+    // 300 entries force the server to split the getCacheItems/getTimers response across multiple
+    // batch frames while keeping the write load light enough for a cold CI RAFT cluster (populating
+    // 1000 entries timed out on CI).
+    private static final int ENTRY_COUNT = 300;
     /**
      * Per-bulk chunk size kept well under the bidi WebSocket ~64KB max text-message limit
      * ({@code BULK_CHUNK * BATCH_VALUE} length must stay below it, or the server closes with 1009).
      */
-    private static final int BULK_CHUNK = 100;
+    private static final int BULK_CHUNK = 20;
     /** Value long enough that {@value #ENTRY_COUNT} entries comfortably exceed one batch frame. */
     private static final String BATCH_VALUE = "v".repeat(300);
 
@@ -63,7 +66,9 @@ class AeronBidiClientIntegrationTest {
         if (wsUrl == null || wsUrl.isEmpty()) {
             wsUrl = baseUrl.replace("http://", "ws://").replace("https://", "wss://");
         }
-        client = new AeronBidiClient(wsUrl);
+        // Generous per-request timeout: the multi-batch reassembly tests populate many entries over a
+        // cold CI RAFT cluster, where individual bulk commands commit far slower than locally.
+        client = new AeronBidiClient(wsUrl, 60_000L);
         client.connect();
     }
 

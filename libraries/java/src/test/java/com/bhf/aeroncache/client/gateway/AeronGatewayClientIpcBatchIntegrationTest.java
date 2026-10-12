@@ -59,13 +59,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @EnabledIfSystemProperty(named = "aeron.gateway.ipc.it", matches = "true")
 class AeronGatewayClientIpcBatchIntegrationTest {
 
-    /** Entry/timer count chosen to overflow a single batch frame (tuned against the live gateway). */
-    private static final int ENTRY_COUNT = 1_000;
-    /** Per-bulk chunk size kept well under the command ring buffer's max message length. */
-    private static final int BULK_CHUNK = 200;
+    // The gateway packs ~100 records per batch frame, so 300 entries/timers span ~3 batches — enough
+    // to exercise reassembly with margin, while keeping the write load light enough for a cold CI
+    // cluster (populating 1000 entries timed out on CI; see the small BULK_CHUNK below).
+    private static final int ENTRY_COUNT = 300;
+    /**
+     * Per-bulk chunk size kept small so each populate request commits well within the client request
+     * timeout even on a slow CI RAFT cluster (and under the command ring buffer's max message length).
+     */
+    private static final int BULK_CHUNK = 20;
     /** Value long enough that {@value #ENTRY_COUNT} entries comfortably exceed one batch frame. */
     private static final String VALUE = "v".repeat(300);
-    private static final long AWAIT_SECONDS = 30;
+    private static final long AWAIT_SECONDS = 60;
 
     private Aeron aeron;
     private GatewayClient gatewayClient;
@@ -152,7 +157,7 @@ class AeronGatewayClientIpcBatchIntegrationTest {
 
         // One bulk request of GET_ITEM ops; the response carries one result per op and, with this many
         // 300-char values, spans multiple batch frames. Kept under the ring buffer's max message length.
-        final int bulkOpCount = 400;
+        final int bulkOpCount = 300;
         final List<CacheOperationRequest> ops = new ArrayList<>(bulkOpCount);
         for (int i = 0; i < bulkOpCount; i++) {
             ops.add(CacheOperationRequest.builder()

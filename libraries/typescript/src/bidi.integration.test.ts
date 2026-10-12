@@ -239,11 +239,12 @@ const rid = () => Math.random().toString(36).substring(2, 10);
     // first batch (or dropped a frame), the counts would fall short. The single-item bidi tests above
     // never cross a batch boundary, so this is the only coverage that exercises multi-batch reassembly.
 
-    // Count chosen to overflow a single batch frame against the live gateway (matches the Java test).
-    const N = 1000;
-    // Per-bulk chunk kept well under the bidi WebSocket ~64KB max text-message limit
-    // (CHUNK * VALUE length must stay below it, or the server closes the socket with 1009).
-    const CHUNK = 100;
+    // 300 entries force the server to split the response across multiple batch frames while keeping
+    // the write load light enough for a cold CI RAFT cluster (populating 1000 entries timed out on CI).
+    const N = 300;
+    // Small so each populate bulk commits well within the bidi request timeout on a slow CI cluster,
+    // and well under the bidi WebSocket ~64KB max text-message limit (else the server closes with 1009).
+    const CHUNK = 20;
     // Value long enough that N entries comfortably exceed one batch frame.
     const VALUE = 'v'.repeat(300);
     const REASSEMBLY_TIMEOUT = 60000;

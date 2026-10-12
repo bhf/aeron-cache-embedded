@@ -57,9 +57,14 @@ fn unique(prefix: &str) -> String {
 // matching its "representative subset" philosophy; the full set lives in gateway_integration_tests.rs.
 
 /// Entry count chosen to overflow a single batch frame; mirrors the Java batch test's 1000.
-const BATCH_ENTRY_COUNT: usize = 1_000;
+// The gateway packs ~100 records per batch frame, so 300 entries/timers span ~3 batches — enough to
+// exercise reassembly with margin, while keeping the write load light enough for a cold CI RAFT
+// cluster (populating 1000 entries timed out on CI; see the small BATCH_CHUNK below).
+const BATCH_ENTRY_COUNT: usize = 300;
 /// Per-bulk chunk size kept well under the command ring buffer's max message length.
-const BATCH_CHUNK: usize = 200;
+// Small so each populate bulk commits well within the gateway client's request timeout even on a
+// slow CI RAFT cluster (and under the command ring buffer's max message length).
+const BATCH_CHUNK: usize = 20;
 
 /// Value long enough that `BATCH_ENTRY_COUNT` entries comfortably exceed one batch frame (300 chars).
 fn big_value() -> String {

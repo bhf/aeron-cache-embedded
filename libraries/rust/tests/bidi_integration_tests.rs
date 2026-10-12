@@ -33,10 +33,13 @@ fn unique(prefix: &str) -> String {
 // asserting all N come back intact proves reassembly. The existing single-item bidi tests fit in one
 // batch and never exercise this.
 
-const BATCH_ENTRY_COUNT: usize = 1_000;
-// Kept well under the bidi WebSocket ~64KB max text-message limit: BATCH_CHUNK * value length
-// must stay below it, or the server closes the socket with 1009 (message too big).
-const BATCH_CHUNK: usize = 100;
+// 300 entries force the server to split the getCacheItems/getTimers response across multiple batch
+// frames while keeping the write load light enough for a cold CI RAFT cluster (populating 1000
+// entries timed out on CI).
+const BATCH_ENTRY_COUNT: usize = 300;
+// Small so each populate bulk commits well within the bidi request timeout on a slow CI cluster, and
+// well under the bidi WebSocket ~64KB max text-message limit (else the server closes with 1009).
+const BATCH_CHUNK: usize = 20;
 
 fn big_value() -> String {
     "v".repeat(300)

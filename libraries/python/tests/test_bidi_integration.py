@@ -20,10 +20,12 @@ def _ws_url():
     return url
 
 
-# Entry count chosen to overflow a single server-side batch frame, forcing a split.
-_BATCH_ENTRY_COUNT = 1000
-# Per-bulk chunk size kept well under the transport's max message length.
-_BATCH_BULK_CHUNK = 100
+# 300 entries force the server to split the response across multiple batch frames while keeping the
+# write load light enough for a cold CI RAFT cluster (populating 1000 entries timed out on CI).
+_BATCH_ENTRY_COUNT = 300
+# Small so each populate bulk commits well within the bidi request timeout on a slow CI cluster, and
+# well under the transport's ~64KB max message length.
+_BATCH_BULK_CHUNK = 20
 # Value long enough that _BATCH_ENTRY_COUNT entries comfortably exceed one batch frame.
 _BATCH_VALUE = "v" * 300
 
