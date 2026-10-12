@@ -38,7 +38,7 @@ fn connect() -> Option<AeronGatewayClient> {
     // cluster, where individual operations run far slower than locally.
     let client = AeronGatewayClient::connect_ipc(&aeron_dir())
         .expect("failed to connect over IPC")
-        .with_request_timeout(Duration::from_secs(300));
+        .with_request_timeout(Duration::from_secs(30));
     assert!(client.await_connected(Duration::from_secs(10)), "gateway did not connect over IPC");
     Some(client)
 }
