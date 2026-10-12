@@ -1,5 +1,5 @@
 import { AeronBidiClient } from './bidi';
-import { CacheUpdateEvent } from './models';
+import { CacheOperationRequest, CacheUpdateEvent } from './models';
 
 const baseUrl = process.env.AERON_CACHE_BASE_URL;
 let wsUrl = process.env.AERON_CACHE_WS_URL;
@@ -145,4 +145,90 @@ const rid = () => Math.random().toString(36).substring(2, 10);
         expect(received[0].itemValue).toBe('sv');
         await client.deleteCache(cacheId);
     }, 10000);
+
+    // ---------------------------------------------------------------- batched-response reassembly
+    //
+    // The bidi transport streams getCacheItems / getTimers / bulkOps responses as one or more
+    // `entries`/`timers`/`bulkResponse` frames sharing a correlationId, each carrying an
+    // `endOfBatch` flag; AeronBidiClient accumulates frames until endOfBatch=true (see dispatch()).
+    // That flag is consumed internally and is NOT observable to callers in TS — the client only ever
+    // hands back the fully-reassembled result. So, unlike the Java batch test which asserts on the
+    // raw per-batch flags, these are REASSEMBLY-COMPLETENESS tests: we populate ENOUGH entries
+    // (N below) to force the server to split the response across multiple batches, then assert that
+    // the reassembled result contains ALL N items with correct values. If accumulation stopped at the
+    // first batch (or dropped a frame), the counts would fall short. The single-item bidi tests above
+    // never cross a batch boundary, so this is the only coverage that exercises multi-batch reassembly.
+
+    // Count chosen to overflow a single batch frame against the live gateway (matches the Java test).
+    const N = 1000;
+    // Per-bulk chunk kept well under the bidi WebSocket ~64KB max text-message limit
+    // (CHUNK * VALUE length must stay below it, or the server closes the socket with 1009).
+    const CHUNK = 100;
+    // Value long enough that N entries comfortably exceed one batch frame.
+    const VALUE = 'v'.repeat(300);
+    const REASSEMBLY_TIMEOUT = 60000;
+
+    // Populate `count` entries (k0..k{count-1} -> VALUE) via chunked ADD_ITEM bulkOps, with an
+    // optional TTL so each entry also schedules a pending removal timer.
+    const populateEntries = async (cacheId: string, count: number, ttl = 0): Promise<void> => {
+        for (let start = 0; start < count; start += CHUNK) {
+            const end = Math.min(start + CHUNK, count);
+            const operations: CacheOperationRequest[] = [];
+            for (let i = start; i < end; i++) {
+                operations.push({
+                    operationType: 'ADD_ITEM',
+                    requestId: `op-${i}`,
+                    cacheId,
+                    key: `k${i}`,
+                    value: VALUE,
+                    ttl
+                });
+            }
+            await client.bulkOps({ requestId: `populate-${start}-${crypto.randomUUID()}`, operations });
+        }
+    };
+
+    it(
+        'getCacheItems reassembles all entries across multiple batches',
+        async () => {
+            const cacheId = `bidi-batch-entries-${crypto.randomUUID()}`;
+            await client.createCache(cacheId);
+            await populateEntries(cacheId, N);
+
+            const items = (await client.getCacheItems(cacheId)).items;
+            expect(items.length).toBe(N);
+            const map = new Map(items.map((i) => [i.key, i.value]));
+            for (let i = 0; i < N; i++) {
+                expect(map.get(`k${i}`)).toBe(VALUE);
+            }
+
+            await client.deleteCache(cacheId);
+        },
+        REASSEMBLY_TIMEOUT
+    );
+
+    it(
+        'getTimers reassembles all pending timers across multiple batches',
+        async () => {
+            const cacheId = `bidi-batch-timers-${crypto.randomUUID()}`;
+            await client.createCache(cacheId);
+            // A large TTL keeps every scheduled removal timer pending for the duration of the call.
+            await populateEntries(cacheId, N, 600000);
+
+            const timers = await client.getTimers();
+            // getTimers is global (all caches); assert this cache's timers all survived reassembly.
+            const ours = timers.filter((t) => t.cacheId === cacheId);
+            expect(ours.length).toBe(N);
+            for (const timer of ours) {
+                expect(timer.timerType).toBe('CACHE');
+                expect(timer.deadline).toBeGreaterThan(0);
+            }
+            expect(new Set(ours.map((t) => t.key))).toEqual(
+                new Set(Array.from({ length: N }, (_, i) => `k${i}`))
+            );
+
+            await client.deleteCache(cacheId);
+        },
+        REASSEMBLY_TIMEOUT
+    );
 });

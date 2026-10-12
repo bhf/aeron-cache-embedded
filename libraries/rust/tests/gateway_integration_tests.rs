@@ -43,6 +43,58 @@ fn unique(prefix: &str) -> String {
     format!("{prefix}-{nanos:x}")
 }
 
+// ------------------------------------------------------------------ multi-batch reassembly helpers
+//
+// The gateway streams getEntries/getTimers/bulk responses as one or more batch frames terminated by
+// an `end_of_batch=true` marker; the client accumulates frames with the same correlationId until that
+// marker (see `decode_entries`/`decode_timers`/`decode_bulk_response` in `src/gateway.rs`). Unlike
+// Java's low-level `GatewayClient` + `GatewayClientListener.onEntries(..., endOfBatch)`, the Rust
+// gateway client performs this accumulation INTERNALLY and exposes only the fully reassembled
+// high-level result (`get_cache_items`/`get_timers`/`bulk_ops`) — there is no public per-batch
+// callback where the `end_of_batch` flag is observable. So the tests below are REASSEMBLY-COMPLETENESS
+// tests (the second case in the task): populating enough large entries forces the server to split the
+// response across multiple batches, and asserting that all N items come back intact proves the frames
+// were reassembled correctly. (The single-item existing tests never span >1 batch, so reassembly is
+// otherwise unexercised.) The per-batch flag contract itself is covered by the Java batch test.
+
+/// Entry count chosen to overflow a single batch frame; mirrors the Java batch test's 1000. The
+/// server-side batch size is unknown, so this is kept generous.
+const BATCH_ENTRY_COUNT: usize = 1_000;
+/// Per-bulk chunk size kept well under the command ring buffer's max message length (matches Java).
+const BATCH_CHUNK: usize = 200;
+
+/// Value long enough that `BATCH_ENTRY_COUNT` entries comfortably exceed one batch frame (300 chars,
+/// matching the Java batch test).
+fn big_value() -> String {
+    "v".repeat(300)
+}
+
+/// Inserts `count` entries (keys `k0..k{count-1}`, each with [`big_value`]) via chunked bulk ADD_ITEM,
+/// mirroring the Java batch test's chunked population. A positive `ttl` schedules a pending TTL removal
+/// timer per entry (used by the timers test).
+fn populate_entries(client: &AeronGatewayClient, cache: &str, count: usize, ttl: Option<i64>) {
+    let value = big_value();
+    let mut start = 0;
+    while start < count {
+        let end = (start + BATCH_CHUNK).min(count);
+        let operations = (start..end)
+            .map(|i| CacheOperationRequest {
+                operation_type: BulkOperationType::AddItem,
+                request_id: format!("add-{i}"),
+                cache_id: cache.to_string(),
+                key: Some(format!("k{i}")),
+                value: Some(value.clone()),
+                ttl,
+                counter_value: None,
+            })
+            .collect();
+        let req = BulkCacheOpsRequest { request_id: unique("populate"), operations };
+        let resp = client.bulk_ops(&req).unwrap();
+        assert_eq!(resp.operation_responses.len(), end - start, "populate chunk should ack every op");
+        start = end;
+    }
+}
+
 #[test]
 fn cache_lifecycle() {
     let Some((_driver, client)) = connect() else { return };
@@ -339,6 +391,94 @@ fn cancel_item_removal_over_gateway() {
     std::thread::sleep(Duration::from_secs(3));
     assert_eq!(client.get_item(&cache, "keep").unwrap().value, "val",
         "item should survive past its TTL after cancelling removal");
+
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn get_cache_items_reassembles_across_multiple_batches() {
+    // Reassembly-completeness (no per-batch seam in the Rust client — see the module comment above).
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-batch-entries");
+    client.create_cache(&cache).unwrap();
+    populate_entries(&client, &cache, BATCH_ENTRY_COUNT, None);
+
+    let resp = client.get_cache_items(&cache).unwrap();
+    assert_eq!(
+        resp.items.len(),
+        BATCH_ENTRY_COUNT,
+        "every entry should be reassembled from the batched response"
+    );
+    let value = big_value();
+    let map: std::collections::HashMap<_, _> =
+        resp.items.iter().map(|i| (i.key.clone(), i.value.clone())).collect();
+    for i in 0..BATCH_ENTRY_COUNT {
+        assert_eq!(map.get(&format!("k{i}")), Some(&value), "missing/incorrect value for k{i}");
+    }
+
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn get_timers_reassembles_across_multiple_batches() {
+    // Reassembly-completeness (no per-batch seam in the Rust client — see the module comment above).
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-batch-timers");
+    client.create_cache(&cache).unwrap();
+    // A large TTL keeps every scheduled removal timer pending so all N are returned by get_timers.
+    populate_entries(&client, &cache, BATCH_ENTRY_COUNT, Some(600_000));
+
+    let timers = client.get_timers().unwrap();
+    // get_timers is global (all caches); assert every timer for our cache survived reassembly.
+    let mut ours: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for t in timers.iter().filter(|t| t.cache_id == cache) {
+        assert_eq!(t.timer_type, "CACHE");
+        assert!(t.deadline > 0, "timer deadline should be a positive epoch millis");
+        ours.insert(t.key.clone());
+    }
+    assert_eq!(
+        ours.len(),
+        BATCH_ENTRY_COUNT,
+        "every pending timer for the cache should be reassembled from the batched response"
+    );
+
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn bulk_response_reassembles_across_multiple_batches() {
+    // Reassembly-completeness (no per-batch seam in the Rust client — see the module comment above).
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-batch-bulk");
+    client.create_cache(&cache).unwrap();
+    populate_entries(&client, &cache, BATCH_ENTRY_COUNT, None);
+
+    // One bulk request of many GET_ITEM ops; the response carries one result per op and, with this
+    // many 300-char values, spans multiple batch frames. Op count kept under the ring buffer limit.
+    let bulk_op_count = 400usize;
+    let operations = (0..bulk_op_count)
+        .map(|i| CacheOperationRequest {
+            operation_type: BulkOperationType::GetItem,
+            request_id: format!("op-{i}"),
+            cache_id: cache.clone(),
+            key: Some(format!("k{i}")),
+            value: None,
+            ttl: None,
+            counter_value: None,
+        })
+        .collect();
+    let req = BulkCacheOpsRequest { request_id: unique("bulk"), operations };
+    let resp = client.bulk_ops(&req).unwrap();
+
+    assert_eq!(
+        resp.operation_responses.len(),
+        bulk_op_count,
+        "every bulk-operation result should be reassembled from the batched response"
+    );
+    let value = big_value();
+    for r in &resp.operation_responses {
+        assert_eq!(r.value.as_deref(), Some(value.as_str()), "wrong value for {}", r.request_id);
+    }
 
     client.delete_cache(&cache).unwrap();
 }

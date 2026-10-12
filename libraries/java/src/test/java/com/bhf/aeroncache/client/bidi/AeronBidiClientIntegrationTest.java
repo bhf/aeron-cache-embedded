@@ -39,6 +39,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class AeronBidiClientIntegrationTest {
 
+    /** Entry/timer count chosen to overflow a single server batch frame (matches the gateway batch tests). */
+    private static final int ENTRY_COUNT = 1_000;
+    /**
+     * Per-bulk chunk size kept well under the bidi WebSocket ~64KB max text-message limit
+     * ({@code BULK_CHUNK * BATCH_VALUE} length must stay below it, or the server closes with 1009).
+     */
+    private static final int BULK_CHUNK = 100;
+    /** Value long enough that {@value #ENTRY_COUNT} entries comfortably exceed one batch frame. */
+    private static final String BATCH_VALUE = "v".repeat(300);
+
     private AeronBidiClient client;
 
     @BeforeAll
@@ -180,6 +190,86 @@ class AeronBidiClientIntegrationTest {
         assertEquals("val", client.getItem(cacheId, "keep").getValue(),
                 "item should survive past its TTL after cancelling removal");
         client.deleteCache(cacheId);
+    }
+
+    /**
+     * Multi-batch reassembly over the bidi transport, entries variant.
+     * <p>
+     * COMPLETENESS-LEVEL (not flag-level): {@link AeronBidiClient} accumulates the server's
+     * {@code entries} frames internally via its {@code EntriesAccumulator}, consuming each frame's
+     * {@code endOfBatch} flag inside its message handler and completing the future only on the final
+     * frame. The flag is therefore not observable through the public API (unlike the low-level
+     * {@code GatewayClient}, which exposes per-batch callbacks). So rather than asserting the flag
+     * sequence, this populates enough entries to force a server-side split and asserts that <em>all</em>
+     * {@value #ENTRY_COUNT} entries come back intact and correct — which can only hold if every batch
+     * frame was reassembled.
+     */
+    @Test
+    void getCacheItemsReassemblesAcrossMultipleBatches() throws Exception {
+        final String cacheId = "bidi-batch-entries-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCache(cacheId);
+        populateEntries(cacheId, ENTRY_COUNT, 0L);
+
+        final GetCacheResponse items = client.getCacheItems(cacheId);
+        final java.util.Map<String, String> byKey = items.getItems().stream()
+                .collect(Collectors.toMap(CacheItem::getKey, CacheItem::getValue));
+        assertEquals(ENTRY_COUNT, byKey.size(),
+                "every entry should be reassembled from the batched response");
+        for (int i = 0; i < ENTRY_COUNT; i++) {
+            assertEquals(BATCH_VALUE, byKey.get("k" + i), "missing/incorrect value for k" + i);
+        }
+        client.deleteCache(cacheId);
+    }
+
+    /**
+     * Multi-batch reassembly over the bidi transport, timers variant. See
+     * {@link #getCacheItemsReassemblesAcrossMultipleBatches()} for why this is completeness-level:
+     * {@code getTimers} likewise accumulates {@code timers} frames internally behind its future, so the
+     * {@code endOfBatch} flag is not observable. Each timed entry schedules a pending TTL removal timer;
+     * populating {@value #ENTRY_COUNT} of them forces a server-side split, and asserting all of our
+     * cache's timers survive proves reassembly.
+     */
+    @Test
+    void getTimersReassemblesAcrossMultipleBatches() throws Exception {
+        final String cacheId = "bidi-batch-timers-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCache(cacheId);
+        populateEntries(cacheId, ENTRY_COUNT, 600_000L);
+
+        final List<TimerInfo> timers = client.getTimers();
+        // getTimers is global (all caches); assert our cache's timers all survived reassembly.
+        final Set<String> ours = timers.stream()
+                .filter(t -> cacheId.equals(t.getCacheId()))
+                .peek(t -> {
+                    assertEquals("CACHE", t.getTimerType());
+                    assertTrue(t.getDeadline() > 0, "timer deadline should be positive epoch millis");
+                })
+                .map(TimerInfo::getKey)
+                .collect(Collectors.toSet());
+        assertEquals(ENTRY_COUNT, ours.size(),
+                "every pending timer for " + cacheId + " should be reassembled");
+        client.deleteCache(cacheId);
+    }
+
+    /** Inserts {@code count} entries (keys {@code k0..k(count-1)}) via chunked bulk ADD_ITEM. */
+    private void populateEntries(String cacheId, int count, long ttl) throws Exception {
+        for (int start = 0; start < count; start += BULK_CHUNK) {
+            final int end = Math.min(start + BULK_CHUNK, count);
+            final BulkCacheOpsRequest.Builder request = BulkCacheOpsRequest.builder()
+                    .requestId(UUID.randomUUID().toString());
+            for (int i = start; i < end; i++) {
+                final CacheOperationRequest.Builder op = CacheOperationRequest.builder()
+                        .operationType(BulkOperationType.ADD_ITEM)
+                        .requestId("add-" + i)
+                        .cacheId(cacheId)
+                        .key("k" + i)
+                        .value(BATCH_VALUE);
+                if (ttl > 0) {
+                    op.ttl(ttl);
+                }
+                request.addOperation(op.build());
+            }
+            client.bulkOps(request.build());
+        }
     }
 
     @Test
