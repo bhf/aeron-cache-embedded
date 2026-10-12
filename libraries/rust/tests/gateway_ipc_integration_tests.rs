@@ -272,3 +272,23 @@ fn get_timers_reassembles_across_multiple_batches() {
 
     client.delete_cache(&cache).unwrap();
 }
+
+#[test]
+fn cancel_item_removal_over_ipc() {
+    let Some(client) = connect() else { return };
+    let cache = unique("rs-ipc-it-cancel");
+    client.create_cache(&cache).unwrap();
+    client.put_timed_item(&cache, "keep", "val", 2000).unwrap();
+
+    let resp = client.cancel_item_removal(&cache, "keep").unwrap();
+    assert_eq!(resp.key, "keep");
+
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(
+        client.get_item(&cache, "keep").unwrap().value,
+        "val",
+        "item should survive past its TTL after cancelling removal over IPC"
+    );
+
+    client.delete_cache(&cache).unwrap();
+}

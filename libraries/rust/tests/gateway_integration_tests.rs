@@ -367,14 +367,31 @@ fn patch_mode_subscription() {
     {
         std::thread::sleep(Duration::from_millis(50));
     }
-    let found = events
+    let delta = events
         .lock()
         .unwrap()
         .iter()
-        .any(|e| e.event_type == "PATCH_ITEM" && e.item_key.as_deref() == Some("pk"));
-    assert!(found, "expected a PATCH_ITEM event for key pk in patch mode");
+        .find(|e| e.event_type == "PATCH_ITEM" && e.item_key.as_deref() == Some("pk"))
+        .map(|e| e.item_value.clone().unwrap_or_default())
+        .expect("expected a PATCH_ITEM event for key pk in patch mode");
+    // Patch mode streams only the changed field as the delta, not the full value.
+    assert!(delta.contains("\"b\":2"), "PATCH_ITEM delta should carry the changed field: {delta}");
 
     drop(sub);
+
+    // The stored value is deep-merged server-side (RFC 7386): the original field survives and the
+    // patched field is added. Reads are eventually consistent on the cluster, so poll until visible.
+    let merge_deadline = Instant::now() + Duration::from_secs(5);
+    let merged = loop {
+        let value = client.get_item(&cache, "pk").unwrap().value;
+        if value.contains("\"b\":2") || Instant::now() >= merge_deadline {
+            break value;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    assert!(merged.contains("\"a\":1"), "patched item should retain the original field: {merged}");
+    assert!(merged.contains("\"b\":2"), "patched item should contain the merged field: {merged}");
+
     client.delete_cache(&cache).unwrap();
 }
 

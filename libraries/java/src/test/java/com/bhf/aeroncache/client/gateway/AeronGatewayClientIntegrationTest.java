@@ -246,10 +246,9 @@ class AeronGatewayClientIntegrationTest {
 
     @Test
     void keyedSubscription() throws Exception {
-        // Exercises the new key-filtered subscription (the `key` field on GatewaySubscribe) in FULL mode.
-        // Patch mode (SubscriptionMode.PATCH / PATCH_ITEM) is NOT exercisable over the gateway: there is
-        // no patch command in the gateway wire protocol (deep-merge patch is HTTP-only), so a put never
-        // yields a PATCH_ITEM. Patch-mode encoding is covered by the SBE round-trip unit tests.
+        // Exercises the key-filtered subscription (the `key` field on GatewaySubscribe) in FULL mode:
+        // only updates for the subscribed key stream through. Patch-mode subscriptions over the gateway
+        // are covered separately by patchModeSubscription (the gateway does carry a patch command).
         final String cacheId = "it-keyed-" + UUID.randomUUID();
         client.createCache(cacheId);
 
@@ -290,9 +289,29 @@ class AeronGatewayClientIntegrationTest {
                     && System.currentTimeMillis() < deadline) {
                 Thread.sleep(50);
             }
-            assertTrue(events.stream().anyMatch(e -> "PATCH_ITEM".equals(e.getEventType()) && "pk".equals(e.getItemKey())),
-                    "expected a PATCH_ITEM event for key pk in patch mode");
+            final CacheUpdateEvent patch = events.stream()
+                    .filter(e -> "PATCH_ITEM".equals(e.getEventType()) && "pk".equals(e.getItemKey()))
+                    .findFirst().orElse(null);
+            assertNotNull(patch, "expected a PATCH_ITEM event for key pk in patch mode");
+            // Patch mode streams only the changed field as the delta, not the full value.
+            final String delta = patch.getItemValue() == null ? "" : patch.getItemValue();
+            assertTrue(delta.contains("\"b\":2"), "PATCH_ITEM delta should carry the changed field: " + delta);
         }
+
+        // The stored value is deep-merged server-side (RFC 7386): the original field survives and the
+        // patched field is added. Reads are eventually consistent on the cluster, so poll until visible.
+        String merged = "";
+        for (int i = 0; i < 25; i++) {
+            final String v = client.getItem(cacheId, "pk").getValue();
+            merged = v == null ? "" : v;
+            if (merged.contains("\"b\":2")) {
+                break;
+            }
+            Thread.sleep(200);
+        }
+        assertTrue(merged.contains("\"a\":1"), "patched item should retain the original field: " + merged);
+        assertTrue(merged.contains("\"b\":2"), "patched item should contain the merged field: " + merged);
+
         client.deleteCache(cacheId);
     }
 
