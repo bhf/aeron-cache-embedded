@@ -159,6 +159,37 @@ fn get_stats() {
 }
 
 #[test]
+fn get_caches() {
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-caches");
+    client.create_cache(&cache).unwrap();
+    client.put_item(&cache, "s1", "v1").unwrap();
+    client.put_item(&cache, "s2", "v2").unwrap();
+
+    let caches = client.get_caches().unwrap();
+    let details = caches.iter().find(|c| c.cache_id == cache).expect("our cache in get_caches");
+    assert_eq!(details.item_count, 2);
+
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn get_counter_caches() {
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-counter-caches");
+    client.create_counter_cache(&cache).unwrap();
+    client.put_counter(&cache, "hits", 1).unwrap();
+
+    let caches = client.get_counter_caches().unwrap();
+    assert!(
+        caches.iter().any(|c| c.cache_id == cache),
+        "get_counter_caches did not include {cache}"
+    );
+
+    client.delete_counter_cache(&cache).unwrap();
+}
+
+#[test]
 fn get_timers_over_gateway() {
     let Some((_driver, client)) = connect() else { return };
     let cache = unique("rs-it-timers");

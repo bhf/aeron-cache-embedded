@@ -114,6 +114,32 @@ async def test_bidi_get_stats():
 
 
 @pytest.mark.asyncio
+async def test_bidi_get_caches():
+    async with AeronBidiClient(_ws_url()) as client:
+        cache_id = f"bidi-caches-{uuid.uuid4().hex[:8]}"
+        await client.create_cache(cache_id)
+        await client.put_item(cache_id, "k", "v")
+        caches = await client.get_caches()
+        details = next((c for c in caches if c.cacheId == cache_id), None)
+        assert details is not None, f"expected {cache_id} in get_caches()"
+        assert details.itemCount >= 1
+        await client.delete_cache(cache_id)
+
+
+@pytest.mark.asyncio
+async def test_bidi_get_counter_caches():
+    async with AeronBidiClient(_ws_url()) as client:
+        cache_id = f"bidi-counter-caches-{uuid.uuid4().hex[:8]}"
+        await client.create_counter_cache(cache_id)
+        await client.put_counter(cache_id, "hits", 1)
+        caches = await client.get_counter_caches()
+        details = next((c for c in caches if c.cacheId == cache_id), None)
+        assert details is not None, f"expected {cache_id} in get_counter_caches()"
+        await client.clear_counter_cache(cache_id)
+        await client.delete_counter_cache(cache_id)
+
+
+@pytest.mark.asyncio
 async def test_bidi_get_timers():
     async with AeronBidiClient(_ws_url()) as client:
         cache_id = f"bidi-timers-{uuid.uuid4().hex[:8]}"

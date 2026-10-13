@@ -154,7 +154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-The Aeron transport also exposes operations not available over HTTP+WS: `get_cache_items` (full snapshot) and `get_stats`.
+The Aeron transport also exposes operations not available over HTTP+WS: `get_cache_items` (full snapshot) and `get_stats` / `get_counter_stats`. `get_caches` / `get_counter_caches` return `Vec<CacheDetails>` as on the HTTP client — the gateway has no dedicated list op, so the list is derived from the stats response (the same way the HTTP endpoint keeps its list current).
 
 ### Aeron transport media
 
@@ -208,7 +208,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Like the Aeron transport, the bidi client also exposes `get_cache_items` / `get_counter_items`
 (full snapshots) and `get_stats` / `get_counter_stats`, which return a `Vec<StatEntry>` (one entry
-per cache) rather than the HTTP aggregate `CacheStatsResponse`.
+per cache) rather than the HTTP aggregate `CacheStatsResponse`. `get_caches` / `get_counter_caches`
+return `Vec<CacheDetails>` as on the HTTP client — the bidi transport has no dedicated list op, so
+the list is derived from the stats stream (the same way the HTTP endpoint keeps its list current).
 
 ### Transport-neutral embedded caches
 
