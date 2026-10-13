@@ -16,7 +16,7 @@
 //! Aeron gateway transport and the Python reference client.
 
 use crate::{
-    BulkCacheOpsRequest, BulkCacheOpsResponse, CacheItem, CacheOperationResponse, CacheUpdateEvent,
+    BulkCacheOpsRequest, BulkCacheOpsResponse, CacheDetails, CacheItem, CacheOperationResponse, CacheUpdateEvent,
     CancelItemRemovalResponse, ClearCacheResponse, CounterItem, CounterResponse, CounterUpdateEvent,
     CreateResponse, DeleteCacheResponse, DeleteItemResponse, GetCacheResponse, GetCountersResponse,
     GetItemResponse, PatchItemResponse, PutItemResponse, TimerInfo,
@@ -326,6 +326,17 @@ impl AeronBidiClient {
         self.batched_stats("GET_CACHE_STATS")
     }
 
+    /// List all caches. The bidi transport has no dedicated list op; the cache set is derived from
+    /// the `GET_CACHE_STATS` stream, exactly as the HTTP `get_caches` endpoint keeps its list
+    /// current. Each [`CacheDetails`] carries the cache id and its current item count (size).
+    pub fn get_caches(&self) -> Result<Vec<CacheDetails>, Box<dyn Error>> {
+        Ok(self
+            .get_stats()?
+            .into_iter()
+            .map(|s| CacheDetails { cache_id: s.cache_id, item_count: s.size })
+            .collect())
+    }
+
     // ------------------------------------------------------------------ counter commands
 
     pub fn create_counter_cache(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
@@ -398,6 +409,17 @@ impl AeronBidiClient {
     /// Per-counter-cache stats (one [`StatEntry`] per counter cache).
     pub fn get_counter_stats(&self) -> Result<Vec<StatEntry>, Box<dyn Error>> {
         self.batched_stats("GET_COUNTER_STATS")
+    }
+
+    /// List all counter caches, derived from the `GET_COUNTER_STATS` stream (the bidi counterpart
+    /// of the HTTP `get_counter_caches` endpoint). Each [`CacheDetails`] carries the counter cache
+    /// id and its current size.
+    pub fn get_counter_caches(&self) -> Result<Vec<CacheDetails>, Box<dyn Error>> {
+        Ok(self
+            .get_counter_stats()?
+            .into_iter()
+            .map(|s| CacheDetails { cache_id: s.cache_id, item_count: s.size })
+            .collect())
     }
 
     // ------------------------------------------------------------------ timers

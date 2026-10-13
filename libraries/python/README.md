@@ -97,3 +97,9 @@ async with AeronBidiClient("ws://localhost:7071") as client:
     await client.put_item("my-cache", "k2", "v2")   # -> streamed to the listener
     await sub.close()
 ```
+
+Like the Aeron transport, the bidi client also exposes `get_cache_items` / `get_counter_items`
+(full snapshots) and `get_stats` / `get_counter_stats` (per-cache `StatEntry` lists). `get_caches()` /
+`get_counter_caches()` return `list[CacheDetails]` as on the HTTP client — the bidi transport has no
+dedicated list op, so the list is derived from the stats stream, which is how the HTTP endpoint keeps
+its list current too.

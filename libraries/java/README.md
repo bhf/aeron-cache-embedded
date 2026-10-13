@@ -130,7 +130,7 @@ try (AeronGatewayClient client = AeronGatewayClient.connectIpc(aeronDir)) {
 
 For IPC there is no embedded media driver to launch and no host/port to reach — `connectIpc` connects to the driver already running at `aeronDir`, which must be the same one the gateway server was started with.
 
-The Aeron transport also exposes operations not available over HTTP+WS: `getCacheItems` (full snapshot), `getStats`, and `clearCache`.
+The Aeron transport also exposes operations not available over HTTP+WS: `getCacheItems` (full snapshot), `getStats` / `getCounterStats`, and `clearCache`. `getCaches()` / `getCounterCaches()` return `List<CacheDetails>` (cacheId, itemCount) as on the HTTP client — the gateway has no dedicated list op, so the list is derived from the stats response, which is how the HTTP endpoint keeps its list current too.
 
 ### Bidirectional WebSocket usage
 
@@ -161,7 +161,7 @@ try (AeronBidiClient client = new AeronBidiClient("ws://localhost:7071")) {
 }
 ```
 
-Like the Aeron gateway, this transport exposes `getCacheItems` / `getCounterItems` (full snapshots) and `clearCache`. Its `getStats()` / `getCounterStats()` return per-cache `List<StatEntry>` (added/removed/cleared counts and size), not the HTTP aggregate `CacheStatsResponse`.
+Like the Aeron gateway, this transport exposes `getCacheItems` / `getCounterItems` (full snapshots) and `clearCache`. Its `getStats()` / `getCounterStats()` return per-cache `List<StatEntry>` (added/removed/cleared counts and size), not the HTTP aggregate `CacheStatsResponse`. `getCaches()` / `getCounterCaches()` return `List<CacheDetails>` (cacheId, itemCount) just like the HTTP client — the bidi transport has no dedicated list op, so the list is derived from the stats stream, which is how the HTTP endpoint keeps its list current too.
 
 > **Note:** the server stamps each `streamUpdate` with the correlation id of the *command that caused it* (the update's `requestId`), so updates are routed to subscription listeners by `cacheId` and that causing-command id is surfaced as `getRequestId()` on the event.
 

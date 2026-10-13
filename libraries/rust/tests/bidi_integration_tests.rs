@@ -142,6 +142,44 @@ fn bidi_get_stats() {
 }
 
 #[test]
+fn bidi_get_caches() {
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_get_caches: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-caches");
+
+    client.create_cache(&cache_id).unwrap();
+    client.put_item(&cache_id, "k", "v").unwrap();
+    let caches = client.get_caches().unwrap();
+    let details = caches.iter().find(|c| c.cache_id == cache_id);
+    assert!(details.is_some(), "get_caches did not include {cache_id}");
+    assert!(details.unwrap().item_count >= 1, "item_count should reflect the stored entry");
+    client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
+fn bidi_get_counter_caches() {
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_get_counter_caches: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-counter-caches");
+
+    client.create_counter_cache(&cache_id).unwrap();
+    client.put_counter(&cache_id, "hits", 1).unwrap();
+    let caches = client.get_counter_caches().unwrap();
+    assert!(
+        caches.iter().any(|c| c.cache_id == cache_id),
+        "get_counter_caches did not include {cache_id}"
+    );
+    client.clear_counter_cache(&cache_id).unwrap();
+    client.delete_counter_cache(&cache_id).unwrap();
+}
+
+#[test]
 fn bidi_get_timers() {
     let Some(url) = ws_url() else {
         println!("Skipping bidi_get_timers: AERON_CACHE_BASE_URL not set");

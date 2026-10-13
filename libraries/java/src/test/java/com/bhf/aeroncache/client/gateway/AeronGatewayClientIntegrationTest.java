@@ -9,6 +9,7 @@ import com.bhf.aeroncache.models.BulkOperationType;
 import com.bhf.aeroncache.models.CacheOperationRequest;
 import com.bhf.aeroncache.models.CacheOperationResponse;
 import com.bhf.aeroncache.models.CacheUpdateEvent;
+import com.bhf.aeroncache.models.CacheDetails;
 import com.bhf.aeroncache.models.CancelItemRemovalResponse;
 import com.bhf.aeroncache.models.CounterResponse;
 import com.bhf.aeroncache.models.CounterUpdateEvent;
@@ -127,6 +128,36 @@ class AeronGatewayClientIntegrationTest {
         assertEquals(2, stat.size());
 
         client.deleteCache(cacheId);
+    }
+
+    @Test
+    void getCachesListsCache() throws Exception {
+        final String cacheId = "it-caches-" + UUID.randomUUID();
+        client.createCache(cacheId);
+        client.putItem(cacheId, "s1", "v1");
+        client.putItem(cacheId, "s2", "v2");
+
+        final CacheDetails details = client.getCaches().stream()
+                .filter(c -> cacheId.equals(c.getCacheId()))
+                .findFirst().orElse(null);
+        assertNotNull(details, "expected " + cacheId + " in getCaches()");
+        assertEquals(2, details.getItemCount());
+
+        client.deleteCache(cacheId);
+    }
+
+    @Test
+    void getCounterCachesListsCounterCache() throws Exception {
+        final String cacheId = "it-counter-caches-" + UUID.randomUUID();
+        client.createCounterCache(cacheId);
+        client.putCounter(cacheId, "hits", 1);
+
+        final CacheDetails details = client.getCounterCaches().stream()
+                .filter(c -> cacheId.equals(c.getCacheId()))
+                .findFirst().orElse(null);
+        assertNotNull(details, "expected " + cacheId + " in getCounterCaches()");
+
+        client.deleteCounterCache(cacheId);
     }
 
     @Test

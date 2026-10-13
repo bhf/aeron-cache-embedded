@@ -3,6 +3,7 @@ package com.bhf.aeroncache.client.bidi;
 import com.bhf.aeroncache.models.BulkCacheOpsRequest;
 import com.bhf.aeroncache.models.BulkCacheOpsResponse;
 import com.bhf.aeroncache.models.BulkOperationType;
+import com.bhf.aeroncache.models.CacheDetails;
 import com.bhf.aeroncache.models.CacheItem;
 import com.bhf.aeroncache.models.CacheOperationRequest;
 import com.bhf.aeroncache.models.CacheOperationResponse;
@@ -136,6 +137,32 @@ class AeronBidiClientIntegrationTest {
         final List<StatEntry> stats = client.getStats();
         assertNotNull(stats);
         client.deleteCache(cacheId);
+    }
+
+    @Test
+    void getCaches() throws Exception {
+        final String cacheId = "bidi-caches-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCache(cacheId);
+        client.putItem(cacheId, "k", "v");
+        final CacheDetails details = client.getCaches().stream()
+                .filter(c -> cacheId.equals(c.getCacheId()))
+                .findFirst().orElse(null);
+        assertNotNull(details, "expected " + cacheId + " in getCaches()");
+        assertTrue(details.getItemCount() >= 1, "itemCount should reflect the stored entry");
+        client.deleteCache(cacheId);
+    }
+
+    @Test
+    void getCounterCaches() throws Exception {
+        final String cacheId = "bidi-counter-caches-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCounterCache(cacheId);
+        client.putCounter(cacheId, "hits", 1);
+        final CacheDetails details = client.getCounterCaches().stream()
+                .filter(c -> cacheId.equals(c.getCacheId()))
+                .findFirst().orElse(null);
+        assertNotNull(details, "expected " + cacheId + " in getCounterCaches()");
+        client.clearCounterCache(cacheId);
+        client.deleteCounterCache(cacheId);
     }
 
     @Test

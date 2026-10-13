@@ -6,6 +6,7 @@ import com.bhf.aeroncache.gateway.messages.SubscriptionMode;
 import com.bhf.aeroncache.gateway.messages.UpdateEventType;
 import com.bhf.aeroncache.models.BulkCacheOpsRequest;
 import com.bhf.aeroncache.models.BulkCacheOpsResponse;
+import com.bhf.aeroncache.models.CacheDetails;
 import com.bhf.aeroncache.models.CacheItem;
 import com.bhf.aeroncache.models.CacheOperationRequest;
 import com.bhf.aeroncache.models.CacheOperationResponse;
@@ -358,6 +359,53 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
 
     public List<GatewayStat> getStats() throws Exception {
         return await(getStatsAsync());
+    }
+
+    public CompletableFuture<List<GatewayStat>> getCounterStatsAsync() {
+        final String cid = UUID.randomUUID().toString();
+        final CompletableFuture<List<GatewayStat>> future = new CompletableFuture<>();
+        pendingStats.put(cid, new StatsAccumulator(future));
+        scheduleTimeout(cid, future);
+        offer(() -> gatewayClient.getCounterStats(cid), future);
+        return future;
+    }
+
+    public List<GatewayStat> getCounterStats() throws Exception {
+        return await(getCounterStatsAsync());
+    }
+
+    /**
+     * List all caches. The gateway transport has no dedicated list op; the cache set is derived from
+     * the {@code GET_CACHE_STATS} response, exactly as the HTTP {@code getCaches} endpoint keeps its
+     * list current. Each returned {@link CacheDetails} carries the cache id and its current size.
+     */
+    public CompletableFuture<List<CacheDetails>> getCachesAsync() {
+        return getStatsAsync().thenApply(AeronGatewayClient::toCacheDetails);
+    }
+
+    public List<CacheDetails> getCaches() throws Exception {
+        return await(getCachesAsync());
+    }
+
+    /**
+     * List all counter caches, derived from the {@code GET_COUNTER_STATS} response (the gateway
+     * counterpart of the HTTP {@code getCounterCaches} endpoint). Each returned {@link CacheDetails}
+     * carries the counter cache id and its current size.
+     */
+    public CompletableFuture<List<CacheDetails>> getCounterCachesAsync() {
+        return getCounterStatsAsync().thenApply(AeronGatewayClient::toCacheDetails);
+    }
+
+    public List<CacheDetails> getCounterCaches() throws Exception {
+        return await(getCounterCachesAsync());
+    }
+
+    private static List<CacheDetails> toCacheDetails(List<GatewayStat> stats) {
+        final List<CacheDetails> caches = new ArrayList<>(stats.size());
+        for (GatewayStat s : stats) {
+            caches.add(new CacheDetails(s.cacheId(), s.size()));
+        }
+        return caches;
     }
 
     /**

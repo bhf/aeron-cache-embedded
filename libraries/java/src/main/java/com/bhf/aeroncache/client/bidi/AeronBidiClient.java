@@ -19,6 +19,7 @@ import com.bhf.aeroncache.models.GetCountersResponse;
 import com.bhf.aeroncache.models.GetItemResponse;
 import com.bhf.aeroncache.models.PatchItemResponse;
 import com.bhf.aeroncache.models.PutItemResponse;
+import com.bhf.aeroncache.models.CacheDetails;
 import com.bhf.aeroncache.models.StatEntry;
 import com.bhf.aeroncache.models.TimerInfo;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -282,6 +283,27 @@ public class AeronBidiClient implements AutoCloseable {
         return await(getStatsAsync());
     }
 
+    /**
+     * List all caches. The bidi transport has no dedicated list op; the cache set is derived from
+     * the {@code GET_CACHE_STATS} stream, exactly as the HTTP {@code getCaches} endpoint keeps its
+     * list current. Each returned {@link CacheDetails} carries the cache id and its current size.
+     */
+    public CompletableFuture<List<CacheDetails>> getCachesAsync() {
+        return getStatsAsync().thenApply(AeronBidiClient::toCacheDetails);
+    }
+
+    public List<CacheDetails> getCaches() throws Exception {
+        return await(getCachesAsync());
+    }
+
+    private static List<CacheDetails> toCacheDetails(List<StatEntry> stats) {
+        List<CacheDetails> caches = new ArrayList<>(stats.size());
+        for (StatEntry s : stats) {
+            caches.add(new CacheDetails(s.getCacheId(), s.getSize()));
+        }
+        return caches;
+    }
+
     // ------------------------------------------------------------------ counter commands
 
     public CompletableFuture<CreateResponse> createCounterCacheAsync(String cacheId) {
@@ -400,6 +422,19 @@ public class AeronBidiClient implements AutoCloseable {
 
     public List<StatEntry> getCounterStats() throws Exception {
         return await(getCounterStatsAsync());
+    }
+
+    /**
+     * List all counter caches, derived from the {@code GET_COUNTER_STATS} stream (the bidi
+     * counterpart of the HTTP {@code getCounterCaches} endpoint). Each returned
+     * {@link CacheDetails} carries the counter cache id and its current size.
+     */
+    public CompletableFuture<List<CacheDetails>> getCounterCachesAsync() {
+        return getCounterStatsAsync().thenApply(AeronBidiClient::toCacheDetails);
+    }
+
+    public List<CacheDetails> getCounterCaches() throws Exception {
+        return await(getCounterCachesAsync());
     }
 
     // ------------------------------------------------------------------ timers

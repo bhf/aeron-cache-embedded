@@ -108,6 +108,7 @@ async function main() {
     console.log((await client.getItem('my-cache', 'key')).value);   // 'value'
     console.log(await client.getCacheItems('my-cache'));            // GetCacheResponse
     console.log(await client.getStats());                          // StatEntry[] (per-cache)
+    console.log(await client.getCaches());                         // CacheDetails[] (derived from stats)
 
     // Counter commands
     await client.createCounterCache('counters');

@@ -74,6 +74,28 @@ const rid = () => Math.random().toString(36).substring(2, 10);
         await client.deleteCache(cacheId);
     });
 
+    it('getCaches lists the cache derived from stats', async () => {
+        const cacheId = `bidi-caches-${rid()}`;
+        await client.createCache(cacheId);
+        await client.putItem(cacheId, 'k', 'v');
+        const caches = await client.getCaches();
+        const details = caches.find((c) => c.cacheId === cacheId);
+        expect(details).toBeDefined();
+        expect(details!.itemCount).toBeGreaterThanOrEqual(1);
+        await client.deleteCache(cacheId);
+    });
+
+    it('getCounterCaches lists the counter cache derived from stats', async () => {
+        const cacheId = `bidi-counter-caches-${rid()}`;
+        await client.createCounterCache(cacheId);
+        await client.putCounter(cacheId, 'hits', 1);
+        const caches = await client.getCounterCaches();
+        const details = caches.find((c) => c.cacheId === cacheId);
+        expect(details).toBeDefined();
+        await client.clearCounterCache(cacheId);
+        await client.deleteCounterCache(cacheId);
+    });
+
     it('getTimers returns a pending cache timer', async () => {
         const cacheId = `bidi-timers-${crypto.randomUUID()}`;
         await client.createCache(cacheId);

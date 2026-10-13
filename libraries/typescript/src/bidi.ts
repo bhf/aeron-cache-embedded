@@ -26,6 +26,7 @@ import {
     PatchItemResponse,
     CancelItemRemovalResponse,
     StatEntry,
+    CacheDetails,
     CacheUpdateEvent,
     CounterUpdateEvent,
     TimerInfo,
@@ -538,6 +539,16 @@ export class AeronBidiClient {
         }));
     }
 
+    /**
+     * List all caches. The bidi transport has no dedicated list op; the cache set is derived from
+     * the GET_CACHE_STATS stream, exactly as the HTTP getCaches endpoint keeps its list current.
+     * Each entry carries the cache id and its current item count (size).
+     */
+    async getCaches(): Promise<CacheDetails[]> {
+        const stats = await this.getStats();
+        return stats.map((s) => ({ cacheId: s.cacheId, itemCount: s.size }));
+    }
+
     // ------------------------------------------------------------------ timers
 
     /**
@@ -647,6 +658,15 @@ export class AeronBidiClient {
             clearedCount: s.clearedCount,
             size: s.size
         }));
+    }
+
+    /**
+     * List all counter caches, derived from the GET_COUNTER_STATS stream (the bidi counterpart of
+     * the HTTP getCounterCaches endpoint). Each entry carries the counter cache id and its size.
+     */
+    async getCounterCaches(): Promise<CacheDetails[]> {
+        const stats = await this.getCounterStats();
+        return stats.map((s) => ({ cacheId: s.cacheId, itemCount: s.size }));
     }
 
     private counterResponse(r: any): CounterResponse {

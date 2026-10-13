@@ -17,9 +17,9 @@ use crate::gateway_messages::{
     subscription_mode, update_event_type, ReadBuf, WriteBuf,
 };
 use crate::{
-    BulkCacheOpsRequest, BulkCacheOpsResponse, CacheItem, CacheOperationResponse, CacheUpdateEvent,
-    CounterResponse, CounterUpdateEvent, CreateResponse, DeleteCacheResponse, DeleteItemResponse,
-    GetCacheResponse, GetItemResponse, PutItemResponse,
+    BulkCacheOpsRequest, BulkCacheOpsResponse, CacheDetails, CacheItem, CacheOperationResponse,
+    CacheUpdateEvent, CounterResponse, CounterUpdateEvent, CreateResponse, DeleteCacheResponse,
+    DeleteItemResponse, GetCacheResponse, GetItemResponse, PutItemResponse,
 };
 use rusteron_client::*;
 use std::collections::HashMap;
@@ -121,6 +121,7 @@ mod msg {
     pub const ADD_COUNTER_ENTRY: u16 = 102;
     pub const GET_COUNTER_ENTRY: u16 = 103;
     pub const DELETE_COUNTER_CACHE: u16 = 105;
+    pub const GET_COUNTER_STATS: u16 = 109;
     pub const REMOVE_COUNTER_ENTRY: u16 = 110;
     pub const INCREMENT_COUNTER_ENTRY: u16 = 111;
     pub const DECREMENT_COUNTER_ENTRY: u16 = 112;
@@ -466,16 +467,47 @@ impl AeronGatewayClient {
 
     /// Stats for all caches.
     pub fn get_stats(&self) -> Result<Vec<GatewayStat>, Box<dyn Error>> {
+        self.stats(msg::GET_CACHE_STATS)
+    }
+
+    /// Stats for all counter caches.
+    pub fn get_counter_stats(&self) -> Result<Vec<GatewayStat>, Box<dyn Error>> {
+        self.stats(msg::GET_COUNTER_STATS)
+    }
+
+    fn stats(&self, op: u16) -> Result<Vec<GatewayStat>, Box<dyn Error>> {
         let cid = new_correlation_id();
         let (tx, rx) = channel();
         self.shared.pending_stats.lock().unwrap().insert(cid.clone(), StatsReq { sender: tx, stats: Vec::new() });
-        let frame = encode_command(msg::GET_CACHE_STATS, 0, 0, &cid, "", "", "");
+        let frame = encode_command(op, 0, 0, &cid, "", "", "");
         offer_frame(&self.publication, &frame, self.request_timeout)?;
         match rx.recv_timeout(self.request_timeout) {
             Ok(Ok(stats)) => Ok(stats),
             Ok(Err(e)) => { self.shared.pending_stats.lock().unwrap().remove(&cid); Err(e.into()) }
             Err(_) => { self.shared.pending_stats.lock().unwrap().remove(&cid); Err("gateway request timed out".into()) }
         }
+    }
+
+    /// List all caches. The gateway transport has no dedicated list op; the cache set is derived
+    /// from the `GET_CACHE_STATS` response, exactly as the HTTP `get_caches` endpoint keeps its list
+    /// current. Each [`CacheDetails`] carries the cache id and its current item count (size).
+    pub fn get_caches(&self) -> Result<Vec<CacheDetails>, Box<dyn Error>> {
+        Ok(self
+            .get_stats()?
+            .into_iter()
+            .map(|s| CacheDetails { cache_id: s.cache_id, item_count: s.size })
+            .collect())
+    }
+
+    /// List all counter caches, derived from the `GET_COUNTER_STATS` response (the gateway
+    /// counterpart of the HTTP `get_counter_caches` endpoint). Each [`CacheDetails`] carries the
+    /// counter cache id and its current size.
+    pub fn get_counter_caches(&self) -> Result<Vec<CacheDetails>, Box<dyn Error>> {
+        Ok(self
+            .get_counter_stats()?
+            .into_iter()
+            .map(|s| CacheDetails { cache_id: s.cache_id, item_count: s.size })
+            .collect())
     }
 
     /// All pending TTL removal timers across both caches and counter caches. Results are streamed as

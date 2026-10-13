@@ -31,6 +31,7 @@ from .models import (
     PatchItemResponse,
     CancelItemRemovalResponse,
     StatEntry,
+    CacheDetails,
     TimerInfo,
     BulkCacheOpsRequest,
     BulkCacheOpsResponse,
@@ -323,6 +324,16 @@ class AeronBidiClient:
         acc = await self._batched("GET_CACHE_STATS", None, "stats")
         return [StatEntry(**s) for s in acc["stats"]]
 
+    async def get_caches(self) -> list:
+        """List all caches.
+
+        The bidi transport has no dedicated list op; the cache set is derived from the
+        GET_CACHE_STATS stream, exactly as the HTTP get_caches endpoint keeps its list current.
+        Each CacheDetails carries the cache id and its current item count (size).
+        """
+        stats = await self.get_stats()
+        return [CacheDetails(cacheId=s.cacheId, itemCount=s.size) for s in stats]
+
     # ------------------------------------------------------------------ timers
 
     async def get_timers(self) -> list:
@@ -432,6 +443,14 @@ class AeronBidiClient:
     async def get_counter_stats(self) -> list:
         acc = await self._batched("GET_COUNTER_STATS", None, "stats")
         return [StatEntry(**s) for s in acc["stats"]]
+
+    async def get_counter_caches(self) -> list:
+        """List all counter caches, derived from the GET_COUNTER_STATS stream (the bidi
+        counterpart of the HTTP get_counter_caches endpoint). Each CacheDetails carries the
+        counter cache id and its current size.
+        """
+        stats = await self.get_counter_stats()
+        return [CacheDetails(cacheId=s.cacheId, itemCount=s.size) for s in stats]
 
     @staticmethod
     def _counter_response(r) -> CounterResponse:
