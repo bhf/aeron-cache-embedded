@@ -75,6 +75,39 @@ tasks.test {
     listOf("aeron.gateway.it", "aeron.gateway.host", "aeron.gateway.ipc.it", "aeron.dir").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
+    // The long-running soak is run explicitly via `soakTest`, never under `test`/`build`/`check`.
+    filter {
+        excludeTestsMatching("com.bhf.aeroncache.soak.*")
+        isFailOnNoMatchingTests = false
+    }
+}
+
+// Manual, long-running client soak against a running backend; excluded from `check`/`build`. Example:
+//   ./gradlew soakTest -Psoak.transport=gateway -Psoak.durationSeconds=120 -Daeron.gateway.host=127.0.0.1
+// Transport (`http`|`bidi`|`gateway`) and tuning come from `-Psoak.*`; HTTP/bidi also read the backend
+// URLs from the AERON_CACHE_BASE_URL / AERON_CACHE_WS_URL environment variables (inherited automatically).
+tasks.register<Test>("soakTest") {
+    description = "Runs the long-running client soak against a running backend (manual)."
+    group = "verification"
+    useJUnitPlatform()
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter { includeTestsMatching("com.bhf.aeroncache.soak.CacheSoakTest") }
+    systemProperty("soak.enabled", "true")
+    jvmArgs("--add-opens", "java.base/jdk.internal.misc=ALL-UNNAMED")
+    jvmArgs("--add-opens", "java.base/java.util.zip=ALL-UNNAMED")
+    // Forward -Psoak.* project properties (the workflow's form) and any -Dsoak.* system properties to the
+    // test JVM, plus the gateway -D props the gateway transport needs.
+    project.properties.keys.filter { it.startsWith("soak.") }
+        .forEach { key -> (project.findProperty(key) as? String)?.let { systemProperty(key, it) } }
+    System.getProperties().stringPropertyNames().filter { it.startsWith("soak.") }
+        .forEach { key -> systemProperty(key, System.getProperty(key)) }
+    listOf("aeron.gateway.host", "aeron.dir").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    // Always re-run; the workload self-terminates after -Psoak.durationSeconds and the workflow caps
+    // wall-clock with its own job timeout.
+    outputs.upToDateWhen { false }
 }
 
 java {
