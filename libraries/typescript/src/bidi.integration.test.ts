@@ -334,4 +334,50 @@ const rid = () => Math.random().toString(36).substring(2, 10);
         },
         REASSEMBLY_TIMEOUT
     );
+
+    it('reconnects and replays subscriptions after an involuntary drop', async () => {
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        const cacheId = `bidi-recon-${crypto.randomUUID()}`;
+        await client.createCache(cacheId);
+
+        const keys = new Set<string>();
+        const sub = await client.subscribe(cacheId, (ev: CacheUpdateEvent) => {
+            if (ev.eventType === 'ADD_ITEM' && ev.itemKey) {
+                keys.add(ev.itemKey);
+            }
+        });
+        const awaitKey = async (key: string) => {
+            for (let i = 0; i < 50; i++) {
+                if (keys.has(key)) return true;
+                await sleep(100);
+            }
+            return false;
+        };
+
+        // Baseline: subscription delivers before any drop.
+        await client.putItem(cacheId, 'before', 'v0');
+        expect(await awaitKey('before')).toBe(true);
+
+        // Force an involuntary drop: close the underlying socket (not client.close()).
+        const inner = (client as any).ws as WebSocket;
+        expect(inner).toBeTruthy();
+        inner.close();
+        for (let i = 0; i < 50 && (client as any).ws; i++) {
+            await sleep(20);
+        }
+        expect((client as any).ws).toBeNull();
+
+        // Next command should transparently reconnect.
+        const put = await client.putItem(cacheId, 'after', 'v1');
+        expect(put.operationStatus).toBe('SUCCESS');
+        expect((client as any).ws).not.toBeNull();
+
+        // The replayed subscription must resume delivering updates.
+        await sleep(300);
+        await client.putItem(cacheId, 'postreconnect', 'v2');
+        expect(await awaitKey('postreconnect')).toBe(true);
+
+        await sub.close();
+        await client.deleteCache(cacheId);
+    });
 });

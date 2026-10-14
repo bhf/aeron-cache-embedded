@@ -239,6 +239,55 @@ async def test_bidi_subscription():
 
 
 @pytest.mark.asyncio
+async def test_bidi_reconnect_replays_subscriptions_after_drop():
+    """Force an involuntary drop (close the underlying socket, not ``close()``), then assert the next
+    command transparently reconnects and a subscription created before the drop resumes delivering
+    updates."""
+    async with AeronBidiClient(_ws_url()) as client:
+        cache_id = f"bidi-recon-{uuid.uuid4().hex[:8]}"
+        await client.create_cache(cache_id)
+
+        got = set()
+        client_sub = await client.subscribe(
+            cache_id, lambda ev: got.add(ev.itemKey) if ev.eventType == "ADD_ITEM" else None
+        )
+
+        async def await_key(key):
+            for _ in range(50):
+                if key in got:
+                    return True
+                await asyncio.sleep(0.1)
+            return False
+
+        # Baseline: subscription delivers before any drop.
+        await client.put_item(cache_id, "before", "v0")
+        assert await await_key("before"), "baseline subscription update not received"
+
+        # Force an involuntary drop by closing the underlying socket directly.
+        await client._ws.close()
+        for _ in range(50):
+            if client._ws is None:
+                break
+            await asyncio.sleep(0.02)
+        assert client._ws is None, "drop should have cleared the socket"
+
+        # Next command should transparently reconnect.
+        r = await client.put_item(cache_id, "after", "v1")
+        assert r.operationStatus == "SUCCESS"
+        assert client._ws is not None, "command after drop should have reconnected"
+
+        # The replayed subscription must resume delivering updates.
+        await asyncio.sleep(0.3)
+        await client.put_item(cache_id, "postreconnect", "v2")
+        assert await await_key("postreconnect"), (
+            "subscription did not resume after reconnect (replay failed)"
+        )
+
+        await client_sub.close()
+        await client.delete_cache(cache_id)
+
+
+@pytest.mark.asyncio
 async def test_bidi_subscription_key_filter():
     async with AeronBidiClient(_ws_url()) as client:
         cache_id = f"bidi-sub-keys-{uuid.uuid4().hex[:8]}"

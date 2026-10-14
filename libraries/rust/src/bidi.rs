@@ -66,11 +66,18 @@ type CounterListener = Arc<dyn Fn(CounterUpdateEvent) + Send + Sync>;
 struct CacheSub {
     cid: String,
     listener: CacheListener,
+    // Subscribe parameters, retained so the subscription can be replayed on reconnect.
+    send_snapshot: bool,
+    key: Option<String>,
+    mode: Option<String>,
 }
 
 struct CounterSub {
     cid: String,
     listener: CounterListener,
+    // Subscribe parameters, retained so the subscription can be replayed on reconnect.
+    send_snapshot: bool,
+    key: Option<String>,
 }
 
 /// Data delivered to a waiting batched-entries request once `endOfBatch` arrives.
@@ -219,7 +226,14 @@ pub struct AeronBidiClient {
     shared: Arc<Shared>,
     request_timeout: Duration,
     running: Arc<AtomicBool>,
-    reader_thread: Option<JoinHandle<()>>,
+    /// Whether the socket is believed connected. Cleared by the reader thread when the connection
+    /// drops; the next send reconnects (see [`AeronBidiClient::ensure_connected`]).
+    connected: Arc<AtomicBool>,
+    /// Endpoint URL, retained so a dropped connection can be re-established.
+    endpoint: String,
+    /// Serializes reconnection so only one thread rebuilds the socket at a time.
+    reconnect_lock: Mutex<()>,
+    reader_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl AeronBidiClient {
@@ -240,12 +254,14 @@ impl AeronBidiClient {
         let ws = Arc::new(Mutex::new(socket));
         let shared = Arc::new(Shared::new());
         let running = Arc::new(AtomicBool::new(true));
+        let connected = Arc::new(AtomicBool::new(true));
 
         let reader_thread = {
             let ws = ws.clone();
             let shared = shared.clone();
             let running = running.clone();
-            std::thread::spawn(move || read_loop(ws, shared, running))
+            let connected = connected.clone();
+            std::thread::spawn(move || read_loop(ws, shared, running, connected))
         };
 
         Ok(AeronBidiClient {
@@ -253,8 +269,78 @@ impl AeronBidiClient {
             shared,
             request_timeout,
             running,
-            reader_thread: Some(reader_thread),
+            connected,
+            endpoint,
+            reconnect_lock: Mutex::new(()),
+            reader_thread: Mutex::new(Some(reader_thread)),
         })
+    }
+
+    /// Re-establish the connection if the reader thread has observed a drop. Serialized by
+    /// [`AeronBidiClient::reconnect_lock`]; rebuilds the socket in place, restarts the reader, and
+    /// replays active subscriptions so streaming resumes.
+    fn ensure_connected(&self) -> Result<(), Box<dyn Error>> {
+        if self.connected.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let _guard = self.reconnect_lock.lock().unwrap();
+        if self.connected.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        // The reader set `connected = false` immediately before exiting, so joining it cannot hang.
+        if let Some(handle) = self.reader_thread.lock().unwrap().take() {
+            let _ = handle.join();
+        }
+        let (mut socket, _resp) = connect(Url::parse(&self.endpoint)?)?;
+        set_read_timeout(&mut socket, Some(READ_POLL_TIMEOUT));
+        *self.ws.lock().unwrap() = socket;
+        self.connected.store(true, Ordering::Release);
+
+        let reader_thread = {
+            let ws = self.ws.clone();
+            let shared = self.shared.clone();
+            let running = self.running.clone();
+            let connected = self.connected.clone();
+            std::thread::spawn(move || read_loop(ws, shared, running, connected))
+        };
+        *self.reader_thread.lock().unwrap() = Some(reader_thread);
+
+        self.resubscribe_all();
+        Ok(())
+    }
+
+    /// Reconnect if needed, then write `frame` to the socket.
+    fn send(&self, frame: &Value) -> Result<(), Box<dyn Error>> {
+        self.ensure_connected()?;
+        send_frame(&self.ws, frame)
+    }
+
+    /// Re-send a subscribe frame for every tracked subscription, reusing each subscription's original
+    /// correlationId and parameters, so streaming resumes after a reconnect.
+    fn resubscribe_all(&self) {
+        let cache_frames: Vec<Value> = {
+            let map = self.shared.cache_listeners.lock().unwrap();
+            map.iter()
+                .flat_map(|(cache_id, subs)| {
+                    subs.iter().map(move |s| {
+                        subscribe_frame(&s.cid, cache_id, false, s.send_snapshot, s.key.as_deref(), s.mode.as_deref())
+                    })
+                })
+                .collect()
+        };
+        let counter_frames: Vec<Value> = {
+            let map = self.shared.counter_listeners.lock().unwrap();
+            map.iter()
+                .flat_map(|(cache_id, subs)| {
+                    subs.iter().map(move |s| {
+                        subscribe_frame(&s.cid, cache_id, true, s.send_snapshot, s.key.as_deref(), None)
+                    })
+                })
+                .collect()
+        };
+        for frame in cache_frames.iter().chain(counter_frames.iter()) {
+            let _ = send_frame(&self.ws, frame);
+        }
     }
 
     // ------------------------------------------------------------------ cache commands
@@ -441,7 +527,7 @@ impl AeronBidiClient {
             "ttl": 0,
             "counterValue": 0,
         });
-        if let Err(e) = send_frame(&self.ws, &frame) {
+        if let Err(e) = self.send(&frame) {
             self.shared.pending_timers.lock().unwrap().remove(&cid);
             return Err(e);
         }
@@ -471,7 +557,7 @@ impl AeronBidiClient {
             "correlationId": cid,
             "operations": operations,
         });
-        if let Err(e) = send_frame(&self.ws, &frame) {
+        if let Err(e) = self.send(&frame) {
             self.shared.pending_bulk.lock().unwrap().remove(&cid);
             return Err(e);
         }
@@ -503,13 +589,22 @@ impl AeronBidiClient {
         F: Fn(CacheUpdateEvent) + Send + Sync + 'static,
     {
         let cid = new_correlation_id();
+        // Reconnect (if needed) before registering, so a replay triggered here does not also re-send
+        // the subscription we are about to send below.
+        self.ensure_connected()?;
         self.shared
             .cache_listeners
             .lock()
             .unwrap()
             .entry(cache_id.to_string())
             .or_default()
-            .push(CacheSub { cid: cid.clone(), listener: Arc::new(listener) });
+            .push(CacheSub {
+                cid: cid.clone(),
+                listener: Arc::new(listener),
+                send_snapshot,
+                key: key.map(str::to_string),
+                mode: mode.map(str::to_string),
+            });
         self.send_subscribe(&cid, cache_id, false, send_snapshot, key, mode)?;
         Ok(BidiSubscription {
             correlation_id: cid,
@@ -536,13 +631,21 @@ impl AeronBidiClient {
         F: Fn(CounterUpdateEvent) + Send + Sync + 'static,
     {
         let cid = new_correlation_id();
+        // Reconnect (if needed) before registering, so a replay triggered here does not also re-send
+        // the subscription we are about to send below.
+        self.ensure_connected()?;
         self.shared
             .counter_listeners
             .lock()
             .unwrap()
             .entry(cache_id.to_string())
             .or_default()
-            .push(CounterSub { cid: cid.clone(), listener: Arc::new(listener) });
+            .push(CounterSub {
+                cid: cid.clone(),
+                listener: Arc::new(listener),
+                send_snapshot,
+                key: key.map(str::to_string),
+            });
         self.send_subscribe(&cid, cache_id, true, send_snapshot, key, None)?;
         Ok(BidiSubscription {
             correlation_id: cid,
@@ -570,7 +673,7 @@ impl AeronBidiClient {
             "ttl": ttl,
             "counterValue": counter_value,
         });
-        if let Err(e) = send_frame(&self.ws, &frame) {
+        if let Err(e) = self.send(&frame) {
             self.shared.pending_cmd.lock().unwrap().remove(&cid);
             return Err(e);
         }
@@ -601,7 +704,7 @@ impl AeronBidiClient {
             "ttl": 0,
             "counterValue": 0,
         });
-        if let Err(e) = send_frame(&self.ws, &frame) {
+        if let Err(e) = self.send(&frame) {
             self.shared.pending_entries.lock().unwrap().remove(&cid);
             return Err(e);
         }
@@ -629,7 +732,7 @@ impl AeronBidiClient {
             "ttl": 0,
             "counterValue": 0,
         });
-        if let Err(e) = send_frame(&self.ws, &frame) {
+        if let Err(e) = self.send(&frame) {
             self.shared.pending_stats.lock().unwrap().remove(&cid);
             return Err(e);
         }
@@ -644,24 +747,10 @@ impl AeronBidiClient {
     }
 
     fn send_subscribe(&self, cid: &str, cache_id: &str, counters: bool, send_snapshot: bool, key: Option<&str>, mode: Option<&str>) -> Result<(), Box<dyn Error>> {
-        let mut selector = Map::new();
-        selector.insert("cacheId".to_string(), Value::String(cache_id.to_string()));
-        if let Some(k) = key {
-            selector.insert("key".to_string(), Value::String(k.to_string()));
-        }
-        if let Some(m) = mode {
-            selector.insert("mode".to_string(), Value::String(m.to_uppercase()));
-        }
         let (tx, rx) = channel();
         self.shared.pending_sub_ack.lock().unwrap().insert(cid.to_string(), tx);
-        let frame = json!({
-            "type": "subscribe",
-            "correlationId": cid,
-            "counters": counters,
-            "sendSnapshot": send_snapshot,
-            "caches": [Value::Object(selector)],
-        });
-        if let Err(e) = send_frame(&self.ws, &frame) {
+        let frame = subscribe_frame(cid, cache_id, counters, send_snapshot, key, mode);
+        if let Err(e) = self.send(&frame) {
             self.shared.pending_sub_ack.lock().unwrap().remove(cid);
             return Err(e);
         }
@@ -680,7 +769,7 @@ impl Drop for AeronBidiClient {
             let _ = ws.close(None);
         }
         self.shared.fail_all("AeronBidiClient closed");
-        if let Some(handle) = self.reader_thread.take() {
+        if let Some(handle) = self.reader_thread.lock().unwrap().take() {
             let _ = handle.join();
         }
     }
@@ -688,7 +777,7 @@ impl Drop for AeronBidiClient {
 
 // ------------------------------------------------------------------ reader / dispatch
 
-fn read_loop(ws: Arc<Mutex<Ws>>, shared: Arc<Shared>, running: Arc<AtomicBool>) {
+fn read_loop(ws: Arc<Mutex<Ws>>, shared: Arc<Shared>, running: Arc<AtomicBool>, connected: Arc<AtomicBool>) {
     while running.load(Ordering::Acquire) {
         let msg = {
             let mut sock = ws.lock().unwrap();
@@ -701,19 +790,24 @@ fn read_loop(ws: Arc<Mutex<Ws>>, shared: Arc<Shared>, running: Arc<AtomicBool>) 
                 }
             }
             Ok(Message::Binary(_)) | Ok(Message::Ping(_)) | Ok(Message::Pong(_)) | Ok(Message::Frame(_)) => {}
-            Ok(Message::Close(_)) => {
+            Ok(Message::Close(_))
+            | Err(tungstenite::Error::ConnectionClosed)
+            | Err(tungstenite::Error::AlreadyClosed) => {
+                // Connection dropped. Fail in-flight requests and mark disconnected so the next send
+                // reconnects. `connected` is cleared *before* returning so a concurrent reconnect's
+                // join() cannot hang.
                 shared.fail_all("bidi connection closed");
+                connected.store(false, Ordering::Release);
                 break;
             }
             Err(tungstenite::Error::Io(e)) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
                 // Read poll expired; release the lock (via drop above) and let writers run.
             }
-            Err(tungstenite::Error::ConnectionClosed) | Err(tungstenite::Error::AlreadyClosed) => {
-                shared.fail_all("bidi connection closed");
-                break;
-            }
             Err(_) => {
-                // Transient error; back off briefly and retry.
+                // Any other error means the socket is unusable; treat it as a drop.
+                shared.fail_all("bidi connection closed");
+                connected.store(false, Ordering::Release);
+                break;
             }
         }
         // Yield so command threads can take the socket lock to write.
@@ -889,6 +983,25 @@ fn new_correlation_id() -> String {
     format!("{nanos:x}-{n:x}")
 }
 
+/// Build a `subscribe` frame for the given subscription parameters.
+fn subscribe_frame(cid: &str, cache_id: &str, counters: bool, send_snapshot: bool, key: Option<&str>, mode: Option<&str>) -> Value {
+    let mut selector = Map::new();
+    selector.insert("cacheId".to_string(), Value::String(cache_id.to_string()));
+    if let Some(k) = key {
+        selector.insert("key".to_string(), Value::String(k.to_string()));
+    }
+    if let Some(m) = mode {
+        selector.insert("mode".to_string(), Value::String(m.to_uppercase()));
+    }
+    json!({
+        "type": "subscribe",
+        "correlationId": cid,
+        "counters": counters,
+        "sendSnapshot": send_snapshot,
+        "caches": [Value::Object(selector)],
+    })
+}
+
 fn send_frame(ws: &Arc<Mutex<Ws>>, frame: &Value) -> Result<(), Box<dyn Error>> {
     let text = serde_json::to_string(frame)?;
     let mut sock = ws.lock().unwrap();
@@ -970,6 +1083,66 @@ mod tests {
         assert_eq!(value_to_string(&Value::Null), "");
     }
 
+    /// Live reconnect + subscription-replay check. Gated on `AERON_CACHE_WS_URL` (points at the bidi
+    /// endpoint host, e.g. `ws://localhost:PORT`); skips green when unset. Forces an involuntary socket
+    /// drop (closes the underlying socket, not `close()`), then asserts the next command transparently
+    /// reconnects and a subscription created before the drop resumes delivering updates.
+    #[test]
+    fn reconnect_replays_subscriptions_after_drop() {
+        let ws_url = match std::env::var("AERON_CACHE_WS_URL") {
+            Ok(u) if !u.trim().is_empty() => u,
+            _ => {
+                eprintln!("skipping reconnect test: AERON_CACHE_WS_URL not set");
+                return;
+            }
+        };
+        let cache_id = format!("recon-rs-{}", new_correlation_id());
+        let client = AeronBidiClient::connect(&ws_url).expect("connect");
+        client.create_cache(&cache_id).expect("create cache");
+
+        let events = Arc::new(Mutex::new(Vec::<CacheUpdateEvent>::new()));
+        let sink = events.clone();
+        let _sub = client
+            .subscribe(&cache_id, move |e| sink.lock().unwrap().push(e))
+            .expect("subscribe");
+
+        client.put_item(&cache_id, "before", "v0").expect("put before");
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            events.lock().unwrap().iter().any(|e| e.item_key.as_deref() == Some("before")),
+            "baseline subscription update not received"
+        );
+
+        // Force an involuntary drop: close the underlying socket directly.
+        {
+            let mut sock = client.ws.lock().unwrap();
+            let _ = sock.close(None);
+            let _ = sock.write_pending();
+        }
+        // Wait for the reader thread to observe the drop.
+        for _ in 0..100 {
+            if !client.connected.load(Ordering::Acquire) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!client.connected.load(Ordering::Acquire), "drop not observed by reader");
+
+        // Next command should transparently reconnect.
+        let r = client.put_item(&cache_id, "after", "v1").expect("put after drop");
+        assert_eq!(r.operation_status, "SUCCESS");
+        assert!(client.connected.load(Ordering::Acquire), "did not reconnect");
+
+        // The replayed subscription must resume delivering updates.
+        std::thread::sleep(Duration::from_millis(300));
+        client.put_item(&cache_id, "postreconnect", "v2").expect("put post-reconnect");
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(
+            events.lock().unwrap().iter().any(|e| e.item_key.as_deref() == Some("postreconnect")),
+            "subscription did not resume after reconnect (replay failed)"
+        );
+    }
+
     #[test]
     fn value_to_i64_parses_numbers_and_numeric_strings() {
         assert_eq!(value_to_i64(&json!(15)), 15);
@@ -1039,6 +1212,9 @@ mod tests {
         shared.cache_listeners.lock().unwrap().entry("c1".to_string()).or_default().push(CacheSub {
             cid: "sub-1".to_string(),
             listener: Arc::new(move |e| sink.lock().unwrap().push(e)),
+            send_snapshot: false,
+            key: None,
+            mode: None,
         });
         // Note: streamUpdate.correlationId is the causing command's id, not the subscription id.
         dispatch(&json!({"type": "streamUpdate", "correlationId": "cmd-99", "eventType": "ADD_ITEM", "cacheId": "c1", "key": "sk", "value": "sv"}), &shared);
@@ -1058,6 +1234,8 @@ mod tests {
         shared.counter_listeners.lock().unwrap().entry("cc".to_string()).or_default().push(CounterSub {
             cid: "sub-2".to_string(),
             listener: Arc::new(move |e| sink.lock().unwrap().push(e)),
+            send_snapshot: false,
+            key: None,
         });
         dispatch(&json!({"type": "streamUpdate", "correlationId": "cmd-1", "eventType": "ADD_ITEM", "cacheId": "cc", "key": "hits", "value": 15}), &shared);
         let events = got.lock().unwrap();
