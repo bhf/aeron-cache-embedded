@@ -102,6 +102,7 @@ public class AeronBidiClient implements AutoCloseable {
 
     private final Object connectLock = new Object();
     private volatile WebSocket webSocket;
+    private volatile boolean closed = false;
 
     // correlationId -> pending single-response command (resolves to the commandResponse frame).
     private final Map<String, CompletableFuture<JsonNode>> pendingCommands = new ConcurrentHashMap<>();
@@ -140,30 +141,85 @@ public class AeronBidiClient implements AutoCloseable {
     }
 
     private WebSocket ensureConnected() {
+        if (closed) {
+            throw new IllegalStateException("AeronBidiClient is closed");
+        }
         final WebSocket existing = webSocket;
         if (existing != null) {
             return existing;
         }
         synchronized (connectLock) {
+            if (closed) {
+                throw new IllegalStateException("AeronBidiClient is closed");
+            }
             if (webSocket != null) {
                 return webSocket;
             }
+            // A non-empty subscription set means we are re-establishing a dropped connection and must
+            // replay those subscriptions once the new socket is open.
+            final boolean reconnecting = !subscriptions.isEmpty();
             try {
                 webSocket = httpClient.newWebSocketBuilder()
                         .buildAsync(URI.create(wsUrl + "/api/ws/v1/bidi"), new BidiListener())
                         .get(requestTimeoutMs, TimeUnit.MILLISECONDS);
-                return webSocket;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new RuntimeException("Interrupted connecting to " + wsUrl, e);
             } catch (ExecutionException | TimeoutException e) {
                 throw new RuntimeException("Failed to connect to " + wsUrl + "/api/ws/v1/bidi", e);
             }
+            if (reconnecting) {
+                resubscribeAll();
+            }
+            return webSocket;
         }
+    }
+
+    /** Clear the connection reference if it is still {@code ws}, so the next send rebuilds it. */
+    private void clearWebSocket(WebSocket ws) {
+        synchronized (connectLock) {
+            if (webSocket == ws) {
+                webSocket = null;
+            }
+        }
+    }
+
+    /**
+     * Re-send a subscribe frame for every tracked subscription, reusing each subscription's original
+     * correlationId and parameters. Called under {@link #connectLock} once a reconnect's socket is open
+     * so streaming resumes for subscriptions that outlived the dropped connection.
+     */
+    private void resubscribeAll() {
+        for (List<SubRegistration> regs : subscriptions.values()) {
+            for (SubRegistration reg : regs) {
+                rawSend(buildSubscribeFrame(reg.correlationId, reg.cacheId, reg.counters,
+                        reg.sendSnapshot, reg.key, reg.mode));
+            }
+        }
+    }
+
+    private ObjectNode buildSubscribeFrame(String cid, String cacheId, boolean counters,
+                                           boolean sendSnapshot, String key, String mode) {
+        final ObjectNode frame = objectMapper.createObjectNode();
+        frame.put("type", "subscribe");
+        frame.put("correlationId", cid);
+        frame.put("counters", counters);
+        frame.put("sendSnapshot", sendSnapshot);
+        final ObjectNode selector = objectMapper.createObjectNode();
+        selector.put("cacheId", cacheId);
+        if (key != null) {
+            selector.put("key", key);
+        }
+        if (mode != null) {
+            selector.put("mode", mode.toUpperCase());
+        }
+        frame.putArray("caches").add(selector);
+        return frame;
     }
 
     @Override
     public void close() {
+        closed = true;
         final WebSocket ws = webSocket;
         webSocket = null;
         if (ws != null) {
@@ -522,26 +578,16 @@ public class AeronBidiClient implements AutoCloseable {
                                          boolean counters, SubRegistration registration) {
         final String cid = UUID.randomUUID().toString();
         registration.correlationId = cid;
+        registration.cacheId = cacheId;
+        registration.sendSnapshot = sendSnapshot;
+        registration.key = key;
+        registration.mode = mode;
         subscriptions.computeIfAbsent(cacheId, k -> new CopyOnWriteArrayList<>()).add(registration);
 
         final CompletableFuture<List<String>> ack = new CompletableFuture<>();
         pendingSubscribeAcks.put(cid, ack);
 
-        final ObjectNode frame = objectMapper.createObjectNode();
-        frame.put("type", "subscribe");
-        frame.put("correlationId", cid);
-        frame.put("counters", counters);
-        frame.put("sendSnapshot", sendSnapshot);
-        final ObjectNode selector = objectMapper.createObjectNode();
-        selector.put("cacheId", cacheId);
-        if (key != null) {
-            selector.put("key", key);
-        }
-        if (mode != null) {
-            selector.put("mode", mode.toUpperCase());
-        }
-        frame.putArray("caches").add(selector);
-        send(frame);
+        send(buildSubscribeFrame(cid, cacheId, counters, sendSnapshot, key, mode));
 
         awaitSubscribeAck(cid, ack);
         return new BidiSubscription(this, cid, cacheId, counters);
@@ -666,6 +712,11 @@ public class AeronBidiClient implements AutoCloseable {
 
     private void send(ObjectNode frame) {
         ensureConnected();
+        rawSend(frame);
+    }
+
+    /** Enqueue a frame on the current socket without (re)establishing the connection. */
+    private void rawSend(ObjectNode frame) {
         final String text = frame.toString();
         sendExecutor.execute(() -> {
             try {
@@ -896,11 +947,13 @@ public class AeronBidiClient implements AutoCloseable {
 
         @Override
         public void onError(WebSocket ws, Throwable error) {
+            clearWebSocket(ws);
             failAllPending(error);
         }
 
         @Override
         public CompletionStage<?> onClose(WebSocket ws, int statusCode, String reason) {
+            clearWebSocket(ws);
             failAllPending(new IllegalStateException("WebSocket closed: " + statusCode + " " + reason));
             return null;
         }
@@ -941,6 +994,11 @@ public class AeronBidiClient implements AutoCloseable {
         final Consumer<CounterUpdateEvent> counterListener;
         final boolean counters;
         volatile String correlationId;
+        // Subscribe parameters, retained so the subscription can be replayed on reconnect.
+        volatile String cacheId;
+        volatile boolean sendSnapshot;
+        volatile String key;
+        volatile String mode;
 
         SubRegistration(Consumer<CacheUpdateEvent> cacheListener, Consumer<CounterUpdateEvent> counterListener,
                         boolean counters) {

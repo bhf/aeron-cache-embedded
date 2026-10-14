@@ -111,6 +111,9 @@ interface Listener {
     cid: string;
     onMessage: (ev: any) => void;
     counters: boolean;
+    // Original subscribe parameters, retained so the subscription can be replayed on reconnect.
+    sendSnapshot: boolean;
+    selector: any;
 }
 
 interface SubscribeOpts {
@@ -174,6 +177,9 @@ export class AeronBidiClient {
             this.ws = ws;
             ws.onopen = () => {
                 settled = true;
+                // On a reconnect, re-establish every active subscription before unblocking senders so
+                // streaming resumes. On the first connect `subs` is empty, so this is a no-op.
+                this.resubscribeAll(ws);
                 resolve();
             };
             ws.onmessage = (event: MessageEvent) => {
@@ -418,6 +424,30 @@ export class AeronBidiClient {
             a.reject(err);
         }
         this.subAcks.clear();
+    }
+
+    /**
+     * Re-send a SUBSCRIBE frame for every locally-tracked subscription, reusing each subscription's
+     * original correlationId and parameters. Called on every socket open; on a reconnect this resumes
+     * streaming for subscriptions that outlived the dropped connection. Writes directly to the freshly
+     * opened socket (not via {@link send}) to avoid re-entering {@link connect}.
+     */
+    private resubscribeAll(ws: WebSocket): void {
+        for (const listeners of this.subs.values()) {
+            for (const sub of listeners) {
+                try {
+                    ws.send(JSON.stringify({
+                        type: 'subscribe',
+                        correlationId: sub.cid,
+                        counters: sub.counters,
+                        sendSnapshot: sub.sendSnapshot,
+                        caches: [sub.selector]
+                    }));
+                } catch {
+                    // best-effort replay; a failed write will be retried on the next reconnect
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------------ send helpers
@@ -712,7 +742,7 @@ export class AeronBidiClient {
             selector.mode = String(opts.mode).toUpperCase();
         }
         const listeners = this.subs.get(cacheId) ?? [];
-        listeners.push({ cid, onMessage: onEvent, counters });
+        listeners.push({ cid, onMessage: onEvent, counters, sendSnapshot: opts.sendSnapshot ?? false, selector });
         this.subs.set(cacheId, listeners);
 
         const ackPromise = new Promise<string[]>((resolve, reject) => {

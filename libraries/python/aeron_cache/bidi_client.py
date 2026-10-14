@@ -69,6 +69,7 @@ class AeronBidiClient:
         self.request_timeout = request_timeout
         self._ws = None
         self._reader_task = None
+        self._closed = False
         self._connect_lock = asyncio.Lock()
         # correlationId -> asyncio.Future for single-response commands
         self._pending = {}
@@ -90,21 +91,32 @@ class AeronBidiClient:
     # ------------------------------------------------------------------ lifecycle
 
     async def connect(self):
+        if self._closed:
+            raise ConnectionError("AeronBidiClient is closed")
         if self._ws is not None:
             return
         async with self._connect_lock:
+            if self._closed:
+                raise ConnectionError("AeronBidiClient is closed")
             if self._ws is not None:
                 return
-            self._ws = await websockets.connect(f"{self.ws_url}/api/ws/v1/bidi")
-            self._reader_task = asyncio.create_task(self._read_loop())
+            reconnecting = bool(self._subs)
+            ws = await websockets.connect(f"{self.ws_url}/api/ws/v1/bidi")
+            self._ws = ws
+            self._reader_task = asyncio.create_task(self._read_loop(ws))
+            if reconnecting:
+                # Resume streaming for subscriptions that outlived the dropped connection.
+                await self._resubscribe_all(ws)
 
     async def close(self):
+        self._closed = True
+        ws = self._ws
+        self._ws = None
         if self._reader_task is not None:
             self._reader_task.cancel()
             self._reader_task = None
-        if self._ws is not None:
-            await self._ws.close()
-            self._ws = None
+        if ws is not None:
+            await ws.close()
         self._fail_all(ConnectionError("AeronBidiClient closed"))
 
     async def __aenter__(self):
@@ -116,9 +128,9 @@ class AeronBidiClient:
 
     # ------------------------------------------------------------------ reader / dispatch
 
-    async def _read_loop(self):
+    async def _read_loop(self, ws):
         try:
-            async for raw in self._ws:
+            async for raw in ws:
                 try:
                     self._dispatch(json.loads(raw))
                 except Exception:
@@ -127,6 +139,14 @@ class AeronBidiClient:
             raise
         except Exception as e:
             self._fail_all(e)
+        finally:
+            # The connection ended (drop or clean server close — the latter ends the async-for with
+            # no exception). Clear it so the next send reconnects, unless an explicit close() or a
+            # newer connection has already replaced it.
+            if self._ws is ws:
+                self._ws = None
+                self._reader_task = None
+                self._fail_all(ConnectionError("bidi connection closed"))
 
     def _dispatch(self, msg):
         msg_type = msg.get("type")
@@ -244,6 +264,27 @@ class AeronBidiClient:
         self._sub_acks.clear()
 
     # ------------------------------------------------------------------ send helpers
+
+    async def _resubscribe_all(self, ws):
+        """Re-send a SUBSCRIBE frame for every tracked subscription, reusing its original
+        correlationId and parameters. Writes directly to the freshly opened socket (not via
+        :meth:`_send`) to avoid re-entering :meth:`connect`.
+        """
+        for cache_id, subs in list(self._subs.items()):
+            for sub in subs:
+                selector = {"cacheId": cache_id}
+                if sub.get("key") is not None:
+                    selector["key"] = sub["key"]
+                if sub.get("mode") is not None:
+                    selector["mode"] = sub["mode"]
+                try:
+                    await ws.send(json.dumps({
+                        "type": "subscribe", "correlationId": sub["cid"],
+                        "counters": sub["counters"], "sendSnapshot": sub.get("send_snapshot", False),
+                        "caches": [selector],
+                    }))
+                except Exception:
+                    pass
 
     async def _send(self, frame):
         await self.connect()
@@ -471,12 +512,19 @@ class AeronBidiClient:
 
     async def _subscribe(self, cache_id, on_message, counters, send_snapshot, key, mode) -> BidiSubscription:
         cid = str(uuid.uuid4())
+        mode_str = None
+        if mode is not None:
+            mode_str = mode.value if hasattr(mode, "value") else str(mode).upper()
         selector = {"cacheId": cache_id}
         if key is not None:
             selector["key"] = key
-        if mode is not None:
-            selector["mode"] = mode.value if hasattr(mode, "value") else str(mode).upper()
-        self._subs.setdefault(cache_id, []).append({"cid": cid, "on_message": on_message, "counters": counters})
+        if mode_str is not None:
+            selector["mode"] = mode_str
+        # Retain the subscribe parameters so the subscription can be replayed on reconnect.
+        self._subs.setdefault(cache_id, []).append({
+            "cid": cid, "on_message": on_message, "counters": counters,
+            "send_snapshot": send_snapshot, "key": key, "mode": mode_str,
+        })
         ack = asyncio.get_event_loop().create_future()
         self._sub_acks[cid] = ack
         await self._send({

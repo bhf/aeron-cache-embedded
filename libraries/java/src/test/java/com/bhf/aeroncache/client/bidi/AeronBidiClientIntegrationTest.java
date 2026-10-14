@@ -412,4 +412,77 @@ class AeronBidiClientIntegrationTest {
         client.clearCounterCache(cacheId);
         client.deleteCounterCache(cacheId);
     }
+
+    /**
+     * Reconnect + subscription replay: forces an involuntary drop (closes the underlying socket via
+     * reflection, not {@link AeronBidiClient#close()}), then asserts the next command transparently
+     * reconnects and a subscription created before the drop resumes delivering updates.
+     */
+    @Test
+    void reconnectReplaysSubscriptionsAfterDrop() throws Exception {
+        final String cacheId = "bidi-recon-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCache(cacheId);
+
+        final List<CacheUpdateEvent> events = new CopyOnWriteArrayList<>();
+        try (BidiSubscription ignored = client.subscribe(cacheId, ev -> {
+            if ("ADD_ITEM".equals(ev.getEventType())) {
+                events.add(ev);
+            }
+        })) {
+            Thread.sleep(500);
+
+            // Baseline: subscription delivers before any drop.
+            client.putItem(cacheId, "before", "v0");
+            assertTrue(awaitEvent(events, "before"), "expected baseline update for key before");
+
+            // Force an involuntary drop: close the underlying WebSocket directly.
+            final java.lang.reflect.Field wsField = AeronBidiClient.class.getDeclaredField("webSocket");
+            wsField.setAccessible(true);
+            final java.net.http.WebSocket inner = (java.net.http.WebSocket) wsField.get(client);
+            assertNotNull(inner, "expected a live socket to drop");
+            inner.sendClose(java.net.http.WebSocket.NORMAL_CLOSURE, "test drop");
+
+            // Wait for onClose to clear the socket reference.
+            final long dropDeadline = System.currentTimeMillis() + 5_000;
+            while (wsField.get(client) != null && System.currentTimeMillis() < dropDeadline) {
+                Thread.sleep(50);
+            }
+            assertTrue(wsField.get(client) == null, "drop should have cleared the socket reference");
+
+            // Next command should transparently reconnect.
+            client.putItem(cacheId, "after", "v1");
+            assertTrue(wsField.get(client) != null, "command after drop should have reconnected");
+
+            // The replayed subscription must resume delivering updates. Re-registration on the new
+            // connection can land slightly after reconnect (notably on a slow RAFT backend), and any
+            // event produced before it is live falls in the reconnect gap and is lost. Prove the
+            // subscription *eventually* resumes by producing a fresh-keyed update each round until one
+            // is delivered.
+            boolean resumed = false;
+            for (int i = 0; i < 40; i++) {
+                final String key = "postreconnect-" + i;
+                client.putItem(cacheId, key, "v2");
+                if (awaitEvent(events, key, 5)) {
+                    resumed = true;
+                    break;
+                }
+            }
+            assertTrue(resumed, "subscription did not resume after reconnect (replay failed)");
+        }
+        client.deleteCache(cacheId);
+    }
+
+    private static boolean awaitEvent(List<CacheUpdateEvent> events, String key) throws InterruptedException {
+        return awaitEvent(events, key, 100);
+    }
+
+    private static boolean awaitEvent(List<CacheUpdateEvent> events, String key, int polls) throws InterruptedException {
+        for (int i = 0; i < polls; i++) {
+            if (events.stream().anyMatch(e -> key.equals(e.getItemKey()))) {
+                return true;
+            }
+            Thread.sleep(50);
+        }
+        return false;
+    }
 }
