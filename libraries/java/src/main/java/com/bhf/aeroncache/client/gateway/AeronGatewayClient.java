@@ -71,6 +71,9 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
 
     private static final long DEFAULT_REQUEST_TIMEOUT_MS = 5_000L;
 
+    /** How often the connection monitor checks liveness and, while reconnecting, probes the gateway. */
+    private static final long CONNECTION_MONITOR_INTERVAL_MS = 250L;
+
     private final Aeron aeron;
     private final boolean ownsAeron;
     private final GatewayClient gatewayClient;
@@ -96,6 +99,13 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     // cacheId -> subscription listeners
     private final Map<String, List<Consumer<CacheUpdateEvent>>> cacheListeners = new ConcurrentHashMap<>();
     private final Map<String, List<Consumer<CounterUpdateEvent>>> counterListeners = new ConcurrentHashMap<>();
+
+    // Active subscriptions, retained with their parameters so they can be replayed after a reconnect.
+    private final List<SubRegistration> subscriptions = new CopyOnWriteArrayList<>();
+
+    // Connection-monitor state (all touched only on the single-threaded `timeouts` scheduler).
+    private volatile boolean everConnected = false;
+    private volatile boolean reconnecting = false;
 
     // ------------------------------------------------------------------ construction
 
@@ -145,6 +155,8 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
         final IdleStrategy idleStrategy = new BackoffIdleStrategy();
         this.agentRunner = new AgentRunner(idleStrategy, Throwable::printStackTrace, null, gatewayClient);
         AgentRunner.startOnThread(agentRunner);
+        timeouts.scheduleWithFixedDelay(this::monitorConnection,
+                CONNECTION_MONITOR_INTERVAL_MS, CONNECTION_MONITOR_INTERVAL_MS, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -574,12 +586,15 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
                                          Consumer<CacheUpdateEvent> listener) {
         cacheListeners.computeIfAbsent(cacheId, k -> new CopyOnWriteArrayList<>()).add(listener);
         final String cid = UUID.randomUUID().toString();
+        final SubRegistration registration = new SubRegistration(cid, cacheId, false, sendSnapshot, mode, key);
+        subscriptions.add(registration);
         final CompletableFuture<Void> ack = new CompletableFuture<>();
         pendingSubscribeAcks.put(cid, ack);
         offer(() -> gatewayClient.subscribe(cid, List.of(cacheId), sendSnapshot, false, mode, key), null);
         awaitSubscribeAck(cid, ack);
         return new GatewaySubscription(cacheId, false, () -> {
             removeListener(cacheListeners, cacheId, listener);
+            subscriptions.remove(registration);
             offer(() -> gatewayClient.unsubscribe(UUID.randomUUID().toString(), cacheId, false), null);
         });
     }
@@ -597,14 +612,73 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     public GatewaySubscription subscribeCounter(String cacheId, boolean sendSnapshot, Consumer<CounterUpdateEvent> listener) {
         counterListeners.computeIfAbsent(cacheId, k -> new CopyOnWriteArrayList<>()).add(listener);
         final String cid = UUID.randomUUID().toString();
+        final SubRegistration registration = new SubRegistration(cid, cacheId, true, sendSnapshot, SubscriptionMode.FULL, null);
+        subscriptions.add(registration);
         final CompletableFuture<Void> ack = new CompletableFuture<>();
         pendingSubscribeAcks.put(cid, ack);
         offer(() -> gatewayClient.subscribe(cid, List.of(cacheId), sendSnapshot, true, SubscriptionMode.FULL, null), null);
         awaitSubscribeAck(cid, ack);
         return new GatewaySubscription(cacheId, true, () -> {
             removeListener(counterListeners, cacheId, listener);
+            subscriptions.remove(registration);
             offer(() -> gatewayClient.unsubscribe(UUID.randomUUID().toString(), cacheId, true), null);
         });
+    }
+
+    // ------------------------------------------------------------------ connection monitor / reconnect
+
+    /**
+     * Periodically checks gateway liveness and drives reconnection. Runs on the single-threaded
+     * {@code timeouts} scheduler.
+     * <p>
+     * Once the client has connected at least once, a subsequent loss of connectivity (both the request
+     * publication and response subscription go unconnected — in Aeron this follows the image-liveness
+     * timeout) triggers: failing all in-flight requests, requesting the agent rebuild the
+     * publication/subscription, and — because the gateway recreates each client's response publication
+     * lazily on the first request — firing warmup probes until the connection is re-established. On
+     * recovery, active subscriptions are replayed so streaming resumes.
+     */
+    private void monitorConnection() {
+        try {
+            if (gatewayClient.isConnected()) {
+                everConnected = true;
+                if (reconnecting) {
+                    reconnecting = false;
+                    resubscribeAll();
+                }
+                return;
+            }
+            // Not connected. The initial connect is driven by the caller (awaitConnected); only react to
+            // the loss of a previously established connection.
+            if (!everConnected) {
+                return;
+            }
+            if (!reconnecting) {
+                reconnecting = true;
+                failAllPending(new IllegalStateException("gateway connection lost; reconnecting"));
+                gatewayClient.requestReconnect();
+            }
+            // Prompt the gateway to (re)create our response publication so the response subscription
+            // reconnects (mirrors awaitConnected's warmup).
+            if (gatewayClient.isReadyToSend()) {
+                gatewayClient.getStats("connection-warmup");
+            }
+        } catch (Throwable t) {
+            // Never let the monitor task die; it must keep running for the client's lifetime.
+            LOG.log(System.Logger.Level.WARNING, "Connection monitor iteration failed", t);
+        }
+    }
+
+    /**
+     * Re-send a subscribe frame for every active subscription, reusing each subscription's original
+     * correlationId and parameters, so streaming resumes after a reconnect. Fire-and-forget: the
+     * gateway's ack (if any) has no pending barrier and is ignored.
+     */
+    private void resubscribeAll() {
+        for (SubRegistration reg : subscriptions) {
+            offer(() -> gatewayClient.subscribe(reg.correlationId, List.of(reg.cacheId),
+                    reg.sendSnapshot, reg.counters, reg.mode, reg.key), null);
+        }
     }
 
     // --- Transport-neutral subscriptions (CacheTransport) ---
@@ -640,6 +714,11 @@ public class AeronGatewayClient implements CacheTransport, AutoCloseable {
     }
 
     private record PendingCommand<T>(CompletableFuture<T> future, ResponseMapper<T> mapper) {
+    }
+
+    /** An active subscription's parameters, retained so it can be replayed after a reconnect. */
+    private record SubRegistration(String correlationId, String cacheId, boolean counters,
+                                   boolean sendSnapshot, SubscriptionMode mode, String key) {
     }
 
     private final class EntriesAccumulator {

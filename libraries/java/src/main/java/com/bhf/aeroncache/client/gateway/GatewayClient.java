@@ -93,6 +93,7 @@ public class GatewayClient implements Agent, AutoCloseable {
 
     private ExclusivePublication publication;
     private Subscription subscription;
+    private volatile boolean reconnectRequested = false;
 
     /**
      * Connect over UDP (the default transport media).
@@ -153,6 +154,12 @@ public class GatewayClient implements Agent, AutoCloseable {
     public int doWork() {
         int work = 0;
 
+        if (reconnectRequested) {
+            reconnectRequested = false;
+            tearDownConnection();
+            work++;
+        }
+
         if (subscription == null) {
             subscription = aeron.addSubscription(responseUriBuilder.build(), responseStreamId);
             work++;
@@ -168,6 +175,28 @@ public class GatewayClient implements Agent, AutoCloseable {
         work += commandRingBuffer.controlledRead(commandHandler, COMMAND_LIMIT);
         work += subscription.poll(fragmentAssembler, FRAGMENT_LIMIT);
         return work;
+    }
+
+    /**
+     * Request that the publication/subscription be torn down and rebuilt on the next duty cycle. Called
+     * (from another thread) by the high-level client's connection monitor when it detects a dropped
+     * gateway; the actual teardown runs on the agent thread in {@link #doWork()}, which solely owns the
+     * Aeron connection objects.
+     */
+    public void requestReconnect() {
+        reconnectRequested = true;
+    }
+
+    private void tearDownConnection() {
+        final ExclusivePublication pub = publication;
+        if (pub != null) {
+            pub.revokeOnClose();
+        }
+        CloseHelper.quietCloseAll(pub, subscription);
+        publication = null;
+        subscription = null;
+        // Discard any half-assembled fragments from the old image so the rebuilt subscription starts clean.
+        fragmentAssembler.clear();
     }
 
     @Override
