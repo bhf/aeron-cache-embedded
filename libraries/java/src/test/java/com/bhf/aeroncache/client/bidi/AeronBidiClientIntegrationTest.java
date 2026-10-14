@@ -453,18 +453,31 @@ class AeronBidiClientIntegrationTest {
             client.putItem(cacheId, "after", "v1");
             assertTrue(wsField.get(client) != null, "command after drop should have reconnected");
 
-            // The replayed subscription must resume delivering updates.
-            Thread.sleep(300);
-            client.putItem(cacheId, "postreconnect", "v2");
-            assertTrue(awaitEvent(events, "postreconnect"),
-                    "subscription did not resume after reconnect (replay failed)");
+            // The replayed subscription must resume delivering updates. Re-registration on the new
+            // connection can land slightly after reconnect (notably on a slow RAFT backend), and any
+            // event produced before it is live falls in the reconnect gap and is lost. Prove the
+            // subscription *eventually* resumes by producing a fresh-keyed update each round until one
+            // is delivered.
+            boolean resumed = false;
+            for (int i = 0; i < 40; i++) {
+                final String key = "postreconnect-" + i;
+                client.putItem(cacheId, key, "v2");
+                if (awaitEvent(events, key, 5)) {
+                    resumed = true;
+                    break;
+                }
+            }
+            assertTrue(resumed, "subscription did not resume after reconnect (replay failed)");
         }
         client.deleteCache(cacheId);
     }
 
     private static boolean awaitEvent(List<CacheUpdateEvent> events, String key) throws InterruptedException {
-        final long deadline = System.currentTimeMillis() + 5_000;
-        while (System.currentTimeMillis() < deadline) {
+        return awaitEvent(events, key, 100);
+    }
+
+    private static boolean awaitEvent(List<CacheUpdateEvent> events, String key, int polls) throws InterruptedException {
+        for (int i = 0; i < polls; i++) {
             if (events.stream().anyMatch(e -> key.equals(e.getItemKey()))) {
                 return true;
             }

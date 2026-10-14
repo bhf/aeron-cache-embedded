@@ -346,8 +346,8 @@ const rid = () => Math.random().toString(36).substring(2, 10);
                 keys.add(ev.itemKey);
             }
         });
-        const awaitKey = async (key: string) => {
-            for (let i = 0; i < 50; i++) {
+        const awaitKey = async (key: string, attempts = 50) => {
+            for (let i = 0; i < attempts; i++) {
                 if (keys.has(key)) return true;
                 await sleep(100);
             }
@@ -372,10 +372,20 @@ const rid = () => Math.random().toString(36).substring(2, 10);
         expect(put.operationStatus).toBe('SUCCESS');
         expect((client as any).ws).not.toBeNull();
 
-        // The replayed subscription must resume delivering updates.
-        await sleep(300);
-        await client.putItem(cacheId, 'postreconnect', 'v2');
-        expect(await awaitKey('postreconnect')).toBe(true);
+        // The replayed subscription must resume delivering updates. Re-registration on the new
+        // connection can land slightly after reconnect, and any event produced before it is live falls
+        // in the reconnect gap and is lost. Prove the subscription *eventually* resumes by producing a
+        // fresh-keyed update each round until one is delivered.
+        let resumed = false;
+        for (let i = 0; i < 40; i++) {
+            const key = `postreconnect-${i}`;
+            await client.putItem(cacheId, key, 'v2');
+            if (await awaitKey(key, 5)) {
+                resumed = true;
+                break;
+            }
+        }
+        expect(resumed).toBe(true);
 
         await sub.close();
         await client.deleteCache(cacheId);

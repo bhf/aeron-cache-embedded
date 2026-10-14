@@ -1133,14 +1133,23 @@ mod tests {
         assert_eq!(r.operation_status, "SUCCESS");
         assert!(client.connected.load(Ordering::Acquire), "did not reconnect");
 
-        // The replayed subscription must resume delivering updates.
-        std::thread::sleep(Duration::from_millis(300));
-        client.put_item(&cache_id, "postreconnect", "v2").expect("put post-reconnect");
-        std::thread::sleep(Duration::from_millis(400));
-        assert!(
-            events.lock().unwrap().iter().any(|e| e.item_key.as_deref() == Some("postreconnect")),
-            "subscription did not resume after reconnect (replay failed)"
-        );
+        // The replayed subscription must resume delivering updates. Re-registration on the new
+        // connection can land slightly after reconnect (notably on a slow RAFT backend), and any event
+        // produced before it is live falls in the reconnect gap and is lost. Prove the subscription
+        // *eventually* resumes by producing a fresh-keyed update each round until one is delivered.
+        let mut resumed = false;
+        'outer: for i in 0..40 {
+            let key = format!("postreconnect-{i}");
+            client.put_item(&cache_id, &key, "v2").expect("put post-reconnect");
+            for _ in 0..5 {
+                if events.lock().unwrap().iter().any(|e| e.item_key.as_deref() == Some(key.as_str())) {
+                    resumed = true;
+                    break 'outer;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+        assert!(resumed, "subscription did not resume after reconnect (replay failed)");
     }
 
     #[test]

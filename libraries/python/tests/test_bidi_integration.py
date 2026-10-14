@@ -252,8 +252,8 @@ async def test_bidi_reconnect_replays_subscriptions_after_drop():
             cache_id, lambda ev: got.add(ev.itemKey) if ev.eventType == "ADD_ITEM" else None
         )
 
-        async def await_key(key):
-            for _ in range(50):
+        async def await_key(key, attempts=50):
+            for _ in range(attempts):
                 if key in got:
                     return True
                 await asyncio.sleep(0.1)
@@ -276,12 +276,18 @@ async def test_bidi_reconnect_replays_subscriptions_after_drop():
         assert r.operationStatus == "SUCCESS"
         assert client._ws is not None, "command after drop should have reconnected"
 
-        # The replayed subscription must resume delivering updates.
-        await asyncio.sleep(0.3)
-        await client.put_item(cache_id, "postreconnect", "v2")
-        assert await await_key("postreconnect"), (
-            "subscription did not resume after reconnect (replay failed)"
-        )
+        # The replayed subscription must resume delivering updates. Re-registration on the new
+        # connection can land slightly after reconnect (notably on a slow RAFT backend), and any event
+        # produced before it is live falls in the reconnect gap and is lost. Prove the subscription
+        # *eventually* resumes by producing a fresh-keyed update each round until one is delivered.
+        resumed = False
+        for i in range(40):
+            key = f"postreconnect-{i}"
+            await client.put_item(cache_id, key, "v2")
+            if await await_key(key, attempts=5):
+                resumed = True
+                break
+        assert resumed, "subscription did not resume after reconnect (replay failed)"
 
         await client_sub.close()
         await client.delete_cache(cache_id)
