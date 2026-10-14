@@ -2,9 +2,13 @@ package com.bhf.aeroncache.client.gateway;
 
 import com.bhf.aeroncache.gateway.messages.GatewayCommandDecoder;
 import com.bhf.aeroncache.gateway.messages.GatewayCommandResponseEncoder;
+import com.bhf.aeroncache.gateway.messages.GatewayStreamUpdateEncoder;
+import com.bhf.aeroncache.gateway.messages.GatewaySubscribeAckEncoder;
+import com.bhf.aeroncache.gateway.messages.GatewaySubscribeDecoder;
 import com.bhf.aeroncache.gateway.messages.MessageHeaderDecoder;
 import com.bhf.aeroncache.gateway.messages.MessageHeaderEncoder;
 import com.bhf.aeroncache.gateway.messages.OperationStatus;
+import com.bhf.aeroncache.gateway.messages.UpdateEventType;
 import io.aeron.Aeron;
 import io.aeron.ChannelUriStringBuilder;
 import io.aeron.FragmentAssembler;
@@ -21,6 +25,10 @@ import org.agrona.concurrent.UnsafeBuffer;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * A minimal in-process gateway server double used only to prove that {@link GatewayClient} round-trips a
@@ -43,11 +51,19 @@ class LoopbackGatewayServer implements Agent {
     private final ChannelUriStringBuilder responseUriBuilder;
     private final Long2ObjectHashMap<Publication> sessions = new Long2ObjectHashMap<>();
     private final Deque<PendingFrame> pending = new ArrayDeque<>();
+    // Caches this server has a live subscription for. After a restart this starts empty, so it only
+    // contains a cache again once the client replays its subscription — the signal the reconnect test keys on.
+    private final Set<String> subscribedCaches = ConcurrentHashMap.newKeySet();
+    // Stream updates requested by the test thread; drained and offered on the agent thread in doWork().
+    private final Queue<String[]> updateRequests = new ConcurrentLinkedQueue<>();
 
     private final MessageHeaderEncoder headerEncoder = new MessageHeaderEncoder();
     private final MessageHeaderDecoder headerDecoder = new MessageHeaderDecoder();
     private final GatewayCommandDecoder commandDecoder = new GatewayCommandDecoder();
+    private final GatewaySubscribeDecoder subscribeDecoder = new GatewaySubscribeDecoder();
     private final GatewayCommandResponseEncoder commandResponseEncoder = new GatewayCommandResponseEncoder();
+    private final GatewaySubscribeAckEncoder subscribeAckEncoder = new GatewaySubscribeAckEncoder();
+    private final GatewayStreamUpdateEncoder streamUpdateEncoder = new GatewayStreamUpdateEncoder();
     private final MutableDirectBuffer scratch = new ExpandableArrayBuffer(4096);
     private final FragmentAssembler fragmentAssembler = new FragmentAssembler(this::onFragment);
 
@@ -69,8 +85,38 @@ class LoopbackGatewayServer implements Agent {
             subscription = aeron.addSubscription(requestUriBuilder.build(), requestStreamId);
             work++;
         }
+        work += drainUpdateRequests();
         work += drainPending();
         work += subscription.poll(fragmentAssembler, FRAGMENT_LIMIT);
+        return work;
+    }
+
+    /**
+     * Request that a stream update be pushed to all subscribed clients for {@code cacheId}. Thread-safe;
+     * the actual encode/offer happens on the agent thread. The update is only delivered if this server
+     * currently has a live subscription for the cache.
+     */
+    void publishStreamUpdate(String cacheId, String key, String value) {
+        updateRequests.add(new String[]{cacheId, key, value});
+    }
+
+    /** @return {@code true} once this server has received a (live) subscription for {@code cacheId}. */
+    boolean isSubscribed(String cacheId) {
+        return subscribedCaches.contains(cacheId);
+    }
+
+    private int drainUpdateRequests() {
+        int work = 0;
+        String[] req;
+        while ((req = updateRequests.poll()) != null) {
+            if (!subscribedCaches.contains(req[0])) {
+                continue;
+            }
+            for (final Publication session : sessions.values()) {
+                enqueueStreamUpdate(session, req[0], req[1], req[2]);
+            }
+            work++;
+        }
         return work;
     }
 
@@ -132,6 +178,18 @@ class LoopbackGatewayServer implements Agent {
             final String cacheId = commandDecoder.cacheId();
             final String key = commandDecoder.key();
             enqueueCommandResponse(response, correlationId, cacheId, key, "");
+        } else if (templateId == GatewaySubscribeDecoder.TEMPLATE_ID) {
+            subscribeDecoder.wrap(buffer, bodyOffset, blockLength, version);
+            subscribeDecoder.sendSnapshot();
+            subscribeDecoder.counters();
+            for (final GatewaySubscribeDecoder.CacheIdsDecoder c : subscribeDecoder.cacheIds()) {
+                c.mode();
+                final String cacheId = c.cacheId();
+                c.key();
+                subscribedCaches.add(cacheId);
+            }
+            final String correlationId = subscribeDecoder.correlationId();
+            enqueueSubscribeAck(response, correlationId);
         }
     }
 
@@ -144,6 +202,24 @@ class LoopbackGatewayServer implements Agent {
                 .key(key)
                 .value(value);
         enqueue(response, commandResponseEncoder.limit());
+    }
+
+    private void enqueueSubscribeAck(Publication response, String correlationId) {
+        subscribeAckEncoder.wrapAndApplyHeader(scratch, 0, headerEncoder)
+                .status(OperationStatus.SUCCESS)
+                .cacheIdsCount(0);
+        subscribeAckEncoder.correlationId(correlationId);
+        enqueue(response, subscribeAckEncoder.limit());
+    }
+
+    private void enqueueStreamUpdate(Publication response, String cacheId, String key, String value) {
+        streamUpdateEncoder.wrapAndApplyHeader(scratch, 0, headerEncoder)
+                .eventType(UpdateEventType.ADD_ITEM)
+                .cacheId(cacheId)
+                .key(key)
+                .value(value)
+                .correlationId("loopback-update");
+        enqueue(response, streamUpdateEncoder.limit());
     }
 
     private void enqueue(Publication response, int length) {

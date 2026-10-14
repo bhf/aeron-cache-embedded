@@ -43,6 +43,11 @@ pub const DEFAULT_RESPONSE_STREAM_ID: i32 = 101;
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const FRAGMENT_LIMIT: usize = 16;
+/// How often the poll thread checks connection health and, while reconnecting, warms up the gateway.
+const CONNECTION_HEALTH_INTERVAL: Duration = Duration::from_millis(250);
+/// How long the connection must stay down before the poll thread rebuilds the publication/subscription.
+/// A short blip that Aeron re-forms on its own recovers without a rebuild.
+const RECONNECT_GRACE: Duration = Duration::from_millis(500);
 
 // ------------------------------------------------------------------ transport media
 
@@ -202,6 +207,8 @@ struct Shared {
     pending_sub_ack: Mutex<HashMap<String, Sender<()>>>,
     cache_listeners: Mutex<HashMap<String, Vec<CacheListener>>>,
     counter_listeners: Mutex<HashMap<String, Vec<CounterListener>>>,
+    /// Active subscriptions with their parameters, retained so they can be replayed after a reconnect.
+    subscriptions: Mutex<Vec<GatewaySubRegistration>>,
     /// Set true once the response subscription has delivered any frame.
     received_any: AtomicBool,
 }
@@ -217,9 +224,54 @@ impl Shared {
             pending_sub_ack: Mutex::new(HashMap::new()),
             cache_listeners: Mutex::new(HashMap::new()),
             counter_listeners: Mutex::new(HashMap::new()),
+            subscriptions: Mutex::new(Vec::new()),
             received_any: AtomicBool::new(false),
         }
     }
+
+    /// Fail every in-flight request with `msg`. Called when the connection drops so callers get a
+    /// prompt error instead of waiting out their per-request timeout.
+    fn fail_all(&self, msg: &str) {
+        for (_, tx) in self.pending_cmd.lock().unwrap().drain() {
+            let _ = tx.send(Err(msg.to_string()));
+        }
+        for (_, req) in self.pending_entries.lock().unwrap().drain() {
+            let _ = req.sender.send(Err(msg.to_string()));
+        }
+        for (_, req) in self.pending_stats.lock().unwrap().drain() {
+            let _ = req.sender.send(Err(msg.to_string()));
+        }
+        for (_, req) in self.pending_timers.lock().unwrap().drain() {
+            let _ = req.sender.send(Err(msg.to_string()));
+        }
+        for (_, req) in self.pending_bulk.lock().unwrap().drain() {
+            let _ = req.sender.send(Err(msg.to_string()));
+        }
+        self.pending_sub_ack.lock().unwrap().clear();
+    }
+}
+
+/// An active subscription's parameters, retained so it can be replayed after a reconnect.
+struct GatewaySubRegistration {
+    correlation_id: String,
+    cache_id: String,
+    counters: bool,
+    hydrate: bool,
+    mode: subscription_mode::SubscriptionMode,
+    key: String,
+}
+
+/// The poll thread's view of the connection, driving reconnection.
+enum ConnState {
+    /// Before the first full connection (startup).
+    AwaitingInitial,
+    /// Request publication and response subscription both connected.
+    Connected,
+    /// Connection lost at the given instant; waiting out [`RECONNECT_GRACE`] before rebuilding, in
+    /// case Aeron re-forms the images on its own.
+    LostGrace(Instant),
+    /// Publication/subscription rebuilt; awaiting the response channel to re-form.
+    Rebuilt,
 }
 
 /// A handle to an active gateway subscription. Dropping it unsubscribes.
@@ -238,6 +290,9 @@ impl Drop for GatewaySubscription {
         } else {
             self.shared.cache_listeners.lock().unwrap().remove(&self.cache_id);
         }
+        // Drop the replay registration so it is not re-sent on a future reconnect.
+        self.shared.subscriptions.lock().unwrap()
+            .retain(|r| !(r.cache_id == self.cache_id && r.counters == self.counters));
         // Best-effort unsubscribe to the gateway.
         let frame = encode_unsubscribe(&new_correlation_id(), &self.cache_id, self.counters);
         let _ = offer_frame(&self.publication, &frame, DEFAULT_REQUEST_TIMEOUT);
@@ -246,14 +301,14 @@ impl Drop for GatewaySubscription {
 
 /// High-level client for the Aeron Cache gateway over the Aeron transport.
 pub struct AeronGatewayClient {
-    // Kept alive for the lifetime of the client (order matters: dropped after the poll thread joins).
-    _ctx: AeronContext,
-    _aeron: Aeron,
     publication: Arc<Mutex<AeronPublication>>,
     shared: Arc<Shared>,
     request_timeout: Duration,
     running: Arc<AtomicBool>,
-    poll_thread: Option<JoinHandle<()>>,
+    // The supervisor thread owns the Aeron client, the response subscription, and all Aeron I/O
+    // (`Aeron` is !Send, so it is created on and never leaves this thread). It polls responses, checks
+    // connection health, and rebuilds/replays on a drop.
+    supervisor_thread: Option<JoinHandle<()>>,
 }
 
 impl AeronGatewayClient {
@@ -314,62 +369,61 @@ impl AeronGatewayClient {
         response_control: Option<&str>,
         response_stream_id: i32,
     ) -> Result<Self, Box<dyn Error>> {
-        let ctx = AeronContext::new()?;
-        ctx.set_dir(&cformat!("{aeron_dir}"))?;
-        let aeron = Aeron::new(&ctx)?;
-        aeron.start()?;
-
-        // 1. Response subscription (control-mode=response).
-        let response_channel = media.response_channel(response_control)?.build(256)?.into_c_string();
-        let subscription = aeron
-            .async_add_subscription(&response_channel, response_stream_id, Handlers::NONE, Handlers::NONE)?
-            .poll_blocking(Duration::from_secs(5))?;
-
-        // 2. Request publication carrying the response subscription's registration id.
-        let registration_id = subscription.get_constants()?.registration_id();
-        let request_channel = media
-            .request_publication(request_endpoint)?
-            .response_correlation_id(registration_id)?
-            .build(256)?
-            .into_c_string();
-        let publication = aeron
-            .async_add_publication(&request_channel, request_stream_id)?
-            .poll_blocking(Duration::from_secs(5))?;
-
         let shared = Arc::new(Shared::new());
         let running = Arc::new(AtomicBool::new(true));
 
-        // 3. Background poll thread: drains the response subscription (reassembling fragmented
-        //    messages such as batched getEntries/getStats) and dispatches decoded frames.
-        let poll_thread = {
-            let mut shared_ctx = shared.clone();
+        // `Aeron` is !Send, so the Aeron client, the response subscription, and every Aeron operation
+        // (including rebuilds) live entirely on a single supervisor thread. It creates the connection,
+        // hands the shared request publication back here, then polls responses and supervises the link.
+        let aeron_dir = aeron_dir.to_string();
+        let request_endpoint = request_endpoint.map(str::to_string);
+        let response_control = response_control.map(str::to_string);
+        let (init_tx, init_rx) = channel::<Result<Arc<Mutex<AeronPublication>>, String>>();
+
+        let supervisor_thread = {
+            let shared = shared.clone();
             let running = running.clone();
             std::thread::spawn(move || {
-                let mut assembler = AeronFragmentClosureAssembler::new()
-                    .expect("failed to create fragment assembler");
-                while running.load(Ordering::Acquire) {
-                    let _ = assembler.poll(
-                        &subscription,
-                        &mut shared_ctx,
-                        |shared: &mut Arc<Shared>, buf: &[u8], _hdr| {
-                            shared.received_any.store(true, Ordering::Release);
-                            dispatch(buf, shared);
-                        },
-                        FRAGMENT_LIMIT,
-                    );
-                    std::thread::sleep(Duration::from_millis(1));
+                let setup = (|| -> Result<(AeronContext, Aeron, AeronSubscription, AeronPublication), Box<dyn Error>> {
+                    let ctx = AeronContext::new()?;
+                    ctx.set_dir(&cformat!("{aeron_dir}"))?;
+                    let aeron = Aeron::new(&ctx)?;
+                    aeron.start()?;
+                    let (subscription, publication) = build_connection(
+                        &aeron, media, request_endpoint.as_deref(), request_stream_id,
+                        response_control.as_deref(), response_stream_id)?;
+                    Ok((ctx, aeron, subscription, publication))
+                })();
+
+                let (_ctx, aeron, subscription, publication) = match setup {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let _ = init_tx.send(Err(e.to_string()));
+                        return;
+                    }
+                };
+                let publication = Arc::new(Mutex::new(publication));
+                if init_tx.send(Ok(publication.clone())).is_err() {
+                    return; // caller gave up waiting
                 }
+
+                supervise(&aeron, media, request_endpoint.as_deref(), request_stream_id,
+                    response_control.as_deref(), response_stream_id, subscription, publication, shared, running);
             })
         };
 
+        let publication = match init_rx.recv() {
+            Ok(Ok(p)) => p,
+            Ok(Err(e)) => return Err(e.into()),
+            Err(_) => return Err("gateway supervisor thread exited before connecting".into()),
+        };
+
         Ok(AeronGatewayClient {
-            _ctx: ctx,
-            _aeron: aeron,
-            publication: Arc::new(Mutex::new(publication)),
+            publication,
             shared,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
             running,
-            poll_thread: Some(poll_thread),
+            supervisor_thread: Some(supervisor_thread),
         })
     }
 
@@ -630,7 +684,16 @@ impl AeronGatewayClient {
         self.shared.cache_listeners.lock().unwrap()
             .entry(cache_id.to_string()).or_default().push(Arc::new(listener));
         let cid = new_correlation_id();
-        self.send_subscribe(&cid, cache_id, hydrate, false, map_mode(mode), key.unwrap_or(""))?;
+        let resolved_mode = map_mode(mode);
+        self.shared.subscriptions.lock().unwrap().push(GatewaySubRegistration {
+            correlation_id: cid.clone(),
+            cache_id: cache_id.to_string(),
+            counters: false,
+            hydrate,
+            mode: resolved_mode,
+            key: key.unwrap_or("").to_string(),
+        });
+        self.send_subscribe(&cid, cache_id, hydrate, false, resolved_mode, key.unwrap_or(""))?;
         Ok(GatewaySubscription {
             cache_id: cache_id.to_string(),
             counters: false,
@@ -655,6 +718,14 @@ impl AeronGatewayClient {
             .entry(cache_id.to_string()).or_default().push(Arc::new(listener));
         // Patch mode is cache-only; counter caches always subscribe in FULL mode with no key filter.
         let cid = new_correlation_id();
+        self.shared.subscriptions.lock().unwrap().push(GatewaySubRegistration {
+            correlation_id: cid.clone(),
+            cache_id: cache_id.to_string(),
+            counters: true,
+            hydrate,
+            mode: subscription_mode::SubscriptionMode::FULL,
+            key: String::new(),
+        });
         self.send_subscribe(&cid, cache_id, hydrate, true, subscription_mode::SubscriptionMode::FULL, "")?;
         Ok(GatewaySubscription {
             cache_id: cache_id.to_string(),
@@ -707,7 +778,7 @@ impl AeronGatewayClient {
 impl Drop for AeronGatewayClient {
     fn drop(&mut self) {
         self.running.store(false, Ordering::Release);
-        if let Some(handle) = self.poll_thread.take() {
+        if let Some(handle) = self.supervisor_thread.take() {
             let _ = handle.join();
         }
     }
@@ -874,6 +945,127 @@ fn offer_frame(publication: &Arc<Mutex<AeronPublication>>, frame: &[u8], timeout
             Err(e) if e.is_retryable() && Instant::now() < deadline => std::thread::sleep(Duration::from_millis(1)),
             Err(e) => return Err(format!("gateway offer failed: {e}").into()),
         }
+    }
+}
+
+/// Build the response subscription (`control-mode=response`) and the request publication that carries
+/// its registration id as the `response-correlation-id`, so the gateway routes responses back without
+/// an application-level handshake. Used for both the initial connect and a reconnect rebuild. Must run
+/// on the supervisor thread (`Aeron` is !Send).
+fn build_connection(
+    aeron: &Aeron,
+    media: TransportMedia,
+    request_endpoint: Option<&str>,
+    request_stream_id: i32,
+    response_control: Option<&str>,
+    response_stream_id: i32,
+) -> Result<(AeronSubscription, AeronPublication), Box<dyn Error>> {
+    let response_channel = media.response_channel(response_control)?.build(256)?.into_c_string();
+    let subscription = aeron
+        .async_add_subscription(&response_channel, response_stream_id, Handlers::NONE, Handlers::NONE)?
+        .poll_blocking(Duration::from_secs(5))?;
+    let registration_id = subscription.get_constants()?.registration_id();
+    let request_channel = media
+        .request_publication(request_endpoint)?
+        .response_correlation_id(registration_id)?
+        .build(256)?
+        .into_c_string();
+    let publication = aeron
+        .async_add_publication(&request_channel, request_stream_id)?
+        .poll_blocking(Duration::from_secs(5))?;
+    Ok((subscription, publication))
+}
+
+/// The supervisor loop: polls the response subscription, dispatches decoded frames, and supervises the
+/// connection — on a sustained drop it fails in-flight requests, rebuilds the publication/subscription,
+/// warms up the response channel, and replays active subscriptions. Runs on the supervisor thread.
+#[allow(clippy::too_many_arguments)]
+fn supervise(
+    aeron: &Aeron,
+    media: TransportMedia,
+    request_endpoint: Option<&str>,
+    request_stream_id: i32,
+    response_control: Option<&str>,
+    response_stream_id: i32,
+    mut subscription: AeronSubscription,
+    publication: Arc<Mutex<AeronPublication>>,
+    shared: Arc<Shared>,
+    running: Arc<AtomicBool>,
+) {
+    let mut assembler = AeronFragmentClosureAssembler::new().expect("failed to create fragment assembler");
+    let mut shared_ctx = shared.clone();
+    let mut state = ConnState::AwaitingInitial;
+    let mut last_health = Instant::now();
+    while running.load(Ordering::Acquire) {
+        let _ = assembler.poll(
+            &subscription,
+            &mut shared_ctx,
+            |shared: &mut Arc<Shared>, buf: &[u8], _hdr| {
+                shared.received_any.store(true, Ordering::Release);
+                dispatch(buf, shared);
+            },
+            FRAGMENT_LIMIT,
+        );
+
+        if last_health.elapsed() >= CONNECTION_HEALTH_INTERVAL {
+            last_health = Instant::now();
+            let pub_connected = publication.lock().unwrap().is_connected();
+            let fully = pub_connected && subscription.is_connected();
+            state = match state {
+                ConnState::AwaitingInitial if fully => ConnState::Connected,
+                ConnState::AwaitingInitial => ConnState::AwaitingInitial,
+                ConnState::Connected if fully => ConnState::Connected,
+                ConnState::Connected => {
+                    shared.fail_all("gateway connection lost; reconnecting");
+                    ConnState::LostGrace(Instant::now())
+                }
+                ConnState::LostGrace(_) if fully => {
+                    resubscribe_all(&publication, &shared);
+                    ConnState::Connected
+                }
+                ConnState::LostGrace(since) if since.elapsed() >= RECONNECT_GRACE => {
+                    shared.received_any.store(false, Ordering::Release);
+                    match build_connection(aeron, media, request_endpoint, request_stream_id,
+                        response_control, response_stream_id)
+                    {
+                        Ok((new_sub, new_pub)) => {
+                            *publication.lock().unwrap() = new_pub;
+                            subscription = new_sub;
+                            // Discard any half-assembled fragments from the old image.
+                            assembler = AeronFragmentClosureAssembler::new()
+                                .expect("failed to create fragment assembler");
+                            ConnState::Rebuilt
+                        }
+                        Err(_) => ConnState::LostGrace(since), // retry on the next health tick
+                    }
+                }
+                ConnState::LostGrace(since) => ConnState::LostGrace(since),
+                ConnState::Rebuilt if fully => {
+                    resubscribe_all(&publication, &shared);
+                    ConnState::Connected
+                }
+                ConnState::Rebuilt => ConnState::Rebuilt,
+            };
+            // While not fully connected, prompt the gateway so it (re)creates our response publication
+            // and the response subscription can form.
+            if !matches!(state, ConnState::Connected) && pub_connected {
+                let frame = encode_command(msg::GET_CACHE_STATS, 0, 0, "connection-warmup", "", "", "");
+                let _ = offer_frame(&publication, &frame, Duration::from_millis(50));
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// Re-send a subscribe frame for every active subscription, reusing each subscription's original
+/// correlation id and parameters, so streaming resumes after a reconnect. Fire-and-forget: the
+/// gateway's ack (if any) has no pending barrier and is ignored.
+fn resubscribe_all(publication: &Arc<Mutex<AeronPublication>>, shared: &Shared) {
+    let regs = shared.subscriptions.lock().unwrap();
+    for reg in regs.iter() {
+        let frame = encode_subscribe(&reg.correlation_id, &reg.cache_id, reg.hydrate, reg.counters, reg.mode, &reg.key);
+        let _ = offer_frame(publication, &frame, Duration::from_millis(250));
     }
 }
 
