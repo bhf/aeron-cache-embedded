@@ -1,0 +1,155 @@
+name: Soak Java
+
+# Manually triggered, long-running soak of the Java client library. For each transport (HTTP, bidi
+# WebSocket, Aeron gateway) a single-writer workload drives a weighted, seeded-random mix of key-value and
+# counter operations against a real backend, reconciling every value against an in-memory oracle (inline
+# read-backs + periodic and final reconciliation) and sampling client heap throughout. The run is purely
+# time-bounded; all parameters are overridable at dispatch time, and the resolved seed is recorded in each
+# report so any finding is reproducible.
+#
+# Deliberately NOT part of the push/PR CI (that is java-ci.yml); runs only on demand. Other languages get
+# their own soak-<lang>.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      durationSeconds:
+        description: 'Wall-clock duration to drive load for, per transport (seconds)'
+        type: string
+        default: '1800'
+      seed:
+        description: 'PRNG seed (blank = random; the resolved seed is recorded for reproduction)'
+        type: string
+        default: ''
+      kvCacheCount:
+        description: 'Number of key-value caches to spread load across'
+        type: string
+        default: '4'
+      counterCacheCount:
+        description: 'Number of counter caches to spread load across'
+        type: string
+        default: '4'
+      keySpace:
+        description: 'Key space per cache (smaller = more overwrites/removes/collisions)'
+        type: string
+        default: '500'
+      valueSizeBytes:
+        description: 'Size of randomly generated values (bytes)'
+        type: string
+        default: '160'
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    # Backstop above the default 30m (1800s) run; bump if dispatching a longer durationSeconds.
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        transport: [http, bidi, gateway]
+    defaults:
+      run:
+        working-directory: libraries/java
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Set up Homebrew
+        run: |
+          echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+      - name: Install Aeron Cache Backend
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          set +e
+          brew tap bhf/aeroncache > tap.log 2>&1
+          tap_rc=$?
+          brew install --verbose aeron-cache > install.log 2>&1
+          inst_rc=$?
+          if [ "$inst_rc" -ne 0 ]; then
+            echo "::group::tap.log (exit $tap_rc)"; cat tap.log; echo "::endgroup::"
+            echo "::group::install.log (exit $inst_rc)"; cat install.log; echo "::endgroup::"
+            exit 1
+          fi
+          echo "Aeron Cache backend installed (tap exit $tap_rc, install exit $inst_rc)."
+
+      - name: Start Aeron Cache Backend
+        env:
+          # Enable the Aeron SBE gateway (for the gateway transport) and pin its endpoints to loopback.
+          AERON_GATEWAY_ENABLED: "true"
+          GATEWAY_REQUEST_ENDPOINT: "127.0.0.1:7075"
+          GATEWAY_RESPONSE_CONTROL_ENDPOINT: "127.0.0.1:7076"
+        run: |
+          nohup aeron-cache > aeron-cache-log.txt 2>&1 &
+          ENV_FILE="$HOME/.aeron-cache/aeron-cache-ui.env"
+
+          for i in {1..30}; do
+            if [ -f "$ENV_FILE" ]; then
+              echo "Environment file found"
+              break
+            fi
+            echo "Waiting for $ENV_FILE..."
+            sleep 1
+          done
+
+          if [ -f "$ENV_FILE" ]; then
+            FULL_API=$(grep "^AERON_CACHE_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
+            BASE_URL=$(echo "$FULL_API" | sed -E 's|(https?://[^/]+).*|\1|')
+
+            FULL_WS=$(grep "^AERON_CACHE_WS_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
+            if [[ "$FULL_WS" == ws:* && "$FULL_WS" != ws://* ]]; then
+              FULL_WS="${FULL_WS/ws:/ws:\/\/}"
+            fi
+            WS_URL=$(echo "$FULL_WS" | sed -E 's|(wss?://[^/]+).*|\1|')
+
+            echo "Found Base API URL: $BASE_URL"
+            echo "Found Base WS URL: $WS_URL"
+            echo "AERON_CACHE_BASE_URL=$BASE_URL" >> $GITHUB_ENV
+            echo "AERON_CACHE_WS_URL=$WS_URL" >> $GITHUB_ENV
+          else
+            echo "Error: $ENV_FILE not found after timeout"
+            exit 1
+          fi
+
+          # Give the gateway a moment to bind, then surface its status for diagnostics.
+          sleep 5
+          echo "::group::Aeron Gateway status (from backend logs)"
+          grep -iE "gateway" "$HOME/.aeron-cache/aeron-cache.log" aeron-cache-log.txt \
+            || echo "(no gateway lines in backend logs)"
+          echo "::endgroup::"
+
+      - name: Run ${{ matrix.transport }} soak
+        # The gateway transport launches its own embedded media driver and connects over UDP to the
+        # gateway started above (host 127.0.0.1, ports 7075/7076); http/bidi read the backend URLs from
+        # the environment variables exported above.
+        run: >-
+          ./gradlew soakTest
+          -Psoak.transport=${{ matrix.transport }}
+          -Psoak.durationSeconds=${{ inputs.durationSeconds }}
+          -Psoak.seed=${{ inputs.seed }}
+          -Psoak.kvCacheCount=${{ inputs.kvCacheCount }}
+          -Psoak.counterCacheCount=${{ inputs.counterCacheCount }}
+          -Psoak.keySpace=${{ inputs.keySpace }}
+          -Psoak.valueSizeBytes=${{ inputs.valueSizeBytes }}
+          -Daeron.gateway.host=127.0.0.1
+
+      - name: Upload soak report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-java-${{ matrix.transport }}-report
+          path: |
+            libraries/java/build/reports/soak/
+            libraries/java/build/reports/tests/
+            libraries/java/build/test-results/
+          if-no-files-found: warn
