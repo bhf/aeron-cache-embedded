@@ -13,6 +13,7 @@
   "scripts": {
     "build": "tsc",
     "test": "jest",
+    "soak": "tsc && node dist/soak/run.js",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
