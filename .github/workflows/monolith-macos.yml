@@ -1,0 +1,123 @@
+name: Monolith (macOS)
+
+# Installs the Aeron Cache monolith on macOS via the Homebrew tap (as a macOS user would) and runs the
+# Java client's backend integration tests against it: HTTP, bidi WebSocket and the UDP Aeron gateway.
+# The Linux workflows (java-ci.yml etc.) cover the full suites; this checks the monolith installs and
+# serves all three transports on macOS. The scheduled run catches tap/formula releases between pushes.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'libraries/java/**'
+      - '.github/workflows/monolith-macos.yml'
+  pull_request:
+    paths:
+      - 'libraries/java/**'
+      - '.github/workflows/monolith-macos.yml'
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: libraries/java
+    steps:
+      - uses: actions/checkout@v4
+
+      # Also puts a Java 25 on PATH for the monolith: the formula's openjdk dependency is keg-only on
+      # macOS, so the `aeron-cache` launcher runs whichever `java` is on PATH.
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Install Aeron Cache Backend
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+        run: |
+          # Homebrew (Ruby) aborts with "Error: Broken pipe" when it gets EPIPE writing progress to the
+          # runner's log pipe, so send its output to files and surface them only on failure. `brew tap`
+          # is best-effort (it can report EPIPE after fetching); the install is the real gate.
+          set +e
+          brew tap bhf/aeroncache > tap.log 2>&1
+          tap_rc=$?
+          brew install --verbose aeron-cache > install.log 2>&1
+          inst_rc=$?
+          if [ "$inst_rc" -ne 0 ]; then
+            echo "::group::tap.log (exit $tap_rc)"; cat tap.log; echo "::endgroup::"
+            echo "::group::install.log (exit $inst_rc)"; cat install.log; echo "::endgroup::"
+            exit 1
+          fi
+          echo "Aeron Cache backend installed (tap exit $tap_rc, install exit $inst_rc)."
+          brew info aeron-cache
+
+      - name: Start Aeron Cache Backend
+        env:
+          AERON_GATEWAY_ENABLED: "true"
+          # Pin the gateway endpoints to loopback to match the integration tests (the response-control
+          # endpoint otherwise defaults to the machine hostname).
+          GATEWAY_REQUEST_ENDPOINT: "127.0.0.1:7075"
+          GATEWAY_RESPONSE_CONTROL_ENDPOINT: "127.0.0.1:7076"
+        run: |
+          nohup aeron-cache > aeron-cache-log.txt 2>&1 &
+          ENV_FILE="$HOME/.aeron-cache/aeron-cache-ui.env"
+
+          for i in {1..60}; do
+            if [ -f "$ENV_FILE" ]; then
+              echo "Environment file found"
+              break
+            fi
+            echo "Waiting for $ENV_FILE..."
+            sleep 1
+          done
+
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "Error: $ENV_FILE not found after timeout"
+            exit 1
+          fi
+
+          FULL_API=$(grep "^AERON_CACHE_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
+          BASE_URL=$(echo "$FULL_API" | sed -E 's|(https?://[^/]+).*|\1|')
+
+          FULL_WS=$(grep "^AERON_CACHE_WS_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
+          if [[ "$FULL_WS" == ws:* && "$FULL_WS" != ws://* ]]; then
+            FULL_WS="${FULL_WS/ws:/ws:\/\/}"
+          fi
+          WS_URL=$(echo "$FULL_WS" | sed -E 's|(wss?://[^/]+).*|\1|')
+
+          echo "Found Base API URL: $BASE_URL"
+          echo "Found Base WS URL: $WS_URL"
+          echo "AERON_CACHE_BASE_URL=$BASE_URL" >> $GITHUB_ENV
+          echo "AERON_CACHE_WS_URL=$WS_URL" >> $GITHUB_ENV
+          # Fail (rather than skip green) if the backend is unreachable.
+          echo "AERON_CACHE_REQUIRE_BACKEND=true" >> $GITHUB_ENV
+
+          sleep 5
+          echo "::group::Aeron Gateway status (from backend logs)"
+          grep -iE "gateway" "$HOME/.aeron-cache/aeron-cache.log" aeron-cache-log.txt \
+            || echo "(no gateway lines in backend logs)"
+          echo "::endgroup::"
+
+      - name: Run backend integration tests
+        run: >
+          ./gradlew test -Daeron.gateway.it=true
+          --tests 'com.bhf.aeroncache.client.BackendRequiredIntegrationTest'
+          --tests 'com.bhf.aeroncache.client.AeronCacheClientIntegrationTest'
+          --tests 'com.bhf.aeroncache.client.bidi.AeronBidiClientIntegrationTest'
+          --tests 'com.bhf.aeroncache.client.gateway.AeronGatewayClientIntegrationTest'
+          --tests 'com.bhf.aeroncache.client.gateway.AeronGatewayClientBatchIntegrationTest'
+
+      - name: Show backend logs
+        if: failure()
+        run: |
+          echo "::group::launcher stdout"; cat aeron-cache-log.txt || true; echo "::endgroup::"
+          echo "::group::~/.aeron-cache/aeron-cache.log"; cat "$HOME/.aeron-cache/aeron-cache.log" || true; echo "::endgroup::"
