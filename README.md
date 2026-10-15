@@ -7,6 +7,9 @@
 [![Python CI](https://github.com/bhf/aeron-cache-embedded/actions/workflows/python-ci.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/python-ci.yml)
 [![Rust CI](https://github.com/bhf/aeron-cache-embedded/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/rust-ci.yml)
 [![Soak Java](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-java.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-java.yml)
+[![Soak TypeScript](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-typescript.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-typescript.yml)
+[![Soak Python](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-python.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-python.yml)
+[![Soak Rust](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-rust.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-rust.yml)
 
 Embedded cache client SDKs for Aeron Cache in multiple languages: Java, TypeScript, Python, and Rust, with minimal external dependencies.
 
@@ -30,6 +33,7 @@ The same high-level API is offered over multiple transports:
 - [Example Usage](#example-usage)
 - [Running Samples](#running-samples)
 - [Features](#features)
+- [Soak Testing](#soak-testing)
 - [Project Structure](#project-structure)
 - [Adding New Languages](#adding-new-languages)
 
@@ -210,6 +214,23 @@ The `bulk-sample`, `bidi-sample`, and `aeron-sample` demos are transport-specifi
 -   **Embedded Object Cache**: An embedded cache whose values are structured JSON objects. It deep-merges `PATCH_ITEM` deltas into the stored object using RFC 7386 (JSON Merge Patch) semantics — nested objects merge recursively, scalars/arrays replace, and a `null` field deletes it — so patch-mode subscriptions (which stream only the changed fields) reconstruct the full object locally without losing untouched fields. Available in all four libraries: `EmbeddedObjectCache` (Java: Jackson `ObjectNode`, with `getLocalAs` to deserialize into a POJO; Python: `dict`; TypeScript: `Record<string, any>`) and `EmbeddedObjects` (Rust: `serde_json::Value`). Obtain one via `getObjectCache` / `get_object_cache` / `embedded_object_cache`.
 -   **Multiple Transports**: HTTP+WebSocket, a bidirectional WebSocket (`AeronBidiClient`), and — in Java and Rust — an Aeron SBE UDP gateway (`AeronGatewayClient`). Batched responses (entries, stats, timers, bulk) are streamed in one or more batches terminated by an end-of-batch marker and reassembled by the client.
 -   **Sync & Async**: APIs available in both synchronous (blocking) and asynchronous (non-blocking) styles where appropriate.
+
+[Back to top](#aeron-cache-embedded-clients)
+
+## Soak Testing
+
+Each library has a long-running **soak** that hammers a real backend to surface correctness drift, stalls, and client-side memory leaks that only show up over time. The design is identical across languages (ported from the Java soak): a single-writer workload drives a weighted, seeded-random mix of key-value and counter operations over a bounded key space spread across a handful of caches, keeping an in-memory **oracle** in lock-step with every mutation. Every value is checked inline (read-backs on gets and counter inc/dec/set) and the full model is reconciled against the backend periodically and once at the end. Because the key space is bounded, client memory that trends up with *wall-clock time* (not with the data set) is a genuine leak — so heap/RSS is sampled throughout and written, alongside op counts and the resolved **seed**, to a JSON report (any finding is reproducible by re-running with the same seed).
+
+Soaks are **manual-only** (`workflow_dispatch`), separate from the push/PR CI, and run per transport:
+
+| Language   | Workflow                                                            | Transports                | Runner |
+|:-----------|:-------------------------------------------------------------------|:--------------------------|:-------|
+| Java       | `soak-java.yml`       | `http`, `bidi`, `gateway` | `./gradlew soakTest -Psoak.transport=<t>` |
+| TypeScript | `soak-typescript.yml` | `http`, `bidi`            | `SOAK_TRANSPORT=<t> npm run soak` |
+| Python     | `soak-python.yml`     | `http`, `bidi`            | `SOAK_TRANSPORT=<t> poetry run python -m soak` |
+| Rust       | `soak-rust.yml`       | `http`, `bidi`, `gateway` | `SOAK_ENABLED=true SOAK_TRANSPORT=<t> cargo test --test soak -- --nocapture` |
+
+All runs are time-bounded and fully parameterised. Java reads `-Psoak.*` project properties; the other languages read `SOAK_*` environment variables (`SOAK_DURATION_SECONDS`, `SOAK_SEED`, `SOAK_KV_CACHE_COUNT`, `SOAK_COUNTER_CACHE_COUNT`, `SOAK_KEY_SPACE`, `SOAK_VALUE_SIZE_BYTES`). HTTP/bidi read the backend URLs from `AERON_CACHE_BASE_URL` / `AERON_CACHE_WS_URL` and skip cleanly when they are unset; the Aeron gateway transport (Java and Rust) launches its own embedded media driver and connects over UDP. The `gateway` transport requires the backend's SBE gateway to be enabled (see [Transports](#transports)).
 
 [Back to top](#aeron-cache-embedded-clients)
 
