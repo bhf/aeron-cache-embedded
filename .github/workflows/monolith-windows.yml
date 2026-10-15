@@ -1,0 +1,175 @@
+name: Monolith (Windows)
+
+# Runs the Aeron Cache monolith natively on Windows and runs the Java client's backend integration tests
+# against it: HTTP, bidi WebSocket and the UDP Aeron gateway.
+#
+# Homebrew has no native Windows support, so this installs the exact release tarball the Homebrew tap's
+# formula points at (URL and sha256 read from the formula, so it tracks brew releases) and runs the same
+# `aeron-cache` launcher under Git Bash with Windows JDK/Node. The scheduled run catches tap/formula
+# releases between pushes.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'libraries/java/**'
+      - '.github/workflows/monolith-windows.yml'
+  pull_request:
+    paths:
+      - 'libraries/java/**'
+      - '.github/workflows/monolith-windows.yml'
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+env:
+  FORMULA_URL: https://raw.githubusercontent.com/bhf/homebrew-aeroncache/main/Formula/aeron-cache.rb
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: libraries/java
+    steps:
+      - uses: actions/checkout@v4
+
+      # Used both by the monolith (the formula's openjdk dependency) and the client tests.
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      # The formula's node dependency, for the launcher's UI server.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install Aeron Cache Backend (from the Homebrew formula's tarball)
+        run: |
+          curl -fsSL "$FORMULA_URL" -o aeron-cache.rb
+          URL=$(grep -E '^\s*url "' aeron-cache.rb | head -n 1 | sed -E 's/.*url "([^"]+)".*/\1/')
+          SHA=$(grep -E '^\s*sha256 "' aeron-cache.rb | head -n 1 | sed -E 's/.*sha256 "([^"]+)".*/\1/')
+          echo "Formula tarball: $URL"
+          curl -fsSL "$URL" -o aeron-cache.tar.gz
+          echo "$SHA  aeron-cache.tar.gz" | sha256sum -c -
+
+          # Same layout as the formula's install: launcher in bin/, components in libexec/.
+          PREFIX="$(cygpath -u "$RUNNER_TEMP")/aeron-cache"
+          mkdir -p "$PREFIX/bin" "$PREFIX/libexec" staging
+          tar xzf aeron-cache.tar.gz -C staging
+          mv staging/cache-monolith staging/cache-ui staging/config "$PREFIX/libexec/"
+          mv staging/aeron-cache "$PREFIX/bin/"
+          echo "AERON_CACHE_BIN=$PREFIX/bin/aeron-cache" >> $GITHUB_ENV
+
+          # The launcher writes its default backend.env with Git Bash (/c/...) paths, which Windows Java
+          # can't resolve. Pre-seed the same defaults with Windows-style paths; the launcher keeps an
+          # existing file.
+          CONFIG_DIR="$HOME/.aeron-cache"
+          WIN_CONFIG_DIR=$(cygpath -m "$CONFIG_DIR")
+          mkdir -p "$CONFIG_DIR"
+          cat > "$CONFIG_DIR/backend.env" <<EOF
+          CLUSTER_NODE=0
+          CLUSTER_ADDRESSES=localhost
+          EGRESS_IP=localhost
+          POD_ADDRESS=aeron-cache-http
+          HTTP_RESPONSE_PUB_HOST=localhost
+          WS_RESPONSE_PUB_HOST=localhost
+          SSE_RESPONSE_PUB_HOST=localhost
+          REQUEST_PUB_HOST=localhost
+          CACHE_MODE=RAFT
+          LAUNCH_EMBEDDED=false
+          CACHE_DATA_DIR=$WIN_CONFIG_DIR
+          AERON_DIR=aeron
+          CLUSTER_FOLDER=$WIN_CONFIG_DIR/node0/cluster/
+          EOF
+          cat "$CONFIG_DIR/backend.env"
+
+      - name: Start Aeron Cache Backend
+        shell: pwsh
+        env:
+          AERON_GATEWAY_ENABLED: "true"
+          # Pin the gateway endpoints to loopback to match the integration tests (the response-control
+          # endpoint otherwise defaults to the machine hostname).
+          GATEWAY_REQUEST_ENDPOINT: "127.0.0.1:7075"
+          GATEWAY_RESPONSE_CONTROL_ENDPOINT: "127.0.0.1:7076"
+        run: |
+          # Start-Process detaches the launcher so it outlives this step (a Git Bash `&` job can be torn
+          # down when the step's shell exits). It inherits this step's environment. The output redirect
+          # is done by bash, not Start-Process: -RedirectStandardOutput pipes through this pwsh process,
+          # leaving the launcher writing to a dead pipe once the step ends.
+          Start-Process -FilePath "C:\Program Files\Git\bin\bash.exe" `
+            -ArgumentList '--noprofile', '--norc', '-c', '"$AERON_CACHE_BIN > aeron-cache-log.txt 2>&1"' `
+            -WindowStyle Hidden
+
+      - name: Wait for Aeron Cache Backend
+        run: |
+          ENV_FILE="$HOME/.aeron-cache/aeron-cache-ui.env"
+
+          for i in {1..120}; do
+            if [ -f "$ENV_FILE" ]; then
+              echo "Environment file found"
+              break
+            fi
+            echo "Waiting for $ENV_FILE..."
+            sleep 1
+          done
+
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "Error: $ENV_FILE not found after timeout"
+            exit 1
+          fi
+
+          FULL_API=$(grep "^AERON_CACHE_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
+          BASE_URL=$(echo "$FULL_API" | sed -E 's|(https?://[^/]+).*|\1|')
+
+          FULL_WS=$(grep "^AERON_CACHE_WS_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
+          # The monolith writes e.g. `ws:localhost:7071`; add the missing slashes.
+          if [[ "$FULL_WS" == ws:* && "$FULL_WS" != ws://* ]]; then
+            FULL_WS="ws://${FULL_WS#ws:}"
+          fi
+          WS_URL=$(echo "$FULL_WS" | sed -E 's|(wss?://[^/]+).*|\1|')
+
+          echo "Found Base API URL: $BASE_URL"
+          echo "Found Base WS URL: $WS_URL"
+          echo "AERON_CACHE_BASE_URL=$BASE_URL" >> $GITHUB_ENV
+          echo "AERON_CACHE_WS_URL=$WS_URL" >> $GITHUB_ENV
+          # Fail (rather than skip green) if the backend is unreachable.
+          echo "AERON_CACHE_REQUIRE_BACKEND=true" >> $GITHUB_ENV
+
+          sleep 5
+          echo "::group::Aeron Gateway status (from backend logs)"
+          grep -iE "gateway" "$HOME/.aeron-cache/aeron-cache.log" aeron-cache-log.txt \
+            || echo "(no gateway lines in backend logs)"
+          echo "::endgroup::"
+
+      # gradlew.bat: the checkout may give the POSIX gradlew CRLF line endings. The -D arg is quoted so
+      # PowerShell doesn't split it at the dots.
+      - name: Run backend integration tests
+        shell: pwsh
+        run: >
+          ./gradlew.bat test "-Daeron.gateway.it=true"
+          --tests 'com.bhf.aeroncache.client.BackendRequiredIntegrationTest'
+          --tests 'com.bhf.aeroncache.client.AeronCacheClientIntegrationTest'
+          --tests 'com.bhf.aeroncache.client.bidi.AeronBidiClientIntegrationTest'
+          --tests 'com.bhf.aeroncache.client.gateway.AeronGatewayClientIntegrationTest'
+          --tests 'com.bhf.aeroncache.client.gateway.AeronGatewayClientBatchIntegrationTest'
+
+      - name: Show backend logs
+        if: failure()
+        run: |
+          echo "::group::launcher stdout"; cat aeron-cache-log.txt || true; echo "::endgroup::"
+          echo "::group::~/.aeron-cache/aeron-cache.log"; cat "$HOME/.aeron-cache/aeron-cache.log" || true; echo "::endgroup::"
+          echo "::group::aeron-cache-ui.env locations"
+          find "$(dirname "$AERON_CACHE_BIN")/.." "$HOME/.aeron-cache" -name 'aeron-cache-ui.env' 2>/dev/null || true
+          echo "::endgroup::"
+          echo "::group::Processes"
+          ps -ef || true
+          tasklist //FI "IMAGENAME eq java.exe" || true
+          tasklist //FI "IMAGENAME eq node.exe" || true
+          echo "::endgroup::"
