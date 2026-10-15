@@ -100,10 +100,11 @@ jobs:
           GATEWAY_RESPONSE_CONTROL_ENDPOINT: "127.0.0.1:7076"
         run: |
           # Start-Process detaches the launcher so it outlives this step (a Git Bash `&` job can be torn
-          # down when the step's shell exits). It inherits this step's environment.
+          # down when the step's shell exits). It inherits this step's environment. The output redirect
+          # is done by bash, not Start-Process: -RedirectStandardOutput pipes through this pwsh process,
+          # leaving the launcher writing to a dead pipe once the step ends.
           Start-Process -FilePath "C:\Program Files\Git\bin\bash.exe" `
-            -ArgumentList '--noprofile', '--norc', '-c', '"$AERON_CACHE_BIN"' `
-            -RedirectStandardOutput aeron-cache-log.txt -RedirectStandardError aeron-cache-err.txt `
+            -ArgumentList '--noprofile', '--norc', '-c', '"$AERON_CACHE_BIN > aeron-cache-log.txt 2>&1"' `
             -WindowStyle Hidden
 
       - name: Wait for Aeron Cache Backend
@@ -128,8 +129,9 @@ jobs:
           BASE_URL=$(echo "$FULL_API" | sed -E 's|(https?://[^/]+).*|\1|')
 
           FULL_WS=$(grep "^AERON_CACHE_WS_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
+          # The monolith writes e.g. `ws:localhost:7071`; add the missing slashes.
           if [[ "$FULL_WS" == ws:* && "$FULL_WS" != ws://* ]]; then
-            FULL_WS="${FULL_WS/ws:/ws:\/\/}"
+            FULL_WS="ws://${FULL_WS#ws:}"
           fi
           WS_URL=$(echo "$FULL_WS" | sed -E 's|(wss?://[^/]+).*|\1|')
 
@@ -162,5 +164,12 @@ jobs:
         if: failure()
         run: |
           echo "::group::launcher stdout"; cat aeron-cache-log.txt || true; echo "::endgroup::"
-          echo "::group::launcher stderr"; cat aeron-cache-err.txt || true; echo "::endgroup::"
           echo "::group::~/.aeron-cache/aeron-cache.log"; cat "$HOME/.aeron-cache/aeron-cache.log" || true; echo "::endgroup::"
+          echo "::group::aeron-cache-ui.env locations"
+          find "$(dirname "$AERON_CACHE_BIN")/.." "$HOME/.aeron-cache" -name 'aeron-cache-ui.env' 2>/dev/null || true
+          echo "::endgroup::"
+          echo "::group::Processes"
+          ps -ef || true
+          tasklist //FI "IMAGENAME eq java.exe" || true
+          tasklist //FI "IMAGENAME eq node.exe" || true
+          echo "::endgroup::"

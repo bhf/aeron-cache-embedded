@@ -89,8 +89,10 @@ jobs:
           BASE_URL=$(echo "$FULL_API" | sed -E 's|(https?://[^/]+).*|\1|')
 
           FULL_WS=$(grep "^AERON_CACHE_WS_API=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '\r' | tr -d '"')
+          # The monolith writes e.g. `ws:localhost:7071`; add the missing slashes. (Not via
+          # ${FULL_WS/ws:/ws:\/\/}: macOS's bash 3.2 keeps the backslashes in the replacement.)
           if [[ "$FULL_WS" == ws:* && "$FULL_WS" != ws://* ]]; then
-            FULL_WS="${FULL_WS/ws:/ws:\/\/}"
+            FULL_WS="ws://${FULL_WS#ws:}"
           fi
           WS_URL=$(echo "$FULL_WS" | sed -E 's|(wss?://[^/]+).*|\1|')
 
