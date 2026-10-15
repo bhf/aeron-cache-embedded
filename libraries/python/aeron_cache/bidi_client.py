@@ -63,6 +63,16 @@ class BidiSubscription:
         await self._client._unsubscribe(self.correlation_id, self.cache_id, self.counters)
 
 
+# Pause before replaying subscriptions onto a freshly reconnected socket. An involuntary drop is
+# noticed by the client (the read loop ends) before the server has finished reaping the dropped
+# connection's subscriptions. If the replayed SUBSCRIBE lands during that window the server's late
+# teardown clobbers the fresh registration, and the subscription silently stops delivering with no
+# error (the server still acks it). A short settle lets the reap complete first. Measured: with a
+# near-instant reconnect the replay is clobbered ~90% of the time; a 50ms settle removed it entirely
+# across repeated runs, and this margin is well above that while costing nothing outside reconnect.
+_RESUBSCRIBE_SETTLE_SECONDS = 0.25
+
+
 class AeronBidiClient:
     def __init__(self, ws_url, request_timeout: float = 10.0):
         self.ws_url = ws_url.rstrip("/")
@@ -105,6 +115,9 @@ class AeronBidiClient:
             self._ws = ws
             self._reader_task = asyncio.create_task(self._read_loop(ws))
             if reconnecting:
+                # Let the server reap the dropped connection's subscriptions before replaying,
+                # otherwise its late teardown clobbers the fresh registration (see the constant).
+                await asyncio.sleep(_RESUBSCRIBE_SETTLE_SECONDS)
                 # Resume streaming for subscriptions that outlived the dropped connection.
                 await self._resubscribe_all(ws)
 

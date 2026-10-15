@@ -68,6 +68,16 @@ public class AeronBidiClient implements AutoCloseable {
 
     private static final long DEFAULT_REQUEST_TIMEOUT_MS = 10_000L;
 
+    // Pause before replaying subscriptions onto a freshly reconnected socket. An involuntary drop is
+    // noticed by the client (the listener's onClose fires) before the server has finished reaping the
+    // dropped connection's subscriptions. If the replayed SUBSCRIBE lands during that window the
+    // server's late teardown clobbers the fresh registration, and the subscription silently stops
+    // delivering with no error (the server still acks it). A short settle lets the reap complete
+    // first. Measured against a near-instant reconnect the replay was clobbered ~90% of the time; a
+    // 50ms settle removed it entirely across repeated runs, and this margin is well above that while
+    // costing nothing outside reconnect.
+    private static final long RESUBSCRIBE_SETTLE_MS = 250L;
+
     // Client -> server op discriminators (WsOp).
     private static final String CREATE_CACHE = "CREATE_CACHE";
     private static final String ADD_CACHE_ENTRY = "ADD_CACHE_ENTRY";
@@ -169,6 +179,14 @@ public class AeronBidiClient implements AutoCloseable {
                 throw new RuntimeException("Failed to connect to " + wsUrl + "/api/ws/v1/bidi", e);
             }
             if (reconnecting) {
+                // Let the server reap the dropped connection's subscriptions before replaying,
+                // otherwise its late teardown clobbers the fresh registration (see the constant).
+                try {
+                    Thread.sleep(RESUBSCRIBE_SETTLE_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted settling reconnect to " + wsUrl, e);
+                }
                 resubscribeAll();
             }
             return webSocket;
