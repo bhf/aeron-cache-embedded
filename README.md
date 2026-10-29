@@ -33,6 +33,7 @@ The same high-level API is offered over multiple transports:
 - [Functionality and Samples By Language](#functionality-and-samples-by-language)
 - [Installation](#installation)
 - [Example Usage](#example-usage)
+- [Near Cache](#near-cache)
 - [Running Samples](#running-samples)
 - [Features](#features)
 - [Soak Testing](#soak-testing)
@@ -179,6 +180,33 @@ See the `samples/` directory for full, runnable code examples in all languages.
 
 [Back to top](#aeron-cache-embedded-clients)
 
+## Near Cache
+
+The backend supports an optional **server-side near cache**: the interface process keeps a local, read-ahead copy of a cache (or counter cache) warm by subscribing to it, so reads can be served locally instead of round-tripping to the cluster, falling back to the source cache on a miss. It is **opt-in** and enabled on the backend by setting `NEAR_CACHE_ENABLED=true` on the HTTP, WebSocket, and/or SSE interface — it changes nothing about how a client connects.
+
+This is complementary to the **client-side** [Embedded Cache](#features) in these libraries: the embedded cache mirrors data in *your process* over the stream, while the near cache mirrors it in *the server's* interface process. The near cache lives on **different URIs** (`/api/v1/near/...`) that sit alongside the regular endpoints; creation, puts, and deletes continue to use the regular `/api/v1/cache/` and `/api/v1/counters/` endpoints, which the near cache picks up through its own subscription.
+
+### Using it from the client libraries
+
+- **Streaming / Embedded Cache (transparent).** When the near cache is enabled on the backend, a **hydrating** subscription (`hydrate=true`) has its initial snapshot served from the server's warm near cache rather than a fresh cluster fetch. The embedded caches in all four libraries use this path already, so they benefit automatically — **no client change and no API change**. This is the recommended way to consume near caching from these libraries.
+
+- **HTTP near read endpoints (direct).** For point reads against the warm copy, the backend additionally exposes the near endpoints below. These are **not yet surfaced as dedicated typed methods** on the clients — the standard `getItem` / `getCacheItems` / `getCounter` / `getCounterItems` methods target the regular endpoints — but they can be called directly (a plain `GET`/`DELETE`) against a near-enabled backend, and the responses share the same JSON shapes as their regular counterparts (`GetItemResponse`, `GetCacheResponse`, `CounterResponse`, `GetCountersResponse`, `CacheDetails`).
+
+| Method & URI | Purpose | Response shape |
+|:-------------|:--------|:---------------|
+| `GET /api/v1/near/cache/<cacheId>` | Full cache snapshot from the near cache (subscribes + warms on first read). | `GetCacheResponse` |
+| `GET /api/v1/near/cache/<cacheId>/<key>` | Single item; falls back to the source cache on a miss. | `GetItemResponse` |
+| `GET /api/v1/near/counters/<cacheId>` | Full counter-cache snapshot from the near cache. | `GetCountersResponse` |
+| `GET /api/v1/near/counters/<cacheId>/<key>` | Single counter; falls back to the source on a miss. | `CounterResponse` |
+| `GET /api/v1/near/caches` | List the caches currently held warm, with local item counts. | `CacheDetails[]` |
+| `GET /api/v1/near/counters-caches` | List the counter caches currently held warm. | `CacheDetails[]` |
+| `DELETE /api/v1/near/cache/<cacheId>` | Stop near caching a cache: drop the subscription and the local copy (idempotent). | `StopNearCacheResponse` |
+| `DELETE /api/v1/near/counters/<cacheId>` | Stop near caching a counter cache. | `StopNearCacheResponse` |
+
+The list (`GET .../caches`, `.../counters-caches`) and stop (`DELETE ...`) management endpoints are also served on the WebSocket and SSE interfaces when the near cache is enabled there, so a warm cache kept hot by streaming hydration can be inspected or dropped over the same interface.
+
+[Back to top](#aeron-cache-embedded-clients)
+
 ## Running Samples
 
 Each language has a set of standalone samples under `samples/<language>/`: `sync-sample`, `async-sample`, `streaming-sample`, `bulk-sample`, `bidi-sample`, and (Java and Rust only) `aeron-sample`. Each sample's own README covers how to run it.
@@ -214,6 +242,7 @@ The `bulk-sample`, `bidi-sample`, and `aeron-sample` demos are transport-specifi
 -   **Inspection & Management**: List caches (`getCaches`), aggregate statistics (`getStats`), full entry snapshots (`getCacheItems` / `getCounterItems`), and all pending TTL removal timers (`getTimers`).
 -   **Embedded Cache**: A specialized `EmbeddedAeronCache` / `EmbeddedCounterCache` that maintains a local shadowed copy of the cache data. It subscribes to the stream and applies updates (`ADD_ITEM`, `REMOVE_ITEM`, `DELETE_CACHE`, `CLEAR_CACHE`) to the local map automatically — over any transport. The string-valued `EmbeddedAeronCache` cannot merge `PATCH_ITEM` deltas into an opaque string, so it ignores them and rejects patch-mode subscriptions; use the embedded object cache for that.
 -   **Embedded Object Cache**: An embedded cache whose values are structured JSON objects. It deep-merges `PATCH_ITEM` deltas into the stored object using RFC 7386 (JSON Merge Patch) semantics — nested objects merge recursively, scalars/arrays replace, and a `null` field deletes it — so patch-mode subscriptions (which stream only the changed fields) reconstruct the full object locally without losing untouched fields. Available in all four libraries: `EmbeddedObjectCache` (Java: Jackson `ObjectNode`, with `getLocalAs` to deserialize into a POJO; Python: `dict`; TypeScript: `Record<string, any>`) and `EmbeddedObjects` (Rust: `serde_json::Value`). Obtain one via `getObjectCache` / `get_object_cache` / `embedded_object_cache`.
+-   **Near Cache (server-side)**: An optional, opt-in read-ahead cache the backend keeps warm in its interface process (enabled with `NEAR_CACHE_ENABLED=true`). Hydrating subscriptions transparently serve their initial snapshot from it, so the embedded caches here benefit with no client change; dedicated near HTTP read/management endpoints (`/api/v1/near/...`) are also available for direct point reads. See [Near Cache](#near-cache).
 -   **Multiple Transports**: HTTP+WebSocket, a bidirectional WebSocket (`AeronBidiClient`), and — in Java and Rust — an Aeron SBE UDP gateway (`AeronGatewayClient`). Batched responses (entries, stats, timers, bulk) are streamed in one or more batches terminated by an end-of-batch marker and reassembled by the client.
 -   **Sync & Async**: APIs available in both synchronous (blocking) and asynchronous (non-blocking) styles where appropriate.
 
