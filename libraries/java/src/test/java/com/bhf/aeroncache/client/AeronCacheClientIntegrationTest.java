@@ -1,11 +1,15 @@
 package com.bhf.aeroncache.client;
 
 import com.bhf.aeroncache.models.*;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -497,6 +501,143 @@ public class AeronCacheClientIntegrationTest {
 
         client.deleteCache(cacheId);
         ws.close();
+    }
+
+    /**
+     * Synthetic patch generation driven by regular {@code putItem} writes (no explicit {@code patchItem}).
+     * The cache service, as long as a patch-mode subscriber is present, turns ordinary puts into patch
+     * traffic: a first insert arrives as a full {@code ADD_ITEM} baseline (nothing to diff against), an
+     * overwrite of an existing JSON value arrives as a {@code PATCH_ITEM} delta carrying only the changed
+     * fields, an identical (no-op) put is suppressed, and a non-JSON value falls back to a full
+     * {@code ADD_ITEM}. This is distinct from {@link #testWebsocketPatchMode()}, which drives the delta with
+     * an explicit {@code patchItem} call.
+     */
+    @Test
+    public void testWebsocketSyntheticPatchFromPut() throws Exception {
+        String cacheId = "it-ws-synthpatch-" + UUID.randomUUID();
+        client.createCache(cacheId);
+
+        CountDownLatch openLatch = new CountDownLatch(1);
+        List<CacheUpdateEvent> events = new CopyOnWriteArrayList<>();
+        AeronCacheSubscriber subscriber = new AeronCacheSubscriber() {
+            @Override
+            public void onOpen(java.net.http.WebSocket webSocket) {
+                super.onOpen(webSocket);
+                openLatch.countDown();
+            }
+
+            @Override
+            public void onAfterUpdate(CacheUpdateEvent event) {
+                if ("doc".equals(event.getItemKey())) {
+                    events.add(event);
+                }
+            }
+        };
+
+        // Subscribe in patch mode BEFORE the key exists, so the first put has no prior value to diff
+        // against and the server sends it as a full ADD_ITEM baseline.
+        ReconnectingWebSocket ws = client.subscribe(cacheId, false, null, "patch", subscriber);
+        assertTrue(openLatch.await(5, TimeUnit.SECONDS), "Websocket failed to connect within timeout");
+        // Let the server register the subscription routing before publishing.
+        Thread.sleep(500);
+
+        // 1) Brand-new key -> full ADD_ITEM baseline.
+        client.putItem(cacheId, "doc", "{\"a\":1}");
+        awaitAtLeast(events, 1, 10_000);
+        assertEquals("ADD_ITEM", events.get(0).getEventType(),
+                "first put to a new key should arrive as a full ADD_ITEM baseline");
+        assertTrue(events.get(0).getItemValue().contains("\"a\":1"),
+                "baseline should carry the full value: " + events.get(0).getItemValue());
+
+        // 2) Overwrite with an added field -> PATCH_ITEM delta (changed field only).
+        client.putItem(cacheId, "doc", "{\"a\":1,\"b\":2}");
+        awaitAtLeast(events, 2, 10_000);
+        assertEquals("PATCH_ITEM", events.get(1).getEventType(),
+                "overwriting an existing value should synthesise a PATCH_ITEM delta");
+        assertTrue(events.get(1).getItemValue().contains("\"b\":2"),
+                "delta should carry the changed field: " + events.get(1).getItemValue());
+        assertFalse(events.get(1).getItemValue().contains("\"a\":1"),
+                "delta should not carry unchanged fields: " + events.get(1).getItemValue());
+
+        // 3) Identical value -> suppressed (no event). Allow time to confirm nothing further arrives.
+        client.putItem(cacheId, "doc", "{\"a\":1,\"b\":2}");
+        Thread.sleep(1500);
+        assertEquals(2, events.size(),
+                "a no-op put (identical value) should be suppressed, not streamed: " + events);
+
+        // 4) Non-JSON value -> full ADD_ITEM fallback (rather than a broken delta).
+        client.putItem(cacheId, "doc", "not-json");
+        awaitAtLeast(events, 3, 10_000);
+        assertEquals("ADD_ITEM", events.get(2).getEventType(),
+                "a non-JSON value should fall back to a full ADD_ITEM");
+        assertTrue(events.get(2).getItemValue().contains("not-json"),
+                "fallback should carry the full value: " + events.get(2).getItemValue());
+
+        client.deleteCache(cacheId);
+        ws.close();
+    }
+
+    /**
+     * End-to-end reconstruction: an {@link EmbeddedObjectCache} subscribed in patch mode rebuilds the full
+     * object locally from the server's synthetic ADD_ITEM baseline plus PATCH_ITEM deltas (deep-merged per
+     * RFC 7386), with untouched (including nested) fields preserved. Uses only JSON-object values, since the
+     * object cache is JSON-objects-only.
+     */
+    @Test
+    public void testObjectCacheReconstructsFromSyntheticPatch() throws Exception {
+        String cacheId = "it-objcache-synthpatch-" + UUID.randomUUID();
+        client.createCache(cacheId);
+        EmbeddedObjectCache objectCache = client.getObjectCache(cacheId);
+
+        CountDownLatch openLatch = new CountDownLatch(1);
+        AeronCacheSubscriber subscriber = new AeronCacheSubscriber() {
+            @Override
+            public void onOpen(java.net.http.WebSocket webSocket) {
+                super.onOpen(webSocket);
+                openLatch.countDown();
+            }
+        };
+
+        // Patch mode over the HTTP WebSocket; the object cache deep-merges deltas into its local map.
+        ReconnectingWebSocket ws = objectCache.subscribe(subscriber, false, null, "patch");
+        assertTrue(openLatch.await(5, TimeUnit.SECONDS), "Websocket failed to connect within timeout");
+        Thread.sleep(500);
+
+        // Baseline (subscribe-before-key): the first put arrives as a full ADD_ITEM the cache stores whole.
+        objectCache.put("doc", Map.of("a", 1, "nested", Map.of("x", 1)));
+        // Overwrite: the server synthesises a PATCH_ITEM delta, which the object cache deep-merges.
+        objectCache.put("doc", Map.of("a", 1, "nested", Map.of("x", 1, "y", 2), "c", 3));
+
+        // Poll the local mirror until the delta has been applied (events are eventually consistent).
+        ObjectNode local = null;
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (System.currentTimeMillis() < deadline) {
+            local = objectCache.getLocal("doc");
+            if (local != null && local.path("c").asInt(-1) == 3) {
+                break;
+            }
+            Thread.sleep(50);
+        }
+
+        assertNotNull(local, "object cache should have mirrored the document");
+        assertEquals(1, local.path("a").asInt(), "untouched top-level field should survive the merge");
+        assertEquals(3, local.path("c").asInt(), "added top-level field should be applied from the delta");
+        assertEquals(1, local.path("nested").path("x").asInt(),
+                "untouched nested field should survive the merge");
+        assertEquals(2, local.path("nested").path("y").asInt(),
+                "added nested field should be applied from the delta");
+
+        client.deleteCache(cacheId);
+        ws.close();
+    }
+
+    /** Poll until {@code events} holds at least {@code n} elements, or fail after {@code timeoutMs}. */
+    private static void awaitAtLeast(List<?> events, int n, long timeoutMs) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (events.size() < n && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        assertTrue(events.size() >= n, "expected at least " + n + " event(s), got " + events.size() + ": " + events);
     }
 
     @Test

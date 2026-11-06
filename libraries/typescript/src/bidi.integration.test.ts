@@ -224,6 +224,47 @@ const rid = () => Math.random().toString(36).substring(2, 10);
         await client.deleteCache(cacheId);
     }, 10000);
 
+    it('synthesises patch traffic from regular puts in patch mode', async () => {
+        // Synthetic patch generation over bidi: regular putItem writes (no explicit patchItem) are turned
+        // into patch traffic for a patch-mode subscriber by the cache service. A first insert arrives as a
+        // full ADD_ITEM baseline, an overwrite as a PATCH_ITEM delta, a no-op put is suppressed, and a
+        // non-JSON value falls back to a full ADD_ITEM.
+        const cacheId = `bidi-synthpatch-${crypto.randomUUID()}`;
+        await client.createCache(cacheId);
+
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        const events: CacheUpdateEvent[] = [];
+        // Subscribe in patch mode BEFORE the key exists -> the first put arrives as an ADD_ITEM baseline.
+        const sub = await client.subscribe(
+            cacheId,
+            (ev) => { if (ev.itemKey === 'doc') events.push(ev); },
+            { mode: 'patch' }
+        );
+        await sleep(700);
+
+        await client.putItem(cacheId, 'doc', '{"a":1}');
+        await sleep(500);
+        await client.putItem(cacheId, 'doc', '{"a":1,"b":2}');
+        await sleep(500);
+        await client.putItem(cacheId, 'doc', '{"a":1,"b":2}'); // no-op
+        await sleep(500);
+        await client.putItem(cacheId, 'doc', 'not-json');
+        await sleep(1000);
+
+        await sub.close();
+
+        expect(events.map((e) => [e.eventType, e.itemValue])).toHaveLength(3);
+        expect(events[0].eventType).toBe('ADD_ITEM');
+        expect(events[0].itemValue).toContain('"a":1');
+        expect(events[1].eventType).toBe('PATCH_ITEM');
+        expect(events[1].itemValue).toContain('"b":2');
+        expect(events[1].itemValue).not.toContain('"a":1');
+        expect(events[2].eventType).toBe('ADD_ITEM');
+        expect(events[2].itemValue).toContain('not-json');
+
+        await client.deleteCache(cacheId);
+    }, 15000);
+
     it('counter subscription receives updates', async () => {
         const cacheId = `bidi-sub-counter-${crypto.randomUUID()}`;
         await client.createCounterCache(cacheId);

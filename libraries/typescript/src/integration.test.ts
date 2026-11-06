@@ -1,4 +1,5 @@
 import { AeronCacheClient } from './index';
+import { CacheUpdateEvent } from './models';
 
 const baseUrl = process.env.AERON_CACHE_BASE_URL;
 let wsUrl = process.env.AERON_CACHE_WS_URL;
@@ -447,4 +448,102 @@ if (shouldRun && !wsUrl) {
             const ws = client.subscribe(cacheId, onMessage, () => {}, onStatusChange, false, undefined, 'patch');
         });
     }, 45000);
+
+    // Synthetic patch generation driven by regular putItem writes (no explicit patchItem): the cache
+    // service turns ordinary puts into patch traffic for a patch-mode subscriber. A first insert arrives as
+    // a full ADD_ITEM baseline, an overwrite as a PATCH_ITEM delta of the changed field, an identical
+    // (no-op) put is suppressed, and a non-JSON value falls back to a full ADD_ITEM. Distinct from the test
+    // above, which drives the delta with an explicit patchItem call.
+    it('synthesises patch traffic from regular puts in patch mode', async () => {
+        const cacheId = `it-ws-synthpatch-${Math.random().toString(36).substring(7)}`;
+        await client.createCache(cacheId);
+
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        const events: CacheUpdateEvent[] = [];
+        let connected = false;
+        const onMessage = (event: CacheUpdateEvent) => {
+            if (event.itemKey === 'doc' && event.eventType) events.push(event);
+        };
+        const onStatusChange = (status: 'Connected' | 'Disconnected') => {
+            if (status === 'Connected') connected = true;
+        };
+
+        // Subscribe in patch mode BEFORE the key exists, so the first put has no prior value to diff against
+        // and the server sends it as a full ADD_ITEM baseline.
+        const ws = client.subscribe(cacheId, onMessage, () => {}, onStatusChange, false, undefined, 'patch');
+
+        const connectDeadline = Date.now() + 5000;
+        while (!connected && Date.now() < connectDeadline) await sleep(50);
+        await sleep(700);
+
+        await client.putItem(cacheId, 'doc', '{"a":1}');       // -> ADD_ITEM baseline
+        await sleep(600);
+        await client.putItem(cacheId, 'doc', '{"a":1,"b":2}'); // -> PATCH_ITEM delta {"b":2}
+        await sleep(600);
+        await client.putItem(cacheId, 'doc', '{"a":1,"b":2}'); // no-op -> suppressed
+        await sleep(600);
+        await client.putItem(cacheId, 'doc', 'not-json');       // -> ADD_ITEM full fallback
+        await sleep(1000);
+
+        ws.close();
+
+        // A suppressed no-op means exactly three frames are ever sent, so asserting the exact sequence also
+        // proves suppression.
+        expect(events.map((e) => [e.eventType, e.itemValue])).toHaveLength(3);
+        expect(events[0].eventType).toBe('ADD_ITEM');
+        expect(events[0].itemValue).toContain('"a":1');
+        expect(events[1].eventType).toBe('PATCH_ITEM');
+        expect(events[1].itemValue).toContain('"b":2');
+        expect(events[1].itemValue).not.toContain('"a":1');
+        expect(events[2].eventType).toBe('ADD_ITEM');
+        expect(events[2].itemValue).toContain('not-json');
+
+        await client.deleteCache(cacheId);
+    }, 30000);
+
+    // End-to-end reconstruction: an EmbeddedObjectCache subscribed in patch mode rebuilds the full object
+    // locally from the server's synthetic ADD_ITEM baseline plus PATCH_ITEM deltas (deep-merged per RFC
+    // 7386), with untouched (incl. nested) fields preserved. Uses only JSON-object values.
+    it('object cache reconstructs the full object from synthetic patch deltas', async () => {
+        const cacheId = `it-objcache-synthpatch-${Math.random().toString(36).substring(7)}`;
+        await client.createCache(cacheId);
+        const oc = client.getObjectCache(cacheId);
+
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        let connected = false;
+        // Subscribe-before-key so the first put is a full ADD_ITEM baseline the mirror stores whole.
+        const sub = oc.subscribe(
+            () => {},
+            () => {},
+            (status) => { if (status === 'Connected') connected = true; },
+            false,
+            undefined,
+            'patch'
+        );
+
+        const connectDeadline = Date.now() + 5000;
+        while (!connected && Date.now() < connectDeadline) await sleep(50);
+        await sleep(700);
+
+        await oc.put('doc', { a: 1, nested: { x: 1 } });
+        await oc.put('doc', { a: 1, nested: { x: 1, y: 2 }, c: 3 });
+
+        const deadline = Date.now() + 8000;
+        let local: any;
+        while (Date.now() < deadline) {
+            local = oc.getLocal('doc');
+            if (local && local.c === 3) break;
+            await sleep(50);
+        }
+
+        sub.close();
+
+        expect(local).toBeDefined();
+        expect(local.a).toBe(1);
+        expect(local.c).toBe(3);
+        expect(local.nested.x).toBe(1);
+        expect(local.nested.y).toBe(2);
+
+        await client.deleteCache(cacheId);
+    }, 30000);
 });

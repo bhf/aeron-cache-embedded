@@ -586,6 +586,135 @@ fn test_integration_object_cache_patch_merge() {
 }
 
 #[test]
+fn test_integration_websocket_synthetic_patch_from_put() {
+    // Synthetic patch generation driven by regular put_item writes (no explicit patch_item): the cache
+    // service turns ordinary puts into patch traffic for a patch-mode subscriber. A first insert arrives
+    // as a full ADD_ITEM baseline, an overwrite as a PATCH_ITEM delta of the changed field, an identical
+    // (no-op) put is suppressed, and a non-JSON value falls back to a full ADD_ITEM.
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_websocket_synthetic_patch_from_put: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-ws-synthpatch");
+    client.create_cache(&cache_id).expect("create cache");
+
+    // Subscribe in patch mode BEFORE the key exists, so the first put has no prior value to diff against
+    // and the server sends it as a full ADD_ITEM baseline.
+    let mut ws = client
+        .subscribe_filtered(&cache_id, false, None, Some("patch"))
+        .expect("subscribe patch mode");
+    if let tungstenite::stream::MaybeTlsStream::Plain(s) = ws.get_ref() {
+        // Bounded reads so draining can't block past the deadline (the no-op put sends no frame).
+        let _ = s.set_read_timeout(Some(Duration::from_millis(1000)));
+    }
+    thread::sleep(Duration::from_millis(700));
+
+    // Regular puts (not patch_item): the cache service synthesises the patch traffic.
+    client.put_item(&cache_id, "doc", r#"{"a":1}"#).unwrap(); // -> ADD_ITEM baseline
+    thread::sleep(Duration::from_millis(300));
+    client.put_item(&cache_id, "doc", r#"{"a":1,"b":2}"#).unwrap(); // -> PATCH_ITEM delta {"b":2}
+    thread::sleep(Duration::from_millis(300));
+    client.put_item(&cache_id, "doc", r#"{"a":1,"b":2}"#).unwrap(); // no-op -> suppressed
+    thread::sleep(Duration::from_millis(300));
+    client.put_item(&cache_id, "doc", "not-json").unwrap(); // -> ADD_ITEM full fallback
+    thread::sleep(Duration::from_millis(300));
+
+    // Drain update frames for key "doc" (ignoring the control/"subscribed" frame). A suppressed no-op
+    // means exactly three frames are ever sent, so asserting the exact sequence also proves suppression.
+    let mut events: Vec<serde_json::Value> = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while Instant::now() < deadline && events.len() < 3 {
+        match ws.read_message() {
+            Ok(tungstenite::Message::Text(text)) => {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                    let is_doc_event = v.get("eventType").and_then(|e| e.as_str()).is_some()
+                        && v.get("itemKey").and_then(|k| k.as_str()) == Some("doc");
+                    if is_doc_event {
+                        events.push(v);
+                    }
+                }
+            }
+            Ok(_) => {}
+            Err(_) => {} // read timeout / non-fatal; keep polling until the deadline
+        }
+    }
+
+    assert_eq!(
+        events.len(),
+        3,
+        "expected exactly 3 update frames (no-op put suppressed): {:?}",
+        events
+    );
+
+    assert_eq!(
+        events[0]["eventType"].as_str().unwrap(),
+        "ADD_ITEM",
+        "first put to a new key should be a full ADD_ITEM baseline"
+    );
+    assert!(events[0]["itemValue"].as_str().unwrap().contains("\"a\":1"));
+
+    assert_eq!(
+        events[1]["eventType"].as_str().unwrap(),
+        "PATCH_ITEM",
+        "overwrite should synthesise a PATCH_ITEM delta"
+    );
+    let delta = events[1]["itemValue"].as_str().unwrap();
+    assert!(delta.contains("\"b\":2"), "delta should carry the changed field: {delta}");
+    assert!(!delta.contains("\"a\":1"), "delta should not carry unchanged fields: {delta}");
+
+    assert_eq!(
+        events[2]["eventType"].as_str().unwrap(),
+        "ADD_ITEM",
+        "non-JSON value should fall back to a full ADD_ITEM"
+    );
+    assert!(events[2]["itemValue"].as_str().unwrap().contains("not-json"));
+
+    client.delete_cache(&cache_id).ok();
+}
+
+#[test]
+fn test_integration_object_cache_synthetic_patch_from_put() {
+    // End-to-end reconstruction: an EmbeddedObjects mirror subscribed in patch mode rebuilds the full
+    // object from the server's synthetic ADD_ITEM baseline plus PATCH_ITEM deltas (deep-merged per
+    // RFC 7386), with untouched (incl. nested) fields preserved. Driven by regular put_item writes.
+    let Some((base_url, ws_url)) = get_urls() else {
+        println!("Skipping test_integration_object_cache_synthetic_patch_from_put: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+
+    let client = AeronCacheClient::new(base_url, ws_url);
+    let cache_id = generate_id("it-obj-synthpatch");
+    client.create_cache(&cache_id).expect("create cache");
+
+    // Subscribe-before-key so the first put is a full ADD_ITEM baseline the mirror stores whole; the
+    // overwrite then arrives as a synthetic PATCH_ITEM delta the mirror deep-merges.
+    let objects = client.embedded_object_cache(&cache_id);
+    let sub = objects
+        .subscribe_filtered(false, None, Some("patch"))
+        .expect("subscribe patch mode");
+    thread::sleep(Duration::from_millis(700));
+
+    client.put_item(&cache_id, "doc", r#"{"a":1,"nested":{"x":1}}"#).unwrap();
+    client.put_item(&cache_id, "doc", r#"{"a":1,"nested":{"x":1,"y":2},"c":3}"#).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while objects.get_local("doc").and_then(|v| v.get("c").cloned()).is_none() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    let doc = objects.get_local("doc").expect("doc should be mirrored locally");
+    assert_eq!(doc["a"], 1, "untouched top-level field should survive the merge");
+    assert_eq!(doc["c"], 3, "added top-level field should be applied from the delta");
+    assert_eq!(doc["nested"]["x"], 1, "untouched nested field should survive the merge");
+    assert_eq!(doc["nested"]["y"], 2, "added nested field should be applied from the delta");
+
+    drop(sub);
+    client.delete_cache(&cache_id).ok();
+}
+
+#[test]
 fn test_integration_put_timed_item() {
     let Some((base_url, ws_url)) = get_urls() else {
         println!("Skipping test_integration_put_timed_item: AERON_CACHE_BASE_URL not set");
