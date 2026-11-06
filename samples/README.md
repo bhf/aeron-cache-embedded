@@ -7,26 +7,33 @@ The samples for each language are split into distinct categories:
 2.  **Async Sample**: Demonstrates non-blocking, asynchronous operations.
 3.  **Streaming Sample**: Demonstrates how to listen for real-time updates from the server.
 4.  **Bulk Sample**: Demonstrates executing multiple operations in a single request.
+5.  **Patch Stream Sample**: Demonstrates server-side synthetic PATCH streaming — a patch-mode subscription
+    receives an `ADD_ITEM` baseline then `PATCH_ITEM` deltas (driven by ordinary puts), reconstructed into
+    full objects by the embedded object cache.
 
 ## Structure
 
 ```
 samples/
 ├── java/
-│   ├── sync-sample/      # Gradle project
-│   ├── async-sample/     # Gradle project
-│   └── streaming-sample/ # Gradle project
+│   ├── sync-sample/         # Gradle project
+│   ├── async-sample/        # Gradle project
+│   ├── streaming-sample/    # Gradle project
+│   └── patch-stream-sample/ # Gradle project
 ├── typescript/
-│   ├── async-sample/     # NPM project
-│   └── streaming-sample/ # NPM project
+│   ├── async-sample/        # NPM project
+│   ├── streaming-sample/    # NPM project
+│   └── patch-stream-sample/ # NPM project
 ├── python/
-│   ├── sync-sample/      # Poetry project
-│   ├── async-sample/     # Poetry project
-│   └── streaming-sample/ # Poetry project
+│   ├── sync-sample/         # Poetry project
+│   ├── async-sample/        # Poetry project
+│   ├── streaming-sample/    # Poetry project
+│   └── patch-stream-sample/ # Poetry project
 └── rust/
-    ├── sync-sample/      # Cargo project
-    ├── async-sample/     # Cargo project
-    └── streaming-sample/ # Cargo project
+    ├── sync-sample/         # Cargo project
+    ├── async-sample/        # Cargo project
+    ├── streaming-sample/    # Cargo project
+    └── patch-stream-sample/ # Cargo project
 ```
 
 ## Running the Samples

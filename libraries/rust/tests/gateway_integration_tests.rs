@@ -384,6 +384,91 @@ fn keyed_subscription() {
 }
 
 #[test]
+fn patch_mode_synthetic_from_put() {
+    // Synthetic patch generation over the Aeron gateway: regular put_item writes (no explicit patch_item)
+    // are turned into patch traffic for a patch-mode subscriber by the cache service. A first insert of the
+    // subscribed key arrives as a full ADD_ITEM baseline, an overwrite as a PATCH_ITEM delta, a no-op put
+    // is suppressed, and a non-JSON value falls back to a full ADD_ITEM.
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-synthpatch");
+    client.create_cache(&cache).unwrap();
+
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = events.clone();
+    // Subscribe in patch mode BEFORE the key exists -> the first put is an ADD_ITEM baseline.
+    let sub = client
+        .subscribe_with(&cache, false, Some("patch"), Some("doc"), move |e| {
+            if e.item_key.as_deref() == Some("doc") {
+                sink.lock().unwrap().push(e);
+            }
+        })
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+
+    client.put_item(&cache, "doc", "{\"a\":1}").unwrap();
+    std::thread::sleep(Duration::from_millis(400));
+    client.put_item(&cache, "doc", "{\"a\":1,\"b\":2}").unwrap();
+    std::thread::sleep(Duration::from_millis(400));
+    client.put_item(&cache, "doc", "{\"a\":1,\"b\":2}").unwrap(); // no-op
+    std::thread::sleep(Duration::from_millis(400));
+    client.put_item(&cache, "doc", "not-json").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while events.lock().unwrap().len() < 3 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::thread::sleep(Duration::from_millis(500));
+
+    let evs = events.lock().unwrap();
+    let summary: Vec<_> = evs.iter().map(|e| (e.event_type.clone(), e.item_value.clone())).collect();
+    assert_eq!(evs.len(), 3, "expected exactly 3 update events (no-op suppressed): {summary:?}");
+    assert_eq!(evs[0].event_type, "ADD_ITEM", "first put to a new key should be a full ADD_ITEM baseline");
+    assert!(evs[0].item_value.as_deref().unwrap().contains("\"a\":1"));
+    assert_eq!(evs[1].event_type, "PATCH_ITEM", "overwrite should synthesise a PATCH_ITEM delta");
+    let delta = evs[1].item_value.as_deref().unwrap();
+    assert!(delta.contains("\"b\":2"), "delta should carry the changed field: {delta}");
+    assert!(!delta.contains("\"a\":1"), "delta should not carry unchanged fields: {delta}");
+    assert_eq!(evs[2].event_type, "ADD_ITEM", "non-JSON value should fall back to a full ADD_ITEM");
+    assert!(evs[2].item_value.as_deref().unwrap().contains("not-json"));
+
+    drop(evs);
+    drop(sub);
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
+fn object_cache_synthetic_patch_over_gateway() {
+    // End-to-end reconstruction over the gateway: the EmbeddedObjects mirror rebuilds the full object
+    // from the server's synthetic ADD_ITEM baseline plus PATCH_ITEM deltas (deep-merged per RFC 7386).
+    let Some((_driver, client)) = connect() else { return };
+    let cache = unique("rs-it-obj-synthpatch");
+    client.create_cache(&cache).unwrap();
+
+    let objects = client.embedded_object_cache(&cache);
+    let sub = objects
+        .subscribe_filtered(false, None, Some("patch"))
+        .expect("subscribe patch mode");
+    std::thread::sleep(Duration::from_millis(500));
+
+    client.put_item(&cache, "doc", "{\"a\":1,\"nested\":{\"x\":1}}").unwrap();
+    client.put_item(&cache, "doc", "{\"a\":1,\"nested\":{\"x\":1,\"y\":2},\"c\":3}").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while objects.get_local("doc").and_then(|v| v.get("c").cloned()).is_none() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let doc = objects.get_local("doc").expect("doc should be mirrored locally");
+    assert_eq!(doc["a"], 1, "untouched top-level field should survive the merge");
+    assert_eq!(doc["c"], 3, "added top-level field should be applied from the delta");
+    assert_eq!(doc["nested"]["x"], 1, "untouched nested field should survive the merge");
+    assert_eq!(doc["nested"]["y"], 2, "added nested field should be applied from the delta");
+
+    drop(sub);
+    client.delete_cache(&cache).unwrap();
+}
+
+#[test]
 fn patch_mode_subscription() {
     // Real patch-mode subscription: patch an existing item over the gateway (PATCH_CACHE_ENTRY) and
     // observe the PATCH_ITEM delta stream. Requires the gateway's patch command (msgType 12).

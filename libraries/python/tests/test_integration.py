@@ -398,3 +398,92 @@ async def test_websocket_patch_mode(client):
     finally:
         sub_task.cancel()
     client.delete_cache(cache_id)
+
+
+@pytest.mark.asyncio
+async def test_websocket_synthetic_patch_from_put(client):
+    """Synthetic patch generation driven by regular put_item writes (no explicit patch_item).
+
+    The cache service, as long as a patch-mode subscriber is present, turns ordinary puts into patch
+    traffic: a first insert arrives as a full ADD_ITEM baseline, an overwrite of an existing JSON value as a
+    PATCH_ITEM delta of the changed field, an identical (no-op) put is suppressed, and a non-JSON value falls
+    back to a full ADD_ITEM. Distinct from test_websocket_patch_mode, which drives the delta with an explicit
+    patch_item call.
+    """
+    cache_id = f"it-ws-synthpatch-{uuid.uuid4().hex[:8]}"
+    client.create_cache(cache_id)
+
+    events = []
+
+    async def on_event(event):
+        if event.itemKey == "doc":
+            events.append(event)
+
+    # Subscribe in patch mode BEFORE the key exists, so the first put has no prior value to diff against and
+    # the server sends it as a full ADD_ITEM baseline.
+    sub_task = asyncio.create_task(client.subscribe(cache_id, on_event, mode="patch"))
+    await asyncio.sleep(1.0)
+
+    client.put_item(cache_id, "doc", '{"a":1}')          # -> ADD_ITEM baseline
+    await asyncio.sleep(0.6)
+    client.put_item(cache_id, "doc", '{"a":1,"b":2}')    # -> PATCH_ITEM delta {"b":2}
+    await asyncio.sleep(0.6)
+    client.put_item(cache_id, "doc", '{"a":1,"b":2}')    # no-op -> suppressed
+    await asyncio.sleep(0.6)
+    client.put_item(cache_id, "doc", "not-json")          # -> ADD_ITEM full fallback
+    await asyncio.sleep(1.0)
+
+    sub_task.cancel()
+
+    # A suppressed no-op means exactly three frames are ever sent, so asserting the exact sequence also
+    # proves suppression.
+    summary = [(e.eventType, e.itemValue) for e in events]
+    assert len(events) == 3, f"expected exactly 3 update events (no-op suppressed): {summary}"
+    assert events[0].eventType == "ADD_ITEM", f"first put to a new key should be a full ADD_ITEM baseline: {summary}"
+    assert '"a":1' in events[0].itemValue
+    assert events[1].eventType == "PATCH_ITEM", f"overwrite should synthesise a PATCH_ITEM delta: {summary}"
+    assert '"b":2' in events[1].itemValue, f"delta should carry the changed field: {events[1].itemValue}"
+    assert '"a":1' not in events[1].itemValue, f"delta should not carry unchanged fields: {events[1].itemValue}"
+    assert events[2].eventType == "ADD_ITEM", f"non-JSON value should fall back to a full ADD_ITEM: {summary}"
+    assert "not-json" in events[2].itemValue
+
+    client.delete_cache(cache_id)
+
+
+@pytest.mark.asyncio
+async def test_object_cache_reconstructs_from_synthetic_patch(client):
+    """An EmbeddedObjectCache subscribed in patch mode rebuilds the full object locally from the server's
+    synthetic ADD_ITEM baseline plus PATCH_ITEM deltas (deep-merged per RFC 7386), with untouched (incl.
+    nested) fields preserved. Driven by regular put writes and only JSON-object values.
+    """
+    cache_id = f"it-objcache-synthpatch-{uuid.uuid4().hex[:8]}"
+    client.create_cache(cache_id)
+    oc = client.get_object_cache(cache_id)
+
+    # Subscribe-before-key so the first put is a full ADD_ITEM baseline the mirror stores whole; the object
+    # cache subscribe wraps the client reader loop, so run it as a task and cancel it at the end.
+    sub_task = asyncio.create_task(oc.subscribe(None, mode="patch"))
+    await asyncio.sleep(1.0)
+
+    oc.put("doc", {"a": 1, "nested": {"x": 1}})
+    oc.put("doc", {"a": 1, "nested": {"x": 1, "y": 2}, "c": 3})
+
+    # Poll the local mirror until the delta has been deep-merged in.
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + 8.0
+    while loop.time() < deadline:
+        local = oc.get_local("doc")
+        if local is not None and local.get("c") == 3:
+            break
+        await asyncio.sleep(0.05)
+
+    sub_task.cancel()
+
+    local = oc.get_local("doc")
+    assert local is not None, "object cache should have mirrored the document"
+    assert local.get("a") == 1, "untouched top-level field should survive the merge"
+    assert local.get("c") == 3, "added top-level field should be applied from the delta"
+    assert local.get("nested", {}).get("x") == 1, "untouched nested field should survive the merge"
+    assert local.get("nested", {}).get("y") == 2, "added nested field should be applied from the delta"
+
+    client.delete_cache(cache_id)

@@ -410,6 +410,62 @@ fn bidi_subscription_key_filter() {
 }
 
 #[test]
+fn bidi_subscription_synthetic_patch_from_put() {
+    // Synthetic patch generation over bidi: regular put_item writes (no explicit patch_item) are turned
+    // into patch traffic for a patch-mode subscriber by the cache service. A first insert arrives as a
+    // full ADD_ITEM baseline, an overwrite as a PATCH_ITEM delta, a no-op put is suppressed, and a
+    // non-JSON value falls back to a full ADD_ITEM.
+    let Some(url) = ws_url() else {
+        println!("Skipping bidi_subscription_synthetic_patch_from_put: AERON_CACHE_BASE_URL not set");
+        return;
+    };
+    let client = AeronBidiClient::connect(&url).expect("connect");
+    let cache_id = unique("bidi-rs-synthpatch");
+    client.create_cache(&cache_id).unwrap();
+
+    let got: Arc<Mutex<Vec<(String, Option<String>)>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = got.clone();
+    // Subscribe in patch mode BEFORE the key exists -> the first put arrives as an ADD_ITEM baseline.
+    let sub = client
+        .subscribe_with(&cache_id, false, None, Some("patch"), move |ev| {
+            if ev.item_key.as_deref() == Some("doc") {
+                sink.lock().unwrap().push((ev.event_type.clone(), ev.item_value.clone()));
+            }
+        })
+        .expect("subscribe in patch mode");
+    thread::sleep(Duration::from_millis(700));
+
+    client.put_item(&cache_id, "doc", r#"{"a":1}"#).unwrap();
+    thread::sleep(Duration::from_millis(400));
+    client.put_item(&cache_id, "doc", r#"{"a":1,"b":2}"#).unwrap();
+    thread::sleep(Duration::from_millis(400));
+    client.put_item(&cache_id, "doc", r#"{"a":1,"b":2}"#).unwrap(); // no-op
+    thread::sleep(Duration::from_millis(400));
+    client.put_item(&cache_id, "doc", "not-json").unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while got.lock().unwrap().len() < 3 && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+    }
+    // Give any (incorrect) extra event from the no-op put a chance to surface before asserting.
+    thread::sleep(Duration::from_millis(500));
+
+    let events = got.lock().unwrap().clone();
+    assert_eq!(events.len(), 3, "expected exactly 3 update events (no-op suppressed): {events:?}");
+    assert_eq!(events[0].0, "ADD_ITEM", "first put to a new key should be a full ADD_ITEM baseline");
+    assert!(events[0].1.as_deref().unwrap().contains("\"a\":1"));
+    assert_eq!(events[1].0, "PATCH_ITEM", "overwrite should synthesise a PATCH_ITEM delta");
+    let delta = events[1].1.as_deref().unwrap();
+    assert!(delta.contains("\"b\":2"), "delta should carry the changed field: {delta}");
+    assert!(!delta.contains("\"a\":1"), "delta should not carry unchanged fields: {delta}");
+    assert_eq!(events[2].0, "ADD_ITEM", "non-JSON value should fall back to a full ADD_ITEM");
+    assert!(events[2].1.as_deref().unwrap().contains("not-json"));
+
+    sub.close().unwrap();
+    client.delete_cache(&cache_id).unwrap();
+}
+
+#[test]
 fn bidi_subscription_patch_mode_receives_patch_item() {
     let Some(url) = ws_url() else {
         println!("Skipping bidi_subscription_patch_mode_receives_patch_item: AERON_CACHE_BASE_URL not set");

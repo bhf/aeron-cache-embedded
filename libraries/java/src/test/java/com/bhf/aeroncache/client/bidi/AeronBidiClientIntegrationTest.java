@@ -386,6 +386,71 @@ class AeronBidiClientIntegrationTest {
         client.deleteCache(cacheId);
     }
 
+    /**
+     * Synthetic patch generation over bidi: regular {@code putItem} writes (no explicit {@code patchItem})
+     * are turned into patch traffic for a patch-mode subscriber by the cache service. A first insert arrives
+     * as a full {@code ADD_ITEM} baseline, an overwrite as a {@code PATCH_ITEM} delta of the changed field,
+     * an identical put is suppressed, and a non-JSON value falls back to a full {@code ADD_ITEM}.
+     */
+    @Test
+    void patchModeSyntheticFromPut() throws Exception {
+        final String cacheId = "bidi-synthpatch-" + UUID.randomUUID().toString().substring(0, 8);
+        client.createCache(cacheId);
+
+        final List<CacheUpdateEvent> events = new CopyOnWriteArrayList<>();
+        // Subscribe in patch mode BEFORE the key exists, so the first put arrives as an ADD_ITEM baseline.
+        try (BidiSubscription ignored = client.subscribe(cacheId, false, null, "patch", ev -> {
+            if ("doc".equals(ev.getItemKey())) {
+                events.add(ev);
+            }
+        })) {
+            // Let the server register the subscription routing before publishing.
+            Thread.sleep(500);
+
+            // 1) Brand-new key -> full ADD_ITEM baseline.
+            client.putItem(cacheId, "doc", "{\"a\":1}");
+            awaitAtLeast(events, 1, 10_000);
+            assertEquals("ADD_ITEM", events.get(0).getEventType(),
+                    "first put to a new key should arrive as a full ADD_ITEM baseline");
+            assertTrue(events.get(0).getItemValue().contains("\"a\":1"),
+                    "baseline should carry the full value: " + events.get(0).getItemValue());
+
+            // 2) Overwrite with an added field -> PATCH_ITEM delta (changed field only).
+            client.putItem(cacheId, "doc", "{\"a\":1,\"b\":2}");
+            awaitAtLeast(events, 2, 10_000);
+            assertEquals("PATCH_ITEM", events.get(1).getEventType(),
+                    "overwriting an existing value should synthesise a PATCH_ITEM delta");
+            assertTrue(events.get(1).getItemValue().contains("\"b\":2"),
+                    "delta should carry the changed field: " + events.get(1).getItemValue());
+            assertFalse(events.get(1).getItemValue().contains("\"a\":1"),
+                    "delta should not carry unchanged fields: " + events.get(1).getItemValue());
+
+            // 3) Identical value -> suppressed (no event).
+            client.putItem(cacheId, "doc", "{\"a\":1,\"b\":2}");
+            Thread.sleep(1500);
+            assertEquals(2, events.size(),
+                    "a no-op put (identical value) should be suppressed, not streamed: " + events);
+
+            // 4) Non-JSON value -> full ADD_ITEM fallback.
+            client.putItem(cacheId, "doc", "not-json");
+            awaitAtLeast(events, 3, 10_000);
+            assertEquals("ADD_ITEM", events.get(2).getEventType(),
+                    "a non-JSON value should fall back to a full ADD_ITEM");
+            assertTrue(events.get(2).getItemValue().contains("not-json"),
+                    "fallback should carry the full value: " + events.get(2).getItemValue());
+        }
+        client.deleteCache(cacheId);
+    }
+
+    /** Poll until {@code events} holds at least {@code n} elements, or fail after {@code timeoutMs}. */
+    private static void awaitAtLeast(List<?> events, int n, long timeoutMs) throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + timeoutMs;
+        while (events.size() < n && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50);
+        }
+        assertTrue(events.size() >= n, "expected at least " + n + " event(s), got " + events.size() + ": " + events);
+    }
+
     /** Counter subscription: a counter put should surface a stream update carrying the new value. */
     @Test
     void counterSubscription() throws Exception {

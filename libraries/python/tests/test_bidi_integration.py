@@ -340,6 +340,51 @@ async def test_bidi_subscription_patch_mode():
 
 
 @pytest.mark.asyncio
+async def test_bidi_subscription_synthetic_patch_from_put():
+    """Synthetic patch generation over bidi: regular put_item writes (no explicit patch_item) are turned
+    into patch traffic for a patch-mode subscriber by the cache service. A first insert arrives as a full
+    ADD_ITEM baseline, an overwrite as a PATCH_ITEM delta, a no-op put is suppressed, and a non-JSON value
+    falls back to a full ADD_ITEM.
+    """
+    async with AeronBidiClient(_ws_url()) as client:
+        cache_id = f"bidi-synthpatch-{uuid.uuid4().hex[:8]}"
+        await client.create_cache(cache_id)
+
+        events = []
+
+        def on_event(ev):
+            if ev.itemKey == "doc":
+                events.append(ev)
+
+        # Subscribe in patch mode BEFORE the key exists -> the first put arrives as an ADD_ITEM baseline.
+        sub = await client.subscribe(cache_id, on_event, mode="patch")
+        await asyncio.sleep(0.7)
+
+        await client.put_item(cache_id, "doc", '{"a":1}')
+        await asyncio.sleep(0.5)
+        await client.put_item(cache_id, "doc", '{"a":1,"b":2}')
+        await asyncio.sleep(0.5)
+        await client.put_item(cache_id, "doc", '{"a":1,"b":2}')  # no-op
+        await asyncio.sleep(0.5)
+        await client.put_item(cache_id, "doc", "not-json")
+        await asyncio.sleep(1.0)
+
+        await sub.close()
+
+        summary = [(e.eventType, e.itemValue) for e in events]
+        assert len(events) == 3, f"expected exactly 3 update events (no-op suppressed): {summary}"
+        assert events[0].eventType == "ADD_ITEM", f"first put to a new key should be a full ADD_ITEM baseline: {summary}"
+        assert '"a":1' in events[0].itemValue
+        assert events[1].eventType == "PATCH_ITEM", f"overwrite should synthesise a PATCH_ITEM delta: {summary}"
+        assert '"b":2' in events[1].itemValue, f"delta should carry the changed field: {events[1].itemValue}"
+        assert '"a":1' not in events[1].itemValue, f"delta should not carry unchanged fields: {events[1].itemValue}"
+        assert events[2].eventType == "ADD_ITEM", f"non-JSON value should fall back to a full ADD_ITEM: {summary}"
+        assert "not-json" in events[2].itemValue
+
+        await client.delete_cache(cache_id)
+
+
+@pytest.mark.asyncio
 async def test_bidi_counter_subscription():
     async with AeronBidiClient(_ws_url()) as client:
         cache_id = f"bidi-counter-sub-{uuid.uuid4().hex[:8]}"
