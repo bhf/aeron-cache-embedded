@@ -2,16 +2,9 @@
 
 ![img.png](https://raw.githubusercontent.com/bhf/aeron-cache/refs/heads/main/docs/images/header.png)
 
-[![Java CI](https://github.com/bhf/aeron-cache-embedded/actions/workflows/java-ci.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/java-ci.yml)
-[![TypeScript CI](https://github.com/bhf/aeron-cache-embedded/actions/workflows/typescript-ci.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/typescript-ci.yml)
-[![Python CI](https://github.com/bhf/aeron-cache-embedded/actions/workflows/python-ci.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/python-ci.yml)
-[![Rust CI](https://github.com/bhf/aeron-cache-embedded/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/rust-ci.yml)
-[![Monolith (macOS)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/monolith-macos.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/monolith-macos.yml)
-[![Monolith (Windows)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/monolith-windows.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/monolith-windows.yml)
-[![Soak Java](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-java.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-java.yml)
-[![Soak TypeScript](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-typescript.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-typescript.yml)
-[![Soak Python](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-python.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-python.yml)
-[![Soak Rust](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-rust.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-rust.yml)
+[![Java CI](https://github.com/bhf/aeron-cache-embedded/actions/workflows/java-ci.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/java-ci.yml) [![TypeScript CI](https://github.com/bhf/aeron-cache-embedded/actions/workflows/typescript-ci.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/typescript-ci.yml) [![Python CI](https://github.com/bhf/aeron-cache-embedded/actions/workflows/python-ci.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/python-ci.yml) [![Rust CI](https://github.com/bhf/aeron-cache-embedded/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/rust-ci.yml)  
+[![Soak Java](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-java.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-java.yml) [![Soak TypeScript](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-typescript.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-typescript.yml) [![Soak Python](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-python.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-python.yml) [![Soak Rust](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-rust.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/soak-rust.yml)  
+[![Monolith (macOS)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/monolith-macos.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/monolith-macos.yml) [![Monolith (Windows)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/monolith-windows.yml/badge.svg)](https://github.com/bhf/aeron-cache-embedded/actions/workflows/monolith-windows.yml)
 
 Embedded cache client SDKs for Aeron Cache in multiple languages: Java, TypeScript, Python, and Rust, with minimal external dependencies.
 
