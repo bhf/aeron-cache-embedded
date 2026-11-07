@@ -44,12 +44,12 @@ async def test_increment_async_delegates(cache, client_mock):
     client_mock.increment_counter_async.assert_awaited_once_with("test-counter", "hits", 2)
 
 def test_update_local_cache_mutates_state(cache):
-    cache._update_local_cache(CounterUpdateEvent(eventType="ADD_ITEM", itemKey="hits", itemValue=42, cacheId="test-counter", requestId="1"))
-    assert cache.get_local("hits") == 42
+    cache._update_cache(CounterUpdateEvent(eventType="ADD_ITEM", itemKey="hits", itemValue=42, cacheId="test-counter", requestId="1"))
+    assert cache.get("hits") == 42
 
     # Zero is a valid counter value and must be stored, not treated as missing.
-    cache._update_local_cache(CounterUpdateEvent(eventType="ADD_ITEM", itemKey="hits", itemValue=0, cacheId="test-counter", requestId="1"))
-    assert cache.get_local("hits") == 0
+    cache._update_cache(CounterUpdateEvent(eventType="ADD_ITEM", itemKey="hits", itemValue=0, cacheId="test-counter", requestId="1"))
+    assert cache.get("hits") == 0
 
-    cache._update_local_cache(CounterUpdateEvent(eventType="REMOVE_ITEM", itemKey="hits", cacheId="test-counter", requestId="1"))
-    assert cache.get_local("hits") is None
+    cache._update_cache(CounterUpdateEvent(eventType="REMOVE_ITEM", itemKey="hits", cacheId="test-counter", requestId="1"))
+    assert cache.get("hits") is None

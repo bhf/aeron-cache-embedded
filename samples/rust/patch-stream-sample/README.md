@@ -10,7 +10,7 @@ Demonstrates server-side **synthetic PATCH streaming**. With a patch-mode subscr
 
 The sample opens two patch-mode subscriptions: one logs the raw events the server sends (via
 `subscribe_cache_updates_filtered`), and an `EmbeddedObjects` mirror deep-merges each delta (RFC 7386) so
-`get_local` reconstructs the full object with untouched (including nested) fields preserved.
+`get` reconstructs the full object with untouched (including nested) fields preserved.
 
 ## Prerequisites
 

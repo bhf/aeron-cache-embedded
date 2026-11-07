@@ -27,7 +27,7 @@ export class EmbeddedObjectCache {
     constructor(private client: AeronCacheClient, private cacheId: string) {}
 
     /** The locally mirrored object for `key`, or `undefined` if absent. */
-    getLocal<T extends JsonObject = JsonObject>(key: string): T | undefined {
+    get<T extends JsonObject = JsonObject>(key: string): T | undefined {
         return this.localCache.get(key) as T | undefined;
     }
 
@@ -46,7 +46,7 @@ export class EmbeddedObjectCache {
         return this.client.patchItem(this.cacheId, key, JSON.stringify(fragment));
     }
 
-    async get(key: string): Promise<GetItemResponse> {
+    async getRemote(key: string): Promise<GetItemResponse> {
         return this.client.getItem(this.cacheId, key);
     }
 

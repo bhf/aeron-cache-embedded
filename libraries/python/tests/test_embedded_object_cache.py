@@ -33,41 +33,41 @@ def test_patch_serializes_fragment_and_delegates(cache, client_mock):
 
 
 def test_add_item_stores_parsed_object(cache):
-    cache._update_local_cache(_event("ADD_ITEM", "doc", '{"a":1,"b":{"c":2}}'))
-    assert cache.get_local("doc") == {"a": 1, "b": {"c": 2}}
+    cache._update_cache(_event("ADD_ITEM", "doc", '{"a":1,"b":{"c":2}}'))
+    assert cache.get("doc") == {"a": 1, "b": {"c": 2}}
 
 
 def test_patch_item_deep_merges_instead_of_overwriting(cache):
-    cache._update_local_cache(_event("ADD_ITEM", "doc", '{"a":1,"b":{"c":2}}'))
-    cache._update_local_cache(_event("PATCH_ITEM", "doc", '{"b":{"d":3}}'))
-    assert cache.get_local("doc") == {"a": 1, "b": {"c": 2, "d": 3}}
+    cache._update_cache(_event("ADD_ITEM", "doc", '{"a":1,"b":{"c":2}}'))
+    cache._update_cache(_event("PATCH_ITEM", "doc", '{"b":{"d":3}}'))
+    assert cache.get("doc") == {"a": 1, "b": {"c": 2, "d": 3}}
 
 
 def test_patch_null_deletes_field(cache):
-    cache._update_local_cache(_event("ADD_ITEM", "doc", '{"a":1,"b":2}'))
-    cache._update_local_cache(_event("PATCH_ITEM", "doc", '{"b":null}'))
-    assert cache.get_local("doc") == {"a": 1}
+    cache._update_cache(_event("ADD_ITEM", "doc", '{"a":1,"b":2}'))
+    cache._update_cache(_event("PATCH_ITEM", "doc", '{"b":null}'))
+    assert cache.get("doc") == {"a": 1}
 
 
 def test_patch_on_absent_key_starts_from_delta(cache):
-    cache._update_local_cache(_event("PATCH_ITEM", "doc", '{"a":1}'))
-    assert cache.get_local("doc") == {"a": 1}
+    cache._update_cache(_event("PATCH_ITEM", "doc", '{"a":1}'))
+    assert cache.get("doc") == {"a": 1}
 
 
 def test_scalars_and_lists_replace(cache):
-    cache._update_local_cache(_event("ADD_ITEM", "doc", '{"n":1,"list":[1,2,3]}'))
-    cache._update_local_cache(_event("PATCH_ITEM", "doc", '{"n":9,"list":[4]}'))
-    assert cache.get_local("doc") == {"n": 9, "list": [4]}
+    cache._update_cache(_event("ADD_ITEM", "doc", '{"n":1,"list":[1,2,3]}'))
+    cache._update_cache(_event("PATCH_ITEM", "doc", '{"n":9,"list":[4]}'))
+    assert cache.get("doc") == {"n": 9, "list": [4]}
 
 
 def test_remove_and_clear(cache):
-    cache._update_local_cache(_event("ADD_ITEM", "doc", '{"a":1}'))
-    cache._update_local_cache(_event("REMOVE_ITEM", "doc"))
-    assert cache.get_local("doc") is None
+    cache._update_cache(_event("ADD_ITEM", "doc", '{"a":1}'))
+    cache._update_cache(_event("REMOVE_ITEM", "doc"))
+    assert cache.get("doc") is None
 
-    cache._update_local_cache(_event("ADD_ITEM", "doc", '{"a":1}'))
-    cache._update_local_cache(_event("CLEAR_CACHE"))
-    assert cache.get_local("doc") is None
+    cache._update_cache(_event("ADD_ITEM", "doc", '{"a":1}'))
+    cache._update_cache(_event("CLEAR_CACHE"))
+    assert cache.get("doc") is None
 
 
 def test_deep_merge_does_not_mutate_inputs():

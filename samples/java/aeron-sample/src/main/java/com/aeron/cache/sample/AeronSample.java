@@ -95,15 +95,15 @@ public class AeronSample {
                 Thread.sleep(1000);
 
                 // Local reads — served from the in-memory mirror, no network call.
-                System.out.println("Local read user:1 -> " + embedded.getLocal("user:1"));
-                System.out.println("Local read user:2 -> " + embedded.getLocal("user:2"));
-                System.out.println("Local mirror snapshot -> " + embedded.getLocalCache());
+                System.out.println("Local read user:1 -> " + embedded.get("user:1"));
+                System.out.println("Local read user:2 -> " + embedded.get("user:2"));
+                System.out.println("Local mirror snapshot -> " + embedded.getCache());
 
                 // Removals are mirrored too.
                 embedded.remove("user:1");
                 Thread.sleep(1000);
-                System.out.println("After remove, local read user:1 -> " + embedded.getLocal("user:1"));
-                System.out.println("Local mirror snapshot -> " + embedded.getLocalCache());
+                System.out.println("After remove, local read user:1 -> " + embedded.get("user:1"));
+                System.out.println("Local mirror snapshot -> " + embedded.getCache());
             }
 
             // --- Counter operations ---

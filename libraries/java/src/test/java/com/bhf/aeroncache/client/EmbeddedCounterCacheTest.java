@@ -63,14 +63,14 @@ public class EmbeddedCounterCacheTest {
 
         // Simulate ADD_ITEM
         registeredSubscriber.onText(baseMockWs, "{\"eventType\":\"ADD_ITEM\",\"itemKey\":\"hits\",\"itemValue\":42}", true);
-        assertEquals(Long.valueOf(42L), cache.getLocal("hits"));
+        assertEquals(Long.valueOf(42L), cache.get("hits"));
 
         // Zero is a valid counter value and must be stored, not treated as missing.
         registeredSubscriber.onText(baseMockWs, "{\"eventType\":\"ADD_ITEM\",\"itemKey\":\"hits\",\"itemValue\":0}", true);
-        assertEquals(Long.valueOf(0L), cache.getLocal("hits"));
+        assertEquals(Long.valueOf(0L), cache.get("hits"));
 
         // Simulate REMOVE_ITEM
         registeredSubscriber.onText(baseMockWs, "{\"eventType\":\"REMOVE_ITEM\",\"itemKey\":\"hits\"}", true);
-        assertNull(cache.getLocal("hits"));
+        assertNull(cache.get("hits"));
     }
 }

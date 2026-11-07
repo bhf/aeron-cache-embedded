@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Allow propagation
     sleep(Duration::from_millis(100));
 
-    match cache.get("sync-key") {
+    match cache.get_remote("sync-key") {
         Ok(resp) => println!("Read back key 'sync-key': {}", resp.value),
         Err(e) => println!("Read key 'sync-key' error: {}", e),
     }
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let timed_put_response = cache.insert_timed("timed-key", "timed-value", 5000)?;
     println!("Timed Put operation status: {}", timed_put_response.operation_status);
 
-    match cache.get("timed-key") {
+    match cache.get_remote("timed-key") {
         Ok(resp) => println!("Read back key 'timed-key': {}", resp.value),
         Err(e) => println!("Read key 'timed-key' error: {}", e),
     }
@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Incremented 'requests' by 5 -> {}", counters.increment("requests", 5)?.value);
     println!("Decremented 'requests' by 3 -> {}", counters.decrement("requests", 3)?.value);
     println!("Set 'requests' -> {}", counters.set("requests", 100)?.value);
-    println!("Read counter 'requests': {}", counters.get("requests")?.value);
+    println!("Read counter 'requests': {}", counters.get_remote("requests")?.value);
 
     // --- Inspection & management operations ---
     println!("Patching 'doc' (deep-merge)");

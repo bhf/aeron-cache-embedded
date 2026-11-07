@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     cache.insert_async("key", "value").await?;
 
     // Local reads (from embedded cache)
-    println!("{:?}", cache.get_local("key"));
+    println!("{:?}", cache.get("key"));
 
     Ok(())
 }
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     counters.increment("requests", 5)?; // -> 15
     counters.decrement("requests", 3)?; // -> 12
     counters.set("requests", 100)?;     // -> 100
-    println!("{}", counters.get("requests")?.value);
+    println!("{}", counters.get_remote("requests")?.value);
 
     Ok(())
 }
@@ -228,7 +228,7 @@ let cache = client.embedded_cache("my-cache");
 let _sub = cache.subscribe()?;            // mirror updates in the background until `_sub` is dropped
 cache.insert("key", "value")?;
 std::thread::sleep(std::time::Duration::from_millis(500));
-println!("{:?}", cache.get_local("key")); // Some("value") — from the local mirror
+println!("{:?}", cache.get("key")); // Some("value") — from the local mirror
 ```
 
 The HTTP-specific `EmbeddedAeronCache` / `EmbeddedCounterCache` (with `subscribe()` returning a

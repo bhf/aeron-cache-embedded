@@ -35,10 +35,10 @@ fn test_unified_embedded_cache_mirrors_over_http() {
     embedded.insert("uk", "uv").expect("insert");
 
     let deadline = Instant::now() + Duration::from_secs(5);
-    while embedded.get_local("uk").is_none() && Instant::now() < deadline {
+    while embedded.get("uk").is_none() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(50));
     }
-    assert_eq!(embedded.get_local("uk").as_deref(), Some("uv"));
+    assert_eq!(embedded.get("uk").as_deref(), Some("uv"));
 
     drop(sub);
     client.delete_cache(&cache_id).ok();
@@ -64,14 +64,14 @@ fn test_integration_cache_operations() {
     assert_eq!(put_resp.key, "key1");
 
     // Get the item
-    let get_resp = cache.get("key1").unwrap();
+    let get_resp = cache.get_remote("key1").unwrap();
     assert_eq!(get_resp.value, "val1");
 
     // Remove the item
     cache.remove("key1").unwrap();
 
     // Get the item again, should handle 404 cleanly
-    let get_resp2 = cache.get("key1").unwrap();
+    let get_resp2 = cache.get_remote("key1").unwrap();
     assert!(get_resp2.operation_status == "UNKNOWN_KEY" || get_resp2.value.is_empty());
 }
 
@@ -116,7 +116,7 @@ fn test_integration_websocket_subscription() {
     assert!(found, "Should have received ADD_ITEM for ws-key through websocket");
     
     // Attempt local cache assertion directly, since read_message should process and store it.
-    let local_val = cache.get_local("ws-key");
+    let local_val = cache.get("ws-key");
     assert_eq!(local_val, Some("ws-val".to_string()));
 
     cache.clear().unwrap();
@@ -156,7 +156,7 @@ fn test_integration_websocket_hydration() {
     }
     assert!(found, "Should have received hydrated ADD_ITEM for hydrate-key");
 
-    let local_val = cache.get_local("hydrate-key");
+    let local_val = cache.get("hydrate-key");
     assert_eq!(local_val, Some("hydrate-val".to_string()));
 
     cache.clear().unwrap();
@@ -263,7 +263,7 @@ fn test_integration_counter_operations() {
     assert_eq!(counters.increment("hits", 5).unwrap().value, 15);
     assert_eq!(counters.decrement("hits", 3).unwrap().value, 12);
     assert_eq!(counters.set("hits", 100).unwrap().value, 100);
-    assert_eq!(counters.get("hits").unwrap().value, 100);
+    assert_eq!(counters.get_remote("hits").unwrap().value, 100);
 
     counters.remove("hits").unwrap();
     counters.clear().unwrap();
@@ -303,7 +303,7 @@ fn test_integration_counter_websocket_subscription() {
     }
     assert!(found, "Should have received ADD_ITEM for ws-counter through websocket");
 
-    assert_eq!(counters.get_local("ws-counter"), Some(7));
+    assert_eq!(counters.get("ws-counter"), Some(7));
     counters.clear().unwrap();
 }
 
@@ -323,11 +323,11 @@ fn test_integration_put_timed_counter() {
     let put_resp = counters.insert_timed("timed-counter", 5, 2000).expect("Failed to put timed counter");
     assert_eq!(put_resp.key, "timed-counter");
 
-    assert_eq!(counters.get("timed-counter").unwrap().value, 5);
+    assert_eq!(counters.get_remote("timed-counter").unwrap().value, 5);
 
     thread::sleep(Duration::from_secs(3));
 
-    let get_resp2 = counters.get("timed-counter").expect("Failed to get counter after expiry");
+    let get_resp2 = counters.get_remote("timed-counter").expect("Failed to get counter after expiry");
     assert!(get_resp2.operation_status == "UNKNOWN_KEY" || get_resp2.value == 0);
 }
 
@@ -561,20 +561,20 @@ fn test_integration_object_cache_patch_merge() {
     // Wait for hydration to mirror the initial field before patching, so the patch cannot race ahead of
     // the snapshot.
     let deadline = Instant::now() + Duration::from_secs(5);
-    while objects.get_local("doc").and_then(|v| v.get("a").cloned()).is_none() && Instant::now() < deadline {
+    while objects.get("doc").and_then(|v| v.get("a").cloned()).is_none() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(50));
     }
-    assert!(objects.get_local("doc").is_some(), "hydration should mirror the initial object");
+    assert!(objects.get("doc").is_some(), "hydration should mirror the initial object");
 
     client.patch_item(&cache_id, "doc", r#"{"b":2}"#).unwrap();
 
     // Wait for the patched field to be deep-merged in.
     let deadline = Instant::now() + Duration::from_secs(5);
-    while objects.get_local("doc").and_then(|v| v.get("b").cloned()).is_none() && Instant::now() < deadline {
+    while objects.get("doc").and_then(|v| v.get("b").cloned()).is_none() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(50));
     }
 
-    let doc = objects.get_local("doc").expect("doc should be mirrored locally");
+    let doc = objects.get("doc").expect("doc should be mirrored locally");
     assert_eq!(
         doc.to_string(),
         r#"{"a":1,"b":2}"#,
@@ -700,11 +700,11 @@ fn test_integration_object_cache_synthetic_patch_from_put() {
     client.put_item(&cache_id, "doc", r#"{"a":1,"nested":{"x":1,"y":2},"c":3}"#).unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(8);
-    while objects.get_local("doc").and_then(|v| v.get("c").cloned()).is_none() && Instant::now() < deadline {
+    while objects.get("doc").and_then(|v| v.get("c").cloned()).is_none() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(50));
     }
 
-    let doc = objects.get_local("doc").expect("doc should be mirrored locally");
+    let doc = objects.get("doc").expect("doc should be mirrored locally");
     assert_eq!(doc["a"], 1, "untouched top-level field should survive the merge");
     assert_eq!(doc["c"], 3, "added top-level field should be applied from the delta");
     assert_eq!(doc["nested"]["x"], 1, "untouched nested field should survive the merge");
@@ -732,14 +732,14 @@ fn test_integration_put_timed_item() {
     assert_eq!(put_resp.key, "timed-key");
 
     // Get immediately - should exist
-    let get_resp = cache.get("timed-key").expect("Failed to get item");
+    let get_resp = cache.get_remote("timed-key").expect("Failed to get item");
     assert_eq!(get_resp.value, "timed-val");
 
     // Wait for TTL to expire (3 seconds)
     thread::sleep(Duration::from_secs(3));
 
     // Get again - should be gone
-    let get_resp2 = cache.get("timed-key").expect("Failed to get item after expiry");
+    let get_resp2 = cache.get_remote("timed-key").expect("Failed to get item after expiry");
     assert!(get_resp2.operation_status == "UNKNOWN_KEY" || get_resp2.value.is_empty());
 }
 

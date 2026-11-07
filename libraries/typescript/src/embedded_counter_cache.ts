@@ -12,7 +12,7 @@ export class EmbeddedCounterCache {
 
     constructor(private client: AeronCacheClient, private cacheId: string) {}
 
-    getLocal(key: string): number | undefined {
+    get(key: string): number | undefined {
         return this.localCache.get(key);
     }
 
@@ -24,7 +24,7 @@ export class EmbeddedCounterCache {
         return this.client.putTimedCounter(this.cacheId, key, value, ttl);
     }
 
-    async get(key: string): Promise<CounterResponse> {
+    async getRemote(key: string): Promise<CounterResponse> {
         return this.client.getCounter(this.cacheId, key);
     }
 

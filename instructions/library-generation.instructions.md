@@ -27,7 +27,7 @@ The client follows a **tiered architecture**, and the same high-level API is off
 2.  **High-Level Embedded Abstractions**
     -   Obtained from the client for a specific cache id. Each maintains a **local, in-memory
         mirror** of the cache that is kept in sync by subscribing to the server's update stream,
-        so reads (`getLocal`) are served with no network round-trip.
+        so reads (`get`) are served with no network round-trip.
     -   `EmbeddedAeronCache` (`client.getCache(cacheId)`) — string-valued cache.
     -   `EmbeddedCounterCache` (`client.getCounterCache(cacheId)`) — `int64` counter cache.
     -   `EmbeddedObjectCache` (`client.getObjectCache(cacheId)`) — structured JSON-object cache
@@ -132,15 +132,16 @@ Each embedded abstraction maintains a local map and applies stream events to it:
         -   `EmbeddedAeronCache` (string): **ignore** it — a delta cannot be merged into an
             opaque string. This client also **rejects** patch-mode subscriptions.
         -   `EmbeddedObjectCache`: **deep-merge** the delta (see below).
-3.  **Reads/writes**: `getLocal(key)` reads the mirror; `put`/`remove`/etc. write through to the
-    server (the mirror then updates via the stream).
+3.  **Reads/writes**: `get(key)` reads the local mirror (no round-trip); `getRemote(key)` fetches
+    from the server (and `getRemoteAsync` is its async form). `put`/`remove`/etc. write through to
+    the server (the mirror then updates via the stream).
 
 ### Embedded Object Cache
 `EmbeddedObjectCache` holds structured JSON objects and applies `PATCH_ITEM` deltas using
 **RFC 7386 (JSON Merge Patch)** semantics — nested objects merge recursively, scalars/arrays
 replace, and a `null` field deletes it — so patch-mode subscriptions (which stream only changed
 fields) reconstruct the full object locally without losing untouched fields. Back it with the
-language's natural JSON object type (Java: Jackson `ObjectNode`, with `getLocalAs` to deserialize
+language's natural JSON object type (Java: Jackson `ObjectNode`, with `getAs` to deserialize
 into a POJO; Python: `dict`; TypeScript: `Record<string, any>`; Rust: `serde_json::Value`).
 
 ## Batched Responses
@@ -176,7 +177,7 @@ client.createCache("my-cache")
 # Embedded cache — writes go to the server, reads come from the local mirror.
 cache = client.getCache("my-cache")
 await cache.put("key", "value")
-val = cache.getLocal("key")           # instant local read, kept in sync via the stream
+val = cache.get("key")                # instant local read, kept in sync via the stream
 
 # Counters
 client.createCounterCache("counter-cache")

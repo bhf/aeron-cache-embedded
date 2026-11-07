@@ -12,7 +12,7 @@ export class EmbeddedAeronCache {
 
     constructor(private client: AeronCacheClient, private cacheId: string) {}
 
-    getLocal(key: string): string | undefined {
+    get(key: string): string | undefined {
         return this.localCache.get(key);
     }
 
@@ -24,7 +24,7 @@ export class EmbeddedAeronCache {
         return this.client.putTimedItem(this.cacheId, key, value, ttl);
     }
 
-    async get(key: string): Promise<GetItemResponse> {
+    async getRemote(key: string): Promise<GetItemResponse> {
         return this.client.getItem(this.cacheId, key);
     }
 

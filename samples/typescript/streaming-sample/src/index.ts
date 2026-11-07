@@ -60,7 +60,7 @@ async function main() {
         // Loop forever checking for updates
         setInterval(async () => {
             try {
-                const current = await cache.getLocal('streaming-key');
+                const current = cache.get('streaming-key');
                 if (current !== undefined && current !== lastValue) {
                     console.log(`[TypeScript-Poller] Observed change in 'streaming-key': ${current}`);
                     lastValue = current;

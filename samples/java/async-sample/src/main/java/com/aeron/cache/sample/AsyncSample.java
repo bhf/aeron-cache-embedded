@@ -36,7 +36,7 @@ public class AsyncSample {
             }
 
             try {
-                var getResponse = cache.get("async-key");
+                var getResponse = cache.getRemote("async-key");
                 System.out.println("Read key 'async-key': " + getResponse.getValue());
             } catch (Exception e) {
                 throw new RuntimeException(e);
@@ -46,7 +46,7 @@ public class AsyncSample {
             cache.putTimedAsync("timed-key", "timed-value", 5000L).thenAccept(timedResp -> {
                 System.out.println("Timed Put operation completed with status: " + timedResp.getOperationStatus());
                 try {
-                    var getResponse = cache.get("timed-key");
+                    var getResponse = cache.getRemote("timed-key");
                     System.out.println("Read key 'timed-key': " + getResponse.getValue());
                 } catch (Exception e) {
                     throw new RuntimeException(e);

@@ -30,7 +30,7 @@ async def main():
     async def poller():
         last_val = None
         while True:
-            val = cache.get_local("streaming-key")
+            val = cache.get("streaming-key")
             if val and val != last_val:
                 print(f"[Python-Poller] 'streaming-key' updated: {val}")
                 last_val = val

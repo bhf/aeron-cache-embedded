@@ -20,7 +20,7 @@ import java.util.List;
  *   <li>an identical (no-op) put is suppressed (no event), and</li>
  *   <li>a non-JSON value falls back to a full {@code ADD_ITEM}.</li>
  * </ul>
- * The {@link EmbeddedObjectCache} deep-merges each delta (RFC 7386), so {@code getLocal} always holds the
+ * The {@link EmbeddedObjectCache} deep-merges each delta (RFC 7386), so {@code get} always holds the
  * full, reconstructed object with untouched (including nested) fields preserved.
  */
 public class PatchStreamSample {
@@ -64,7 +64,7 @@ public class PatchStreamSample {
                     return;
                 }
                 System.out.println("[Java] <- " + event.getEventType() + " delta=" + event.getItemValue()
-                        + "  reconstructed=" + objects.getLocal("doc"));
+                        + "  reconstructed=" + objects.get("doc"));
             }
         }, false, null, "patch");
 

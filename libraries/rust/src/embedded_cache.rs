@@ -75,7 +75,7 @@ impl<'a> EmbeddedAeronCache<'a> {
         }
     }
 
-    pub fn get_local(&self, key: &str) -> Option<String> {
+    pub fn get(&self, key: &str) -> Option<String> {
         if let Ok(cache) = self.local_cache.read() {
             cache.get(key).cloned()
         } else {
@@ -91,7 +91,7 @@ impl<'a> EmbeddedAeronCache<'a> {
         self.client.put_timed_item(&self.cache_id, key, value, ttl)
     }
 
-    pub fn get(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
+    pub fn get_remote(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
         self.client.get_item(&self.cache_id, key)
     }
 
@@ -111,7 +111,7 @@ impl<'a> EmbeddedAeronCache<'a> {
         self.client.put_timed_item_async(&self.cache_id, key, value, ttl).await
     }
 
-    pub async fn get_async(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
+    pub async fn get_remote_async(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
         self.client.get_item_async(&self.cache_id, key).await
     }
 

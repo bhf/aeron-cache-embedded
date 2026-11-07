@@ -27,14 +27,14 @@ def main():
     put_response = cache.put("sync-key", "sync-value")
     print(f"Put operation status: {put_response.status if hasattr(put_response, 'status') else 'OK'}")
 
-    get_response = cache.get("sync-key")
+    get_response = cache.get_remote("sync-key")
     print(f"Read key 'sync-key': {get_response.value or 'not found'}")
 
     print("Putting key 'timed-key' -> 'timed-value' with 5000ms TTL")
     timed_put_response = cache.put_timed("timed-key", "timed-value", 5000)
     print(f"Timed Put operation status: {timed_put_response.operationStatus or 'OK'}")
 
-    timed_get_response = cache.get("timed-key")
+    timed_get_response = cache.get_remote("timed-key")
     print(f"Read key 'timed-key': {timed_get_response.value or 'not found'}")
 
     # --- Counter operations ---
@@ -51,7 +51,7 @@ def main():
     print(f"Incremented 'requests' by 5 -> {counters.increment('requests', 5).value}")
     print(f"Decremented 'requests' by 3 -> {counters.decrement('requests', 3).value}")
     print(f"Set 'requests' -> {counters.set('requests', 100).value}")
-    print(f"Read counter 'requests': {counters.get('requests').value}")
+    print(f"Read counter 'requests': {counters.get_remote('requests').value}")
 
     # --- Inspection & management operations ---
     print("Patching 'sync-key' (deep-merge)")

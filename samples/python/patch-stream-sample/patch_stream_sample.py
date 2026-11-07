@@ -12,7 +12,7 @@ async def main():
     those puts into patch traffic: the first put of a key arrives as a full ``ADD_ITEM`` baseline, each later
     overwrite as a ``PATCH_ITEM`` delta of only the changed fields, an identical (no-op) put is suppressed,
     and a non-JSON value falls back to a full ``ADD_ITEM``. The EmbeddedObjectCache deep-merges each delta
-    (RFC 7386), so ``get_local`` always holds the full, reconstructed object.
+    (RFC 7386), so ``get`` always holds the full, reconstructed object.
     """
     base_url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:7070"
     ws_url = sys.argv[2] if len(sys.argv) > 2 else "ws://localhost:7071"
@@ -38,7 +38,7 @@ async def main():
     def on_event(event):
         if event.itemKey != "doc":
             return
-        print(f"[Python] <- {event.eventType} delta={event.itemValue}  reconstructed={oc.get_local('doc')}")
+        print(f"[Python] <- {event.eventType} delta={event.itemValue}  reconstructed={oc.get('doc')}")
 
     # Subscribe in patch mode BEFORE the key exists. The object cache subscribe wraps the client reader
     # loop, so run it as a task; the first put arrives as an ADD_ITEM baseline and every later put as a

@@ -33,12 +33,12 @@ impl<'a> EmbeddedCache<'a> {
     }
 
     /// Read a value from the local mirror (no network round-trip).
-    pub fn get_local(&self, key: &str) -> Option<String> {
+    pub fn get(&self, key: &str) -> Option<String> {
         self.local.read().ok().and_then(|m| m.get(key).cloned())
     }
 
     /// Snapshot of the local mirror.
-    pub fn local_snapshot(&self) -> HashMap<String, String> {
+    pub fn snapshot(&self) -> HashMap<String, String> {
         self.local.read().map(|m| m.clone()).unwrap_or_default()
     }
 
@@ -50,7 +50,7 @@ impl<'a> EmbeddedCache<'a> {
         self.transport.put_timed_item(&self.cache_id, key, value, ttl)
     }
 
-    pub fn get(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
+    pub fn get_remote(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
         self.transport.get_item(&self.cache_id, key)
     }
 
@@ -111,11 +111,11 @@ impl<'a> EmbeddedCounters<'a> {
         EmbeddedCounters { transport, cache_id, local: Arc::new(RwLock::new(HashMap::new())) }
     }
 
-    pub fn get_local(&self, key: &str) -> Option<i64> {
+    pub fn get(&self, key: &str) -> Option<i64> {
         self.local.read().ok().and_then(|m| m.get(key).copied())
     }
 
-    pub fn local_snapshot(&self) -> HashMap<String, i64> {
+    pub fn snapshot(&self) -> HashMap<String, i64> {
         self.local.read().map(|m| m.clone()).unwrap_or_default()
     }
 
@@ -127,7 +127,7 @@ impl<'a> EmbeddedCounters<'a> {
         self.transport.put_timed_counter(&self.cache_id, key, value, ttl)
     }
 
-    pub fn get(&self, key: &str) -> Result<CounterResponse, Box<dyn Error>> {
+    pub fn get_remote(&self, key: &str) -> Result<CounterResponse, Box<dyn Error>> {
         self.transport.get_counter(&self.cache_id, key)
     }
 
@@ -202,12 +202,12 @@ impl<'a> EmbeddedObjects<'a> {
     }
 
     /// Read an object from the local mirror (no network round-trip).
-    pub fn get_local(&self, key: &str) -> Option<Value> {
+    pub fn get(&self, key: &str) -> Option<Value> {
         self.local.read().ok().and_then(|m| m.get(key).cloned())
     }
 
     /// Snapshot of the local mirror.
-    pub fn local_snapshot(&self) -> HashMap<String, Value> {
+    pub fn snapshot(&self) -> HashMap<String, Value> {
         self.local.read().map(|m| m.clone()).unwrap_or_default()
     }
 
@@ -224,7 +224,7 @@ impl<'a> EmbeddedObjects<'a> {
         self.transport.patch_item(&self.cache_id, key, &fragment.to_string())
     }
 
-    pub fn get(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
+    pub fn get_remote(&self, key: &str) -> Result<GetItemResponse, Box<dyn Error>> {
         self.transport.get_item(&self.cache_id, key)
     }
 

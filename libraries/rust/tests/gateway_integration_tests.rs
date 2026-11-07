@@ -261,10 +261,10 @@ fn embedded_cache_mirrors_over_aeron() {
     embedded.insert("ek", "ev").unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(5);
-    while embedded.get_local("ek").is_none() && Instant::now() < deadline {
+    while embedded.get("ek").is_none() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert_eq!(embedded.get_local("ek").as_deref(), Some("ev"));
+    assert_eq!(embedded.get("ek").as_deref(), Some("ev"));
 
     drop(sub);
     client.delete_cache(&cache_name).unwrap();
@@ -282,10 +282,10 @@ fn embedded_counter_mirrors_over_aeron() {
     embedded.insert("ec", 42).unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(5);
-    while embedded.get_local("ec").is_none() && Instant::now() < deadline {
+    while embedded.get("ec").is_none() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert_eq!(embedded.get_local("ec"), Some(42));
+    assert_eq!(embedded.get("ec"), Some(42));
 
     drop(sub);
     client.delete_counter_cache(&cache_name).unwrap();
@@ -454,11 +454,11 @@ fn object_cache_synthetic_patch_over_gateway() {
     client.put_item(&cache, "doc", "{\"a\":1,\"nested\":{\"x\":1,\"y\":2},\"c\":3}").unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(8);
-    while objects.get_local("doc").and_then(|v| v.get("c").cloned()).is_none() && Instant::now() < deadline {
+    while objects.get("doc").and_then(|v| v.get("c").cloned()).is_none() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    let doc = objects.get_local("doc").expect("doc should be mirrored locally");
+    let doc = objects.get("doc").expect("doc should be mirrored locally");
     assert_eq!(doc["a"], 1, "untouched top-level field should survive the merge");
     assert_eq!(doc["c"], 3, "added top-level field should be applied from the delta");
     assert_eq!(doc["nested"]["x"], 1, "untouched nested field should survive the merge");

@@ -23,14 +23,14 @@ async function main() {
 
         // Allow some time for propagation
         await new Promise(r => setTimeout(r, 100));
-        const getResponse = await cache.get('streaming-key');
+        const getResponse = await cache.getRemote('streaming-key');
         console.log(`Read key 'streaming-key': ${getResponse.value || 'not found'}`);
 
         console.log("Putting key 'timed-key' -> 'timed-value' with 5000ms TTL");
         const timedResponse = await cache.putTimed('timed-key', 'timed-value', 5000);
         console.log(`Timed Put operation completed with status: ${timedResponse.operationStatus}`);
 
-        const timedGet = await cache.get('timed-key');
+        const timedGet = await cache.getRemote('timed-key');
         console.log(`Read key 'timed-key': ${timedGet.value || 'not found'}`);
     } catch (err) {
         console.error(err);
@@ -51,7 +51,7 @@ async function main() {
         console.log(`Incremented 'requests' by 5 -> ${(await counters.increment('requests', 5)).value}`);
         console.log(`Decremented 'requests' by 3 -> ${(await counters.decrement('requests', 3)).value}`);
         console.log(`Set 'requests' -> ${(await counters.set('requests', 100)).value}`);
-        console.log(`Read counter 'requests': ${(await counters.get('requests')).value}`);
+        console.log(`Read counter 'requests': ${(await counters.getRemote('requests')).value}`);
     } catch (err) {
         console.error(err);
     }

@@ -13,7 +13,7 @@ import { AeronCacheClient } from '@aeron-cache/embedded-client';
  * (never `patchItem`). As long as a patch-mode subscriber is listening, the cache service turns those puts
  * into patch traffic: the first put of a key arrives as a full ADD_ITEM baseline, each later overwrite as a
  * PATCH_ITEM delta of only the changed fields, an identical (no-op) put is suppressed, and a non-JSON value
- * falls back to a full ADD_ITEM. The EmbeddedObjectCache deep-merges each delta (RFC 7386), so getLocal
+ * falls back to a full ADD_ITEM. The EmbeddedObjectCache deep-merges each delta (RFC 7386), so get
  * always holds the full, reconstructed object.
  */
 async function main() {
@@ -42,7 +42,7 @@ async function main() {
     const onMessage = (event: any) => {
         if (event.itemKey !== 'doc') return;
         console.info(
-            `[TypeScript] <- ${event.eventType} delta=${event.itemValue}  reconstructed=${JSON.stringify(oc.getLocal('doc'))}`
+            `[TypeScript] <- ${event.eventType} delta=${event.itemValue}  reconstructed=${JSON.stringify(oc.get('doc'))}`
         );
     };
     const onError = (err: any) => console.error('[TypeScript] subscription error', err);

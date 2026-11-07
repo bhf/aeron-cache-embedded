@@ -73,8 +73,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     embedded.insert("user:1", "Ada")?;
     embedded.insert("user:2", "Alan")?;
     std::thread::sleep(Duration::from_millis(1000));
-    println!("Local read user:1 -> {:?}", embedded.get_local("user:1"));
-    println!("Local mirror snapshot -> {:?}", embedded.local_snapshot());
+    println!("Local read user:1 -> {:?}", embedded.get("user:1"));
+    println!("Local mirror snapshot -> {:?}", embedded.snapshot());
     drop(subscription);
     client.delete_cache("aeron-sample-embedded")?;
 
