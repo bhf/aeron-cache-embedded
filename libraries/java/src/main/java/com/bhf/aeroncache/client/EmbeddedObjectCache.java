@@ -24,8 +24,8 @@ import java.util.function.Consumer;
  * {@link CacheTransport#patchItem patchItem} deep-merge, so a patch-mode subscription (which streams only
  * the changed fields) reconstructs the full object locally without losing untouched fields.
  * <p>
- * Values are held as Jackson {@link ObjectNode}s. Use {@link #getLocal(String)} for the raw tree or
- * {@link #getLocalAs(String, Class)} to deserialize into a POJO on demand.
+ * Values are held as Jackson {@link ObjectNode}s. Use {@link #get(String)} for the raw tree or
+ * {@link #getAs(String, Class)} to deserialize into a POJO on demand.
  * <p>
  * Two subscription styles are offered: the transport-neutral {@link #subscribe(Consumer)} (works over
  * both transports), and the WebSocket-listener {@link #subscribe(AeronCacheSubscriber)} (HTTP only,
@@ -57,12 +57,12 @@ public class EmbeddedObjectCache {
     // --- Local mirror access ---
 
     /** The locally mirrored object for {@code key}, or {@code null} if absent. */
-    public ObjectNode getLocal(String key) {
+    public ObjectNode get(String key) {
         return localCache.get(key);
     }
 
     /** The locally mirrored object for {@code key} deserialized into {@code type}, or {@code null} if absent. */
-    public <T> T getLocalAs(String key, Class<T> type) {
+    public <T> T getAs(String key, Class<T> type) {
         ObjectNode node = localCache.get(key);
         if (node == null) {
             return null;
@@ -74,7 +74,7 @@ public class EmbeddedObjectCache {
         }
     }
 
-    public Map<String, ObjectNode> getLocalCache() {
+    public Map<String, ObjectNode> getCache() {
         return java.util.Collections.unmodifiableMap(localCache);
     }
 
@@ -96,7 +96,7 @@ public class EmbeddedObjectCache {
         return transport.patchItem(cacheId, key, toJson(fragment));
     }
 
-    public GetItemResponse get(String key) throws Exception {
+    public GetItemResponse getRemote(String key) throws Exception {
         return transport.getItem(cacheId, key);
     }
 
@@ -132,7 +132,7 @@ public class EmbeddedObjectCache {
         }
     }
 
-    public CompletableFuture<GetItemResponse> getAsync(String key) {
+    public CompletableFuture<GetItemResponse> getRemoteAsync(String key) {
         return transport.getItemAsync(cacheId, key);
     }
 

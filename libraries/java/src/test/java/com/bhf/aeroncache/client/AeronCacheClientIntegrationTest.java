@@ -48,7 +48,7 @@ public class AeronCacheClientIntegrationTest {
         assertEquals("key1", putResp.getKey());
 
         // Get the item
-        GetItemResponse getResp = embedded.get("key1");
+        GetItemResponse getResp = embedded.getRemote("key1");
         assertNotNull(getResp);
         assertEquals("val1", getResp.getValue());
 
@@ -57,7 +57,7 @@ public class AeronCacheClientIntegrationTest {
         assertNotNull(delResp);
 
         // Get the item again, should handle 404 cleanly based on our previous logic
-        GetItemResponse getResp2 = embedded.get("key1");
+        GetItemResponse getResp2 = embedded.getRemote("key1");
         assertNotNull(getResp2);
         assertTrue("UNKNOWN_KEY".equals(getResp2.getOperationStatus()) || getResp2.getValue() == null);
     }
@@ -110,7 +110,7 @@ public class AeronCacheClientIntegrationTest {
         assertTrue(received, "Websocket event not received within timeout");
 
         // Additionally, local cache should be automatically updated
-        assertEquals("ws-val", embedded.getLocal("ws-key"));
+        assertEquals("ws-val", embedded.get("ws-key"));
 
         embedded.clear();
         ws.close();
@@ -142,7 +142,7 @@ public class AeronCacheClientIntegrationTest {
         // Give it a moment to process hydration events
         Thread.sleep(2000);
 
-        assertEquals("hydrate-val", embedded.getLocal("hydrate-key"), "Local cache should be hydrated with existing data");
+        assertEquals("hydrate-val", embedded.get("hydrate-key"), "Local cache should be hydrated with existing data");
 
         embedded.clear();
         ws.close();
@@ -222,7 +222,7 @@ public class AeronCacheClientIntegrationTest {
         assertEquals(15L, counters.increment("hits", 5).getValue());
         assertEquals(12L, counters.decrement("hits", 3).getValue());
         assertEquals(100L, counters.set("hits", 100).getValue());
-        assertEquals(100L, counters.get("hits").getValue());
+        assertEquals(100L, counters.getRemote("hits").getValue());
 
         counters.remove("hits");
         counters.clear();
@@ -258,7 +258,7 @@ public class AeronCacheClientIntegrationTest {
         counters.put("ws-counter", 7);
 
         assertTrue(latch.await(5, TimeUnit.SECONDS), "Websocket event not received within timeout");
-        assertEquals(Long.valueOf(7L), counters.getLocal("ws-counter"));
+        assertEquals(Long.valueOf(7L), counters.get("ws-counter"));
 
         counters.clear();
         ws.close();
@@ -274,12 +274,12 @@ public class AeronCacheClientIntegrationTest {
         assertNotNull(putResp);
         assertEquals("timed-counter", putResp.getKey());
 
-        assertEquals(5L, counters.get("timed-counter").getValue());
+        assertEquals(5L, counters.getRemote("timed-counter").getValue());
 
         // Wait for TTL to expire
         Thread.sleep(3000);
 
-        CounterResponse getResp2 = counters.get("timed-counter");
+        CounterResponse getResp2 = counters.getRemote("timed-counter");
         assertTrue("UNKNOWN_KEY".equals(getResp2.getOperationStatus()) || getResp2.getValue() == 0L);
     }
 
@@ -397,7 +397,7 @@ public class AeronCacheClientIntegrationTest {
 
         Thread.sleep(3000);
 
-        assertEquals(5L, counters.get("keep-me").getValue(), "Counter should survive past TTL after cancelling removal");
+        assertEquals(5L, counters.getRemote("keep-me").getValue(), "Counter should survive past TTL after cancelling removal");
     }
 
     @Test
@@ -612,7 +612,7 @@ public class AeronCacheClientIntegrationTest {
         ObjectNode local = null;
         long deadline = System.currentTimeMillis() + 10_000;
         while (System.currentTimeMillis() < deadline) {
-            local = objectCache.getLocal("doc");
+            local = objectCache.get("doc");
             if (local != null && local.path("c").asInt(-1) == 3) {
                 break;
             }
@@ -652,14 +652,14 @@ public class AeronCacheClientIntegrationTest {
         assertEquals("timed-key", putResp.getKey());
 
         // Get immediately - should exist
-        GetItemResponse getResp = embedded.get("timed-key");
+        GetItemResponse getResp = embedded.getRemote("timed-key");
         assertEquals("timed-val", getResp.getValue());
 
         // Wait for TTL to expire (3 seconds)
         Thread.sleep(3000);
 
         // Get again - should be gone
-        GetItemResponse getResp2 = embedded.get("timed-key");
+        GetItemResponse getResp2 = embedded.getRemote("timed-key");
         assertTrue("UNKNOWN_KEY".equals(getResp2.getOperationStatus()) || getResp2.getValue() == null);
     }
 }

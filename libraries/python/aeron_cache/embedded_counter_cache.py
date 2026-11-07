@@ -11,10 +11,10 @@ class EmbeddedCounterCache:
     def __init__(self, client, cache_id):
         self.client = client
         self.cache_id = cache_id
-        self.local_cache = {}
+        self.cache = {}
 
-    def get_local(self, key):
-        return self.local_cache.get(key)
+    def get(self, key):
+        return self.cache.get(key)
 
     def put(self, key, value) -> PutItemResponse:
         return self.client.put_counter(self.cache_id, key, value)
@@ -22,7 +22,7 @@ class EmbeddedCounterCache:
     def put_timed(self, key, value, ttl) -> PutItemResponse:
         return self.client.put_timed_counter(self.cache_id, key, value, ttl)
 
-    def get(self, key) -> CounterResponse:
+    def get_remote(self, key) -> CounterResponse:
         return self.client.get_counter(self.cache_id, key)
 
     def increment(self, key, amount) -> CounterResponse:
@@ -46,7 +46,7 @@ class EmbeddedCounterCache:
     async def put_timed_async(self, key, value, ttl) -> PutItemResponse:
         return await self.client.put_timed_counter_async(self.cache_id, key, value, ttl)
 
-    async def get_async(self, key) -> CounterResponse:
+    async def get_remote_async(self, key) -> CounterResponse:
         return await self.client.get_counter_async(self.cache_id, key)
 
     async def increment_async(self, key, amount) -> CounterResponse:
@@ -66,7 +66,7 @@ class EmbeddedCounterCache:
 
     async def subscribe(self, callback, hydrate: bool = False):
         async def wrapped_callback(event: CounterUpdateEvent):
-            self._update_local_cache(event)
+            self._update_cache(event)
             if callback:
                 import asyncio
                 if asyncio.iscoroutinefunction(callback):
@@ -75,14 +75,14 @@ class EmbeddedCounterCache:
                     callback(event)
         return await self.client.subscribe_counter(self.cache_id, wrapped_callback, hydrate=hydrate)
 
-    def _update_local_cache(self, event: CounterUpdateEvent):
+    def _update_cache(self, event: CounterUpdateEvent):
         event_type = event.eventType
         if event_type == 'ADD_ITEM':
             # `is not None` so that a counter value of 0 is stored, not skipped.
             if event.itemKey is not None and event.itemValue is not None:
-                self.local_cache[event.itemKey] = event.itemValue
+                self.cache[event.itemKey] = event.itemValue
         elif event_type == 'REMOVE_ITEM':
             if event.itemKey is not None:
-                self.local_cache.pop(event.itemKey, None)
+                self.cache.pop(event.itemKey, None)
         elif event_type in ['CLEAR_CACHE', 'DELETE_CACHE']:
-            self.local_cache.clear()
+            self.cache.clear()

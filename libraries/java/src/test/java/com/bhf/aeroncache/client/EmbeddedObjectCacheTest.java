@@ -76,7 +76,7 @@ public class EmbeddedObjectCacheTest {
 
         listener.accept(event("ADD_ITEM", "doc", "{\"a\":1,\"b\":{\"c\":2}}"));
 
-        ObjectNode stored = cache.getLocal("doc");
+        ObjectNode stored = cache.get("doc");
         assertEquals(1, stored.get("a").asInt());
         assertEquals(2, stored.get("b").get("c").asInt());
     }
@@ -89,7 +89,7 @@ public class EmbeddedObjectCacheTest {
         // Patch mode streams only changed fields; the untouched "a" must survive.
         listener.accept(event("PATCH_ITEM", "doc", "{\"b\":{\"d\":3}}"));
 
-        ObjectNode stored = cache.getLocal("doc");
+        ObjectNode stored = cache.get("doc");
         assertEquals(1, stored.get("a").asInt(), "untouched top-level field must be preserved");
         assertEquals(2, stored.get("b").get("c").asInt(), "untouched nested field must be preserved");
         assertEquals(3, stored.get("b").get("d").asInt(), "new nested field must be merged in");
@@ -102,7 +102,7 @@ public class EmbeddedObjectCacheTest {
         listener.accept(event("ADD_ITEM", "doc", "{\"a\":1,\"b\":2}"));
         listener.accept(event("PATCH_ITEM", "doc", "{\"b\":null}"));
 
-        ObjectNode stored = cache.getLocal("doc");
+        ObjectNode stored = cache.get("doc");
         assertEquals(1, stored.get("a").asInt());
         assertFalse(stored.has("b"), "null in a merge-patch must delete the field (RFC 7386)");
     }
@@ -113,7 +113,7 @@ public class EmbeddedObjectCacheTest {
 
         listener.accept(event("PATCH_ITEM", "doc", "{\"a\":1}"));
 
-        assertEquals(1, cache.getLocal("doc").get("a").asInt());
+        assertEquals(1, cache.get("doc").get("a").asInt());
     }
 
     @Test
@@ -123,7 +123,7 @@ public class EmbeddedObjectCacheTest {
         listener.accept(event("ADD_ITEM", "doc", "{\"n\":1,\"list\":[1,2,3]}"));
         listener.accept(event("PATCH_ITEM", "doc", "{\"n\":9,\"list\":[4]}"));
 
-        ObjectNode stored = cache.getLocal("doc");
+        ObjectNode stored = cache.get("doc");
         assertEquals(9, stored.get("n").asInt());
         assertEquals(1, stored.get("list").size());
         assertEquals(4, stored.get("list").get(0).asInt());
@@ -135,11 +135,11 @@ public class EmbeddedObjectCacheTest {
 
         listener.accept(event("ADD_ITEM", "doc", "{\"a\":1}"));
         listener.accept(event("REMOVE_ITEM", "doc", null));
-        assertNull(cache.getLocal("doc"));
+        assertNull(cache.get("doc"));
 
         listener.accept(event("ADD_ITEM", "doc", "{\"a\":1}"));
         listener.accept(event("CLEAR_CACHE", null, null));
-        assertTrue(cache.getLocalCache().isEmpty());
+        assertTrue(cache.getCache().isEmpty());
     }
 
     @Test
@@ -147,10 +147,10 @@ public class EmbeddedObjectCacheTest {
         Consumer<CacheUpdateEvent> listener = subscribeAndCaptureListener();
         listener.accept(event("ADD_ITEM", "doc", "{\"name\":\"widget\",\"qty\":5}"));
 
-        Item item = cache.getLocalAs("doc", Item.class);
+        Item item = cache.getAs("doc", Item.class);
         assertEquals("widget", item.name);
         assertEquals(5, item.qty);
-        assertNull(cache.getLocalAs("missing", Item.class));
+        assertNull(cache.getAs("missing", Item.class));
     }
 
     @Test

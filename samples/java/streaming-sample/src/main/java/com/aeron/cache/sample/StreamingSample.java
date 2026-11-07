@@ -74,8 +74,8 @@ public class StreamingSample {
 
         String lastValue = "";
         while (true) {
-            // Poll using getLocal instead of get
-            String current = cache.getLocal("streaming-key");
+            // Poll using get (local mirror) instead of getRemote
+            String current = cache.get("streaming-key");
             
             if (current != null && !current.isEmpty() && !current.equals(lastValue)) {
                 System.out.println("[Java-Poller] Observed change in 'streaming-key': " + current);

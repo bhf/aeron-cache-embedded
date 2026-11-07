@@ -37,7 +37,7 @@ public class SyncSample {
         }
 
         try {
-            var response = cache.get("sync-key");
+            var response = cache.getRemote("sync-key");
             System.out.println("Retrieved key 'sync-key' -> '" + response.getValue() + "'");
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -52,7 +52,7 @@ public class SyncSample {
         }
 
         try {
-            var response = cache.get("timed-key");
+            var response = cache.getRemote("timed-key");
             System.out.println("Retrieved key 'timed-key' -> '" + response.getValue() + "'");
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -73,7 +73,7 @@ public class SyncSample {
             System.out.println("Incremented 'requests' by 5 -> " + counters.increment("requests", 5).getValue());
             System.out.println("Decremented 'requests' by 3 -> " + counters.decrement("requests", 3).getValue());
             System.out.println("Set 'requests' -> " + counters.set("requests", 100).getValue());
-            System.out.println("Read counter 'requests': " + counters.get("requests").getValue());
+            System.out.println("Read counter 'requests': " + counters.getRemote("requests").getValue());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

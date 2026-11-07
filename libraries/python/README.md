@@ -19,7 +19,7 @@ async def main():
     cache = client.get_cache("my-cache")
     
     await cache.put_async("key", "value")
-    print(await cache.get_async("key"))
+    print(await cache.get_remote_async("key"))
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -40,7 +40,7 @@ counters.put("requests", 10)
 counters.increment("requests", 5)  # -> 15
 counters.decrement("requests", 3)  # -> 12
 counters.set("requests", 100)      # -> 100
-print(counters.get("requests").value)
+print(counters.get_remote("requests").value)
 ```
 
 Counter operations are also available via `bulk_ops` using the counter `BulkOperationType` values and the `counterValue` field on `CacheOperationRequest`.

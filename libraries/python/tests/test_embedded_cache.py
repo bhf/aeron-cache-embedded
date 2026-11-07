@@ -55,21 +55,21 @@ async def test_put_timed_async_delegates_to_client_async(cache, client_mock):
 def test_update_local_cache_mutates_state(cache):
     # Simulate ADD_ITEM
     add_event = CacheUpdateEvent(eventType="ADD_ITEM", itemKey="my-key", itemValue="my-value", cacheId="test-cache", requestId="123")
-    cache._update_local_cache(add_event)
-    assert cache.get_local("my-key") == "my-value"
+    cache._update_cache(add_event)
+    assert cache.get("my-key") == "my-value"
 
     # Simulate REMOVE_ITEM
     remove_event = CacheUpdateEvent(eventType="REMOVE_ITEM", itemKey="my-key", cacheId="test-cache", requestId="123")
-    cache._update_local_cache(remove_event)
-    assert cache.get_local("my-key") is None
+    cache._update_cache(remove_event)
+    assert cache.get("my-key") is None
 
 def test_patch_item_does_not_overwrite_local_value(cache):
     add_event = CacheUpdateEvent(eventType="ADD_ITEM", itemKey="my-key", itemValue='{"a":1,"b":2}', cacheId="test-cache", requestId="123")
-    cache._update_local_cache(add_event)
+    cache._update_cache(add_event)
     # A stray PATCH_ITEM delta must NOT clobber the full stored value.
     patch_event = CacheUpdateEvent(eventType="PATCH_ITEM", itemKey="my-key", itemValue='{"b":3}', cacheId="test-cache", requestId="123")
-    cache._update_local_cache(patch_event)
-    assert cache.get_local("my-key") == '{"a":1,"b":2}'
+    cache._update_cache(patch_event)
+    assert cache.get("my-key") == '{"a":1,"b":2}'
 
 @pytest.mark.asyncio
 async def test_subscribe_rejects_patch_mode(cache):

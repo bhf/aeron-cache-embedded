@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut last_val = None;
     loop {
-        if let Some(current) = cache.get_local("streaming-key") {
+        if let Some(current) = cache.get("streaming-key") {
             if Some(current.clone()) != last_val {
                 println!("[Rust-Poller] Observed change in 'streaming-key': {}", current);
                 last_val = Some(current);

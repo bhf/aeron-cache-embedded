@@ -31,7 +31,7 @@ if (shouldRun && !wsUrl) {
         expect(putResp.key).toBe('key1');
 
         // Get the item
-        const getResp = await embedded.get('key1');
+        const getResp = await embedded.getRemote('key1');
         expect(getResp).toBeDefined();
         expect(getResp.value).toBe('val1');
 
@@ -40,7 +40,7 @@ if (shouldRun && !wsUrl) {
         expect(delResp).toBeDefined();
 
         // Get the item again, should handle 404 cleanly
-        const getResp2 = await embedded.get('key1');
+        const getResp2 = await embedded.getRemote('key1');
         expect(getResp2).toBeDefined();
         expect(getResp2.operationStatus === 'UNKNOWN_KEY' || getResp2.value == null).toBeTruthy();
     });
@@ -63,7 +63,7 @@ if (shouldRun && !wsUrl) {
                     clearTimeout(timeout);
                     
                     try {
-                        expect(embedded.getLocal('ws-key')).toBe('ws-val');
+                        expect(embedded.get('ws-key')).toBe('ws-val');
                         ws.close();
                         resolve();
                     } catch (e) {
@@ -116,7 +116,7 @@ if (shouldRun && !wsUrl) {
                     // Give it a moment to process hydration
                     setTimeout(() => {
                         try {
-                            const localVal = embedded.getLocal('hydrate-key');
+                            const localVal = embedded.get('hydrate-key');
                             expect(localVal).toBe('hydrate-val');
                             clearTimeout(timeout);
                             if (wsResult) wsResult.close();
@@ -211,14 +211,14 @@ if (shouldRun && !wsUrl) {
         expect(putResp.key).toBe("timed-key");
 
         // Get immediately - should exist
-        const getResp = await embedded.get("timed-key");
+        const getResp = await embedded.getRemote("timed-key");
         expect(getResp.value).toBe("timed-val");
 
         // Wait for TTL to expire (3 seconds)
         await new Promise(resolve => setTimeout(resolve, 3000));
 
         // Get again - should be gone
-        const getResp2 = await embedded.get("timed-key");
+        const getResp2 = await embedded.getRemote("timed-key");
         expect(getResp2.operationStatus === "UNKNOWN_KEY" || !getResp2.value).toBeTruthy();
     });
 
@@ -236,7 +236,7 @@ if (shouldRun && !wsUrl) {
         expect((await counters.increment('hits', 5)).value).toBe(15);
         expect((await counters.decrement('hits', 3)).value).toBe(12);
         expect((await counters.set('hits', 100)).value).toBe(100);
-        expect((await counters.get('hits')).value).toBe(100);
+        expect((await counters.getRemote('hits')).value).toBe(100);
 
         await counters.delete('hits');
         await counters.clear();
@@ -259,7 +259,7 @@ if (shouldRun && !wsUrl) {
                 if (event.eventType === 'ADD_ITEM' && event.itemKey === 'ws-counter') {
                     clearTimeout(timeout);
                     try {
-                        expect(counters.getLocal('ws-counter')).toBe(7);
+                        expect(counters.get('ws-counter')).toBe(7);
                         ws.close();
                         resolve();
                     } catch (e) {
@@ -531,7 +531,7 @@ if (shouldRun && !wsUrl) {
         const deadline = Date.now() + 8000;
         let local: any;
         while (Date.now() < deadline) {
-            local = oc.getLocal('doc');
+            local = oc.get('doc');
             if (local && local.c === 3) break;
             await sleep(50);
         }

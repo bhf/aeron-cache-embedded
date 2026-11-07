@@ -35,11 +35,11 @@ public class EmbeddedCounterCache {
         this.cacheId = cacheId;
     }
 
-    public Long getLocal(String key) {
+    public Long get(String key) {
         return localCache.get(key);
     }
 
-    public Map<String, Long> getLocalCache() {
+    public Map<String, Long> getCache() {
         return java.util.Collections.unmodifiableMap(localCache);
     }
 
@@ -51,7 +51,7 @@ public class EmbeddedCounterCache {
         return transport.putTimedCounter(cacheId, key, value, ttl);
     }
 
-    public CounterResponse get(String key) throws Exception {
+    public CounterResponse getRemote(String key) throws Exception {
         return transport.getCounter(cacheId, key);
     }
 
@@ -83,7 +83,7 @@ public class EmbeddedCounterCache {
         return transport.putTimedCounterAsync(cacheId, key, value, ttl);
     }
 
-    public CompletableFuture<CounterResponse> getAsync(String key) {
+    public CompletableFuture<CounterResponse> getRemoteAsync(String key) {
         return transport.getCounterAsync(cacheId, key);
     }
 

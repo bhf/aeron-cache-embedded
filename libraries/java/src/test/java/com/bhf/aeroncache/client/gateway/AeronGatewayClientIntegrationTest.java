@@ -440,10 +440,10 @@ class AeronGatewayClientIntegrationTest {
             embedded.put("ek", "ev");
 
             final long deadline = System.currentTimeMillis() + 5_000;
-            while (embedded.getLocal("ek") == null && System.currentTimeMillis() < deadline) {
+            while (embedded.get("ek") == null && System.currentTimeMillis() < deadline) {
                 Thread.sleep(50);
             }
-            assertEquals("ev", embedded.getLocal("ek"));
+            assertEquals("ev", embedded.get("ek"));
         }
         client.deleteCache(cacheId);
     }
@@ -459,10 +459,10 @@ class AeronGatewayClientIntegrationTest {
             embedded.put("ec", 42);
 
             final long deadline = System.currentTimeMillis() + 5_000;
-            while (embedded.getLocal("ec") == null && System.currentTimeMillis() < deadline) {
+            while (embedded.get("ec") == null && System.currentTimeMillis() < deadline) {
                 Thread.sleep(50);
             }
-            assertEquals(42L, embedded.getLocal("ec"));
+            assertEquals(42L, embedded.get("ec"));
         }
         client.deleteCounterCache(cacheId);
     }

@@ -8,7 +8,7 @@ Demonstrates server-side **synthetic PATCH streaming**. With a patch-mode subscr
 - an identical (no-op) put is **suppressed** (no event), and
 - a non-JSON value falls back to a full `ADD_ITEM`.
 
-An `EmbeddedObjectCache` deep-merges each delta (RFC 7386), so `getLocal` always holds the full,
+An `EmbeddedObjectCache` deep-merges each delta (RFC 7386), so `get` always holds the full,
 reconstructed object with untouched (including nested) fields preserved.
 
 ## Prerequisites

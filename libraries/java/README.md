@@ -25,7 +25,7 @@ public class Example {
         cache.put("key", "value");
 
         // Local reads (from embedded cache)
-        System.out.println(cache.getLocal("key"));
+        System.out.println(cache.get("key"));
     }
 }
 ```
@@ -46,7 +46,7 @@ counters.put("requests", 10);
 counters.increment("requests", 5); // -> 15
 counters.decrement("requests", 3); // -> 12
 counters.set("requests", 100);     // -> 100
-System.out.println(counters.get("requests").getValue());
+System.out.println(counters.getRemote("requests").getValue());
 ```
 
 Counter operations are also available via `bulkOps` using the counter `BulkOperationType` values and the `counterValue` field on `CacheOperationRequest`.
@@ -175,7 +175,7 @@ EmbeddedAeronCache cache = client.getCache("my-cache");
 try (AutoCloseable sub = cache.subscribe(event -> System.out.println("update: " + event.getItemKey()))) {
     cache.put("key", "value");
     // ... the local mirror is kept up to date from streaming updates
-    System.out.println(cache.getLocal("key"));
+    System.out.println(cache.get("key"));
 }
 ```
 

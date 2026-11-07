@@ -50,13 +50,13 @@ describe('EmbeddedCounterCache', () => {
         cache.subscribe(jest.fn());
 
         subscriptionCallback({ eventType: 'ADD_ITEM', itemKey: 'hits', itemValue: 42 });
-        expect(cache.getLocal('hits')).toBe(42);
+        expect(cache.get('hits')).toBe(42);
 
         // Zero must be honoured (not treated as missing)
         subscriptionCallback({ eventType: 'ADD_ITEM', itemKey: 'hits', itemValue: 0 });
-        expect(cache.getLocal('hits')).toBe(0);
+        expect(cache.get('hits')).toBe(0);
 
         subscriptionCallback({ eventType: 'REMOVE_ITEM', itemKey: 'hits' });
-        expect(cache.getLocal('hits')).toBeUndefined();
+        expect(cache.get('hits')).toBeUndefined();
     });
 });

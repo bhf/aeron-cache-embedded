@@ -72,11 +72,11 @@ public class EmbeddedAeronCacheTest {
 
         // Simulate ADD_ITEM
         registeredSubscriber.onText(baseMockWs, "{\"eventType\":\"ADD_ITEM\",\"itemKey\":\"my-key\",\"itemValue\":\"my-value\"}", true);
-        assertEquals("my-value", cache.getLocal("my-key"));
-        
+        assertEquals("my-value", cache.get("my-key"));
+
         // Simulate REMOVE_ITEM
         registeredSubscriber.onText(baseMockWs, "{\"eventType\":\"REMOVE_ITEM\",\"itemKey\":\"my-key\"}", true);
-        assertNull(cache.getLocal("my-key"));
+        assertNull(cache.get("my-key"));
     }
 
     @Test
@@ -102,6 +102,6 @@ public class EmbeddedAeronCacheTest {
         registeredSubscriber.onText(baseMockWs, "{\"eventType\":\"ADD_ITEM\",\"itemKey\":\"my-key\",\"itemValue\":\"{\\\"a\\\":1,\\\"b\\\":2}\"}", true);
         // A stray PATCH_ITEM delta must NOT clobber the full stored value.
         registeredSubscriber.onText(baseMockWs, "{\"eventType\":\"PATCH_ITEM\",\"itemKey\":\"my-key\",\"itemValue\":\"{\\\"b\\\":3}\"}", true);
-        assertEquals("{\"a\":1,\"b\":2}", cache.getLocal("my-key"));
+        assertEquals("{\"a\":1,\"b\":2}", cache.get("my-key"));
     }
 }

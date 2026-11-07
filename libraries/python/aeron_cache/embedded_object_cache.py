@@ -45,11 +45,11 @@ class EmbeddedObjectCache:
     def __init__(self, client, cache_id):
         self.client = client
         self.cache_id = cache_id
-        self.local_cache = {}
+        self.cache = {}
 
-    def get_local(self, key):
+    def get(self, key):
         """The locally mirrored object (a ``dict``) for ``key``, or ``None`` if absent."""
-        return self.local_cache.get(key)
+        return self.cache.get(key)
 
     def put(self, key, value: dict) -> PutItemResponse:
         return self.client.put_item(self.cache_id, key, json.dumps(value))
@@ -61,7 +61,7 @@ class EmbeddedObjectCache:
         """Deep-merge a JSON fragment into the stored object (RFC 7386). A ``None`` field deletes it."""
         return self.client.patch_item(self.cache_id, key, json.dumps(fragment))
 
-    def get(self, key) -> GetItemResponse:
+    def get_remote(self, key) -> GetItemResponse:
         return self.client.get_item(self.cache_id, key)
 
     def remove(self, key) -> DeleteItemResponse:
@@ -79,7 +79,7 @@ class EmbeddedObjectCache:
     async def patch_async(self, key, fragment: dict) -> PatchItemResponse:
         return await self.client.patch_item_async(self.cache_id, key, json.dumps(fragment))
 
-    async def get_async(self, key) -> GetItemResponse:
+    async def get_remote_async(self, key) -> GetItemResponse:
         return await self.client.get_item_async(self.cache_id, key)
 
     async def remove_async(self, key) -> DeleteItemResponse:
@@ -90,7 +90,7 @@ class EmbeddedObjectCache:
 
     async def subscribe(self, callback, hydrate: bool = False, keys=None, mode=None):
         async def wrapped_callback(event: CacheUpdateEvent):
-            self._update_local_cache(event)
+            self._update_cache(event)
             if callback:
                 import asyncio
                 if asyncio.iscoroutinefunction(callback):
@@ -99,21 +99,21 @@ class EmbeddedObjectCache:
                     callback(event)
         return await self.client.subscribe(self.cache_id, wrapped_callback, hydrate=hydrate, keys=keys, mode=mode)
 
-    def _update_local_cache(self, event: CacheUpdateEvent):
+    def _update_cache(self, event: CacheUpdateEvent):
         event_type = event.eventType
         if event_type == 'ADD_ITEM':
             if event.itemKey and event.itemValue:
-                self.local_cache[event.itemKey] = self._parse_object(event.itemValue)
+                self.cache[event.itemKey] = self._parse_object(event.itemValue)
         elif event_type == 'PATCH_ITEM':
             if event.itemKey and event.itemValue:
                 delta = self._parse_object(event.itemValue)
-                existing = self.local_cache.get(event.itemKey) or {}
-                self.local_cache[event.itemKey] = _deep_merge(existing, delta)
+                existing = self.cache.get(event.itemKey) or {}
+                self.cache[event.itemKey] = _deep_merge(existing, delta)
         elif event_type == 'REMOVE_ITEM':
             if event.itemKey:
-                self.local_cache.pop(event.itemKey, None)
+                self.cache.pop(event.itemKey, None)
         elif event_type in ['CLEAR_CACHE', 'DELETE_CACHE']:
-            self.local_cache.clear()
+            self.cache.clear()
 
     @staticmethod
     def _parse_object(value: str) -> dict:

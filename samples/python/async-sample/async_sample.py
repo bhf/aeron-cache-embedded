@@ -31,7 +31,7 @@ async def main():
 
     await asyncio.sleep(0.1)
 
-    get_response = await cache.get_async("async-key")
+    get_response = await cache.get_remote_async("async-key")
     print(f"Read key 'async-key': {get_response.value or 'not found'}")
 
     # --- Counter operations ---
@@ -49,7 +49,7 @@ async def main():
     print(f"Incremented 'requests' by 5 -> {inc.value}")
     set_resp = await counters.set_async("requests", 100)
     print(f"Set 'requests' -> {set_resp.value}")
-    get_counter = await counters.get_async("requests")
+    get_counter = await counters.get_remote_async("requests")
     print(f"Read counter 'requests': {get_counter.value}")
 
 if __name__ == "__main__":

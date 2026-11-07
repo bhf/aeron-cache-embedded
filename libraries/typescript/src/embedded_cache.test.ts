@@ -73,7 +73,7 @@ describe('EmbeddedAeronCache', () => {
         });
 
         // Check local read
-        expect(cache.getLocal('my-key')).toEqual('my-value');
+        expect(cache.get('my-key')).toEqual('my-value');
 
         // Simulate item removal
         subscriptionCallback({
@@ -82,7 +82,7 @@ describe('EmbeddedAeronCache', () => {
         });
 
         // Check local read (should be removed)
-        expect(cache.getLocal('my-key')).toBeUndefined();
+        expect(cache.get('my-key')).toBeUndefined();
     });
 
     it('rejects patch-mode subscriptions', () => {
@@ -101,6 +101,6 @@ describe('EmbeddedAeronCache', () => {
         subscriptionCallback({ eventType: 'ADD_ITEM', itemKey: 'my-key', itemValue: '{"a":1,"b":2}' });
         // A stray PATCH_ITEM delta must NOT clobber the full stored value.
         subscriptionCallback({ eventType: 'PATCH_ITEM', itemKey: 'my-key', itemValue: '{"b":3}' });
-        expect(cache.getLocal('my-key')).toEqual('{"a":1,"b":2}');
+        expect(cache.get('my-key')).toEqual('{"a":1,"b":2}');
     });
 });

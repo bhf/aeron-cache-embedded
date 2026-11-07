@@ -24,7 +24,7 @@ async function main() {
     await cache.set('key', 'value');
 
     // Local reads (from embedded cache)
-    console.log(cache.getLocal('key'));
+    console.log(cache.get('key'));
 }
 
 main();
@@ -45,7 +45,7 @@ await counters.put('requests', 10);
 await counters.increment('requests', 5); // -> 15
 await counters.decrement('requests', 3); // -> 12
 await counters.set('requests', 100);     // -> 100
-console.log((await counters.get('requests')).value);
+console.log((await counters.getRemote('requests')).value);
 ```
 
 Counter operations are also available via `bulkOps` using the counter `BulkOperationType` values and the `counterValue` field on `CacheOperationRequest`.

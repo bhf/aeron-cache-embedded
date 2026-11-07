@@ -35,11 +35,11 @@ public class EmbeddedAeronCache {
         this.cacheId = cacheId;
     }
 
-    public String getLocal(String key) {
+    public String get(String key) {
         return localCache.get(key);
     }
 
-    public Map<String, String> getLocalCache() {
+    public Map<String, String> getCache() {
         return java.util.Collections.unmodifiableMap(localCache);
     }
 
@@ -51,7 +51,7 @@ public class EmbeddedAeronCache {
         return transport.putTimedItem(cacheId, key, value, ttl);
     }
 
-    public GetItemResponse get(String key) throws Exception {
+    public GetItemResponse getRemote(String key) throws Exception {
         return transport.getItem(cacheId, key);
     }
 
@@ -71,7 +71,7 @@ public class EmbeddedAeronCache {
         return transport.putTimedItemAsync(cacheId, key, value, ttl);
     }
 
-    public CompletableFuture<GetItemResponse> getAsync(String key) {
+    public CompletableFuture<GetItemResponse> getRemoteAsync(String key) {
         return transport.getItemAsync(cacheId, key);
     }
 

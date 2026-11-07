@@ -41,7 +41,7 @@ def test_cache_operations(client):
     assert put_resp.key == "key1"
 
     # Get the item
-    get_resp = embedded.get("key1")
+    get_resp = embedded.get_remote("key1")
     assert get_resp is not None
     assert get_resp.value == "val1"
 
@@ -50,7 +50,7 @@ def test_cache_operations(client):
     assert del_resp is not None
 
     # Get the item again, should handle 404 cleanly
-    get_resp2 = embedded.get("key1")
+    get_resp2 = embedded.get_remote("key1")
     assert get_resp2 is not None
     assert get_resp2.operationStatus == "UNKNOWN_KEY" or get_resp2.value is None
 
@@ -81,7 +81,7 @@ async def test_websocket_subscription(client):
     finally:
         sub_task.cancel()
 
-    assert embedded.get_local("ws-key") == "ws-val"
+    assert embedded.get("ws-key") == "ws-val"
     embedded.clear()
 
 @pytest.mark.asyncio
@@ -100,7 +100,7 @@ async def test_websocket_hydration(client):
     await asyncio.sleep(2.0)
 
     try:
-        assert embedded.get_local("hydrate-key") == "hydrate-val"
+        assert embedded.get("hydrate-key") == "hydrate-val"
     finally:
         sub_task.cancel()
 
@@ -187,7 +187,7 @@ def test_counter_operations(client):
     assert counters.increment("hits", 5).value == 15
     assert counters.decrement("hits", 3).value == 12
     assert counters.set("hits", 100).value == 100
-    assert counters.get("hits").value == 100
+    assert counters.get_remote("hits").value == 100
 
     counters.remove("hits")
     counters.clear()
@@ -214,7 +214,7 @@ async def test_counter_websocket_subscription(client):
     finally:
         sub_task.cancel()
 
-    assert counters.get_local("ws-counter") == 7
+    assert counters.get("ws-counter") == 7
     counters.clear()
 
 def test_put_timed_counter(client):
@@ -227,11 +227,11 @@ def test_put_timed_counter(client):
     assert put_resp is not None
     assert put_resp.key == "timed-counter"
 
-    assert counters.get("timed-counter").value == 5
+    assert counters.get_remote("timed-counter").value == 5
 
     time.sleep(3)
 
-    get_resp2 = counters.get("timed-counter")
+    get_resp2 = counters.get_remote("timed-counter")
     assert get_resp2.operationStatus == "UNKNOWN_KEY" or get_resp2.value in (None, 0)
 
 def test_put_timed_item(client):
@@ -246,14 +246,14 @@ def test_put_timed_item(client):
     assert put_resp.key == "timed-key"
 
     # Get immediately - should exist
-    get_resp = embedded.get("timed-key")
+    get_resp = embedded.get_remote("timed-key")
     assert get_resp.value == "timed-val"
 
     # Wait for TTL to expire (3 seconds)
     time.sleep(3)
 
     # Get again - should be gone
-    get_resp2 = embedded.get("timed-key")
+    get_resp2 = embedded.get_remote("timed-key")
     assert get_resp2.operationStatus == "UNKNOWN_KEY" or get_resp2.value is None or get_resp2.value == ""
 
 
@@ -472,14 +472,14 @@ async def test_object_cache_reconstructs_from_synthetic_patch(client):
     loop = asyncio.get_event_loop()
     deadline = loop.time() + 8.0
     while loop.time() < deadline:
-        local = oc.get_local("doc")
+        local = oc.get("doc")
         if local is not None and local.get("c") == 3:
             break
         await asyncio.sleep(0.05)
 
     sub_task.cancel()
 
-    local = oc.get_local("doc")
+    local = oc.get("doc")
     assert local is not None, "object cache should have mirrored the document"
     assert local.get("a") == 1, "untouched top-level field should survive the merge"
     assert local.get("c") == 3, "added top-level field should be applied from the delta"

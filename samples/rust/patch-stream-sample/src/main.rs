@@ -10,7 +10,7 @@ use tokio::time::sleep;
 /// patch-mode subscriber is listening, the cache service turns those puts into patch traffic: the first put
 /// of a key arrives as a full `ADD_ITEM` baseline, each later overwrite as a `PATCH_ITEM` delta of only the
 /// changed fields, an identical (no-op) put is suppressed, and a non-JSON value falls back to a full
-/// `ADD_ITEM`. The `EmbeddedObjects` mirror deep-merges each delta (RFC 7386) so `get_local` always holds
+/// `ADD_ITEM`. The `EmbeddedObjects` mirror deep-merges each delta (RFC 7386) so `get` always holds
 /// the full, reconstructed object.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // ...and a second patch-mode subscription via the EmbeddedObjects mirror deep-merges those deltas so
-    // get_local reconstructs the full object.
+    // get reconstructs the full object.
     let objects = client.embedded_object_cache(cache_id);
     let _mirror = objects.subscribe_filtered(false, None, Some("patch"))?;
 
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("[Rust] -> put doc = {}", state);
         client.put_item_async(cache_id, "doc", state).await?;
         sleep(Duration::from_millis(400)).await;
-        match objects.get_local("doc") {
+        match objects.get("doc") {
             Some(v) => println!("[Rust]    reconstructed={}", v),
             None => println!("[Rust]    reconstructed=<none>"),
         }

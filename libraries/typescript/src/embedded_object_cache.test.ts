@@ -38,45 +38,45 @@ describe('EmbeddedObjectCache', () => {
     it('stores the parsed object on ADD_ITEM', () => {
         const cb = subscribeAndCapture();
         cb({ eventType: 'ADD_ITEM', itemKey: 'doc', itemValue: '{"a":1,"b":{"c":2}}' });
-        expect(cache.getLocal('doc')).toEqual({ a: 1, b: { c: 2 } });
+        expect(cache.get('doc')).toEqual({ a: 1, b: { c: 2 } });
     });
 
     it('deep-merges PATCH_ITEM instead of overwriting', () => {
         const cb = subscribeAndCapture();
         cb({ eventType: 'ADD_ITEM', itemKey: 'doc', itemValue: '{"a":1,"b":{"c":2}}' });
         cb({ eventType: 'PATCH_ITEM', itemKey: 'doc', itemValue: '{"b":{"d":3}}' });
-        expect(cache.getLocal('doc')).toEqual({ a: 1, b: { c: 2, d: 3 } });
+        expect(cache.get('doc')).toEqual({ a: 1, b: { c: 2, d: 3 } });
     });
 
     it('deletes a field when the delta value is null (RFC 7386)', () => {
         const cb = subscribeAndCapture();
         cb({ eventType: 'ADD_ITEM', itemKey: 'doc', itemValue: '{"a":1,"b":2}' });
         cb({ eventType: 'PATCH_ITEM', itemKey: 'doc', itemValue: '{"b":null}' });
-        expect(cache.getLocal('doc')).toEqual({ a: 1 });
+        expect(cache.get('doc')).toEqual({ a: 1 });
     });
 
     it('patch on an absent key starts from the delta', () => {
         const cb = subscribeAndCapture();
         cb({ eventType: 'PATCH_ITEM', itemKey: 'doc', itemValue: '{"a":1}' });
-        expect(cache.getLocal('doc')).toEqual({ a: 1 });
+        expect(cache.get('doc')).toEqual({ a: 1 });
     });
 
     it('replaces scalars and arrays rather than merging them', () => {
         const cb = subscribeAndCapture();
         cb({ eventType: 'ADD_ITEM', itemKey: 'doc', itemValue: '{"n":1,"list":[1,2,3]}' });
         cb({ eventType: 'PATCH_ITEM', itemKey: 'doc', itemValue: '{"n":9,"list":[4]}' });
-        expect(cache.getLocal('doc')).toEqual({ n: 9, list: [4] });
+        expect(cache.get('doc')).toEqual({ n: 9, list: [4] });
     });
 
     it('handles REMOVE_ITEM and CLEAR_CACHE', () => {
         const cb = subscribeAndCapture();
         cb({ eventType: 'ADD_ITEM', itemKey: 'doc', itemValue: '{"a":1}' });
         cb({ eventType: 'REMOVE_ITEM', itemKey: 'doc' });
-        expect(cache.getLocal('doc')).toBeUndefined();
+        expect(cache.get('doc')).toBeUndefined();
 
         cb({ eventType: 'ADD_ITEM', itemKey: 'doc', itemValue: '{"a":1}' });
         cb({ eventType: 'CLEAR_CACHE' });
-        expect(cache.getLocal('doc')).toBeUndefined();
+        expect(cache.get('doc')).toBeUndefined();
     });
 
     it('deepMerge does not mutate its inputs', () => {

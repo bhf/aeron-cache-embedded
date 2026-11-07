@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Allow propagation
     sleep(Duration::from_millis(100)).await;
 
-    match cache.get_async("async-key").await {
+    match cache.get_remote_async("async-key").await {
         Ok(resp) => println!("Read key 'async-key': {}", resp.value),
         Err(e) => println!("Read key 'async-key' error: {}", e),
     }
@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     counters.insert_async("requests", 10).await?;
     println!("Incremented 'requests' by 5 -> {}", counters.increment_async("requests", 5).await?.value);
     println!("Set 'requests' -> {}", counters.set_async("requests", 100).await?.value);
-    println!("Read counter 'requests': {}", counters.get_async("requests").await?.value);
+    println!("Read counter 'requests': {}", counters.get_remote_async("requests").await?.value);
 
     Ok(())
 }

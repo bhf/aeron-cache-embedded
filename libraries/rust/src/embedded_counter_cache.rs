@@ -71,7 +71,7 @@ impl<'a> EmbeddedCounterCache<'a> {
         }
     }
 
-    pub fn get_local(&self, key: &str) -> Option<i64> {
+    pub fn get(&self, key: &str) -> Option<i64> {
         if let Ok(cache) = self.local_cache.read() {
             cache.get(key).copied()
         } else {
@@ -87,7 +87,7 @@ impl<'a> EmbeddedCounterCache<'a> {
         self.client.put_timed_counter(&self.cache_id, key, value, ttl)
     }
 
-    pub fn get(&self, key: &str) -> Result<CounterResponse, Box<dyn Error>> {
+    pub fn get_remote(&self, key: &str) -> Result<CounterResponse, Box<dyn Error>> {
         self.client.get_counter(&self.cache_id, key)
     }
 
@@ -119,7 +119,7 @@ impl<'a> EmbeddedCounterCache<'a> {
         self.client.put_timed_counter_async(&self.cache_id, key, value, ttl).await
     }
 
-    pub async fn get_async(&self, key: &str) -> Result<CounterResponse, Box<dyn Error>> {
+    pub async fn get_remote_async(&self, key: &str) -> Result<CounterResponse, Box<dyn Error>> {
         self.client.get_counter_async(&self.cache_id, key).await
     }
 
