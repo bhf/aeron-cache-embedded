@@ -28,6 +28,7 @@ The same high-level API is offered over multiple transports:
 - [Example Usage](#example-usage)
 - [Near Cache](#near-cache)
 - [Running Samples](#running-samples)
+- [Main Client Methods By Language](#main-client-methods-by-language)
 - [Features](#features)
 - [Soak Testing](#soak-testing)
 - [Project Structure](#project-structure)
@@ -225,6 +226,49 @@ Runs the streaming (Embedded Cache) samples for all languages in **parallel**, c
 *Note: Press Ctrl+C to stop all parallel streaming processes.*
 
 The `bulk-sample`, `bidi-sample`, and `aeron-sample` demos are transport-specific and are run standalone per their own READMEs (the Aeron gateway sample additionally requires the gateway to be enabled on the backend — see [Transports](#transports)).
+
+[Back to top](#aeron-cache-embedded-clients)
+
+## Main Client Methods By Language
+
+Methods on the primary HTTP + WebSocket client (`AeronCacheClient`). The bidirectional WebSocket and Aeron gateway clients expose the same operations. Synchronous variants use the name shown; async variants add an `Async` / `_async` suffix (Java, Python, Rust) — TypeScript methods are all async (return `Promise`s).
+
+| Operation | Java | TypeScript | Python | Rust |
+|:----------|:-----|:-----------|:-------|:-----|
+| **Caches** | | | | |
+| Create cache | `createCache` | `createCache` | `create_cache` | `create_cache` |
+| Put item | `putItem` | `putItem` | `put_item` | `put_item` |
+| Put item with TTL | `putTimedItem` | `putTimedItem` | `put_timed_item` | `put_timed_item` |
+| Get item | `getItem` | `getItem` | `get_item` | `get_item` |
+| Delete item | `deleteItem` | `deleteItem` | `delete_item` | `delete_item` |
+| Patch item (JSON merge) | `patchItem` | `patchItem` | `patch_item` | `patch_item` |
+| Cancel pending TTL removal | `cancelItemRemoval` | `cancelItemRemoval` | `cancel_item_removal` | `cancel_item_removal` |
+| Get all items | `getCacheItems` | `getCacheItems` | `get_cache_items` | `get_cache_items` |
+| Clear cache | `clearCache` | `clearCache` | `clear_cache` | `clear_cache` |
+| Delete cache | `deleteCache` | `deleteCache` | `delete_cache` | `delete_cache` |
+| **Counters** | | | | |
+| Create counter cache | `createCounterCache` | `createCounterCache` | `create_counter_cache` | `create_counter_cache` |
+| Put counter | `putCounter` | `putCounter` | `put_counter` | `put_counter` |
+| Put counter with TTL | `putTimedCounter` | `putTimedCounter` | `put_timed_counter` | `put_timed_counter` |
+| Get counter | `getCounter` | `getCounter` | `get_counter` | `get_counter` |
+| Increment / decrement | `incrementCounter` / `decrementCounter` | `incrementCounter` / `decrementCounter` | `increment_counter` / `decrement_counter` | `increment_counter` / `decrement_counter` |
+| Set counter | `setCounter` | `setCounter` | `set_counter` | `set_counter` |
+| Delete counter | `deleteCounter` | `deleteCounter` | `delete_counter` | `delete_counter` |
+| Get all counters | `getCounterItems` | `getCounterItems` | `get_counter_items` | `get_counter_items` |
+| Cancel counter TTL removal | `cancelCounterItemRemoval` | `cancelCounterItemRemoval` | `cancel_counter_item_removal` | `cancel_counter_item_removal` |
+| Clear / delete counter cache | `clearCounterCache` / `deleteCounterCache` | `clearCounterCache` / `deleteCounterCache` | `clear_counter_cache` / `delete_counter_cache` | `clear_counter_cache` / `delete_counter_cache` |
+| **Bulk** | | | | |
+| Bulk operations | `bulkOps` | `bulkOps` | `bulk_ops` | `bulk_ops` |
+| **Inspection** | | | | |
+| List caches / counter caches | `getCaches` / `getCounterCaches` | `getCaches` / `getCounterCaches` | `get_caches` / `get_counter_caches` | `get_caches` / `get_counter_caches` |
+| Stats (cache / counter) | `getStats` / `getCounterStats` | `getStats` / `getCounterStats` | `get_stats` / `get_counter_stats` | `get_stats` / `get_counter_stats` |
+| Pending TTL timers | `getTimers` | `getTimers` | `get_timers` | `get_timers` |
+| **Streaming & Embedded** | | | | |
+| Subscribe to cache | `subscribe` | `subscribe` | `subscribe` | `subscribe` / `subscribe_ext` / `subscribe_filtered` |
+| Subscribe to counters | `subscribeCounter` | `subscribeCounter` | `subscribe_counter` | `subscribe_counter` / `_ext` / `_filtered` |
+| Embedded string cache | `getCache` | `getCache` | `get_cache` | `get_cache` |
+| Embedded counter cache | `getCounterCache` | `getCounterCache` | `get_counter_cache` | `get_counter_cache` |
+| Embedded object cache | `EmbeddedObjectCache` | `getObjectCache` | `get_object_cache` | `EmbeddedObjects` |
 
 [Back to top](#aeron-cache-embedded-clients)
 
