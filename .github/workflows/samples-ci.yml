@@ -1,0 +1,132 @@
+name: Samples CI
+
+# Verifies every sample compiles against the in-repo client libraries.
+# Build-only: no backend is started, so this is cheap and has no external deps.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'samples/**'
+      - 'libraries/**'
+      - '.github/workflows/samples-ci.yml'
+  pull_request:
+    paths:
+      - 'samples/**'
+      - 'libraries/**'
+      - '.github/workflows/samples-ci.yml'
+
+jobs:
+  java:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sample: [aeron-sample, async-sample, bidi-sample, bulk-sample, patch-stream-sample, streaming-sample, sync-sample]
+    defaults:
+      run:
+        working-directory: samples/java/${{ matrix.sample }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      # Samples pin a published client version; substitute the in-repo library so
+      # we always build against the current source. Samples that already declare
+      # includeBuild in settings.gradle.kts must not get it twice.
+      - name: Build
+        run: |
+          if grep -q includeBuild settings.gradle.kts; then
+            ./gradlew --no-daemon build
+          else
+            ./gradlew --no-daemon --include-build ../../../libraries/java build
+          fi
+
+  rust:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sample: [aeron-sample, async-sample, bidi-sample, bulk-sample, patch-stream-sample, streaming-sample, sync-sample]
+    defaults:
+      run:
+        working-directory: samples/rust/${{ matrix.sample }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # rusteron-client builds the Aeron C client via cmake and generates bindings with
+      # bindgen; the media driver links libbsd/libuuid (same deps as rust-ci.yml).
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake libbsd-dev uuid-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            samples/rust/${{ matrix.sample }}
+            libraries/rust
+
+      # Sample lockfiles are stale/missing and resolve bindgen-incompatible syn versions.
+      # Seed with the library's known-good lockfile (cargo keeps matching entries).
+      - name: Build
+        run: |
+          cp ../../../libraries/rust/Cargo.lock Cargo.lock
+          cargo build
+
+  typescript:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sample: [async-sample, bidi-sample, bulk-sample, patch-stream-sample, streaming-sample]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Samples depend on the library via file:../../../libraries/typescript, which
+      # resolves to dist/, so the library must be built first.
+      - name: Build library
+        working-directory: libraries/typescript
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Build sample
+        working-directory: samples/typescript/${{ matrix.sample }}
+        run: |
+          npm install
+          npm run build
+
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sample: [async-sample, bidi-sample, bulk-sample, patch-stream-sample, streaming-sample, sync-sample]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # Python has no compile step: install the in-repo library, then byte-compile
+      # the sample (syntax check) and import-check its dependencies.
+      - name: Install library
+        run: pip install -e libraries/python
+
+      - name: Byte-compile sample
+        run: python -m compileall -q samples/python/${{ matrix.sample }}
