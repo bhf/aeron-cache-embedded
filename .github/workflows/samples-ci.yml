@@ -59,6 +59,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # rusteron-client builds the Aeron C client via cmake and generates bindings with
+      # bindgen; the media driver links libbsd/libuuid (same deps as rust-ci.yml).
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev cmake libbsd-dev uuid-dev
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -69,8 +74,12 @@ jobs:
             samples/rust/${{ matrix.sample }}
             libraries/rust
 
+      # Sample lockfiles are stale/missing and resolve bindgen-incompatible syn versions.
+      # Seed with the library's known-good lockfile (cargo keeps matching entries).
       - name: Build
-        run: cargo build
+        run: |
+          cp ../../../libraries/rust/Cargo.lock Cargo.lock
+          cargo build
 
   typescript:
     runs-on: ubuntu-latest
