@@ -1,0 +1,67 @@
+name: Publish Aeron Sample Image
+
+# Builds the Java Aeron-gateway sample (samples/java/aeron-sample) into a container image with Jib
+# and publishes it to GHCR, so downstream deployments (e.g. aeron-cache-patterns) can run it as an
+# in-cluster writer/exerciser against an Aeron transport gateway with no build of their own.
+#
+# Triggered manually (workflow_dispatch) or by a version tag (aeron-sample-v*). There is no Docker
+# daemon step: Jib pushes straight to the registry, reading credentials from the `docker login` store.
+
+on:
+  push:
+    tags:
+      - 'aeron-sample-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to publish (e.g. 1.0.5 or latest)
+        required: false
+        default: latest
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    defaults:
+      run:
+        working-directory: samples/java/aeron-sample
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/aeroncache-embedded-aeron-sample
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Log in to GHCR
+        # Jib authenticates by reading the Docker credential store this writes; no daemon is used.
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Strip the leading 'aeron-sample-v' from the git tag -> e.g. aeron-sample-v1.0.5 -> 1.0.5
+            VERSION="${GITHUB_REF_NAME#aeron-sample-v}"
+            echo "tags=${VERSION},latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push image (Jib)
+        # Build against the in-repo client library source (as samples-ci.yml does) so the image always
+        # matches this repo's state, regardless of where the pinned client version is published.
+        run: |
+          ./gradlew --no-daemon --include-build ../../../libraries/java jib \
+            -Djib.to.image="${IMAGE}" \
+            -Djib.to.tags="${{ steps.tag.outputs.tags }}"
