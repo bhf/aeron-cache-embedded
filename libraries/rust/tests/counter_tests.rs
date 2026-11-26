@@ -4,7 +4,7 @@ use mockito::Server;
 #[test]
 fn test_create_counter_cache() {
     let mut server = Server::new();
-    let mock = server.mock("POST", "/api/v1/counters/")
+    let mock = server.mock("PUT", "/api/v1/counters/test-counter")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"cacheId": "test-counter", "operationStatus": "SUCCESS"}"#)

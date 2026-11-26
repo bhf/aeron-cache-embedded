@@ -18,10 +18,8 @@ describe('AeronCacheClient counters', () => {
 
         const response = await client.createCounterCache('test-counter');
 
-        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/counters/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cacheId: 'test-counter' })
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:7070/api/v1/counters/test-counter', {
+            method: 'PUT'
         });
         expect(response).toEqual(mockResponse);
     });

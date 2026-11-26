@@ -37,7 +37,7 @@ public class CounterClientTest {
 
     @Test
     public void testCreateCounterCache() throws Exception {
-        stubFor(post(urlEqualTo("/api/v1/counters/"))
+        stubFor(put(urlEqualTo("/api/v1/counters/test-counter"))
                 .willReturn(aResponse()
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"cacheId\":\"test-counter\",\"operationStatus\":\"SUCCESS\"}")));

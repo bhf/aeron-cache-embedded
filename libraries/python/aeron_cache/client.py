@@ -37,8 +37,8 @@ class AeronCacheClient:
     # --- Sync Operations ---
 
     def create_cache(self, cache_id) -> CreateResponse:
-        url = f"{self.base_url}/api/v1/cache"
-        response = requests.post(url, json={"cacheId": cache_id})
+        url = f"{self.base_url}/api/v1/cache/{cache_id}"
+        response = requests.put(url)
         if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
              response.raise_for_status()
         data = response.json()
@@ -125,8 +125,8 @@ class AeronCacheClient:
     # --- Counter Operations (Sync) ---
 
     def create_counter_cache(self, cache_id) -> CreateResponse:
-        url = f"{self.base_url}/api/v1/counters/"
-        response = requests.post(url, json={"cacheId": cache_id})
+        url = f"{self.base_url}/api/v1/counters/{cache_id}"
+        response = requests.put(url)
         if response.status_code >= 400 and response.status_code not in [400, 401, 404]:
              response.raise_for_status()
         data = response.json()
@@ -269,9 +269,9 @@ class AeronCacheClient:
     # --- Async Operations ---
 
     async def create_cache_async(self, cache_id) -> CreateResponse:
-        url = f"{self.base_url}/api/v1/cache"
+        url = f"{self.base_url}/api/v1/cache/{cache_id}"
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json={"cacheId": cache_id}) as response:
+            async with session.put(url) as response:
                 if response.status >= 400 and response.status not in [400, 401, 404]:
                     response.raise_for_status()
                 data = await response.json()
@@ -387,9 +387,9 @@ class AeronCacheClient:
     # --- Counter Operations (Async) ---
 
     async def create_counter_cache_async(self, cache_id) -> CreateResponse:
-        url = f"{self.base_url}/api/v1/counters/"
+        url = f"{self.base_url}/api/v1/counters/{cache_id}"
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json={"cacheId": cache_id}) as response:
+            async with session.put(url) as response:
                 if response.status >= 400 and response.status not in [400, 401, 404]:
                     response.raise_for_status()
                 data = await response.json()
