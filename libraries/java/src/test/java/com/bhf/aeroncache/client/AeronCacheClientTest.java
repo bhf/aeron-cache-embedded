@@ -47,7 +47,7 @@ public class AeronCacheClientTest {
 
     @Test
     public void testCreateCache() throws Exception {
-        stubFor(post(urlEqualTo("/api/v1/cache"))
+        stubFor(put(urlEqualTo("/api/v1/cache/test-cache"))
                 .willReturn(aResponse()
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"cacheId\":\"test-cache\",\"status\":\"CREATED\"}")));

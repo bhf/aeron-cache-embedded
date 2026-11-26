@@ -4,7 +4,7 @@ use mockito::Server;
 #[test]
 fn test_create_cache_success() {
     let mut server = Server::new();
-    let mock = server.mock("POST", "/api/v1/cache")
+    let mock = server.mock("PUT", "/api/v1/cache/test-cache")
         .with_status(201)
         .with_header("content-type", "application/json")
         .with_body(r#"{"cacheId": "test-cache", "operationStatus": "SUCCESS"}"#)

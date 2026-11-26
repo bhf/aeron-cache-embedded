@@ -15,7 +15,7 @@ def client():
 
 @responses.activate
 def test_create_counter_cache(client):
-    responses.add(responses.POST, "http://localhost:7070/api/v1/counters/",
+    responses.add(responses.PUT, "http://localhost:7070/api/v1/counters/test-counter",
                   json={"cacheId": "test-counter", "operationStatus": "SUCCESS"}, status=200)
     response = client.create_counter_cache("test-counter")
     assert response.cacheId == "test-counter"

@@ -39,11 +39,10 @@ public class AeronCacheClient implements CacheTransport {
     }
 
     public CreateResponse createCache(String cacheId) throws Exception {
-        String json = "{\"cacheId\":\"" + cacheId + "\"}";
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + "/api/v1/cache"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
+                .header("Accept", "application/json")
+                .PUT(HttpRequest.BodyPublishers.noBody())
                 .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         checkStatus(response);
@@ -119,11 +118,10 @@ public class AeronCacheClient implements CacheTransport {
     // --- Counter Operations (Sync) ---
 
     public CreateResponse createCounterCache(String cacheId) throws Exception {
-        String json = "{\"cacheId\":\"" + cacheId + "\"}";
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + "/api/v1/counters/"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .uri(URI.create(baseUrl + "/api/v1/counters/" + cacheId))
+                .header("Accept", "application/json")
+                .PUT(HttpRequest.BodyPublishers.noBody())
                 .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         checkStatus(response);
@@ -263,11 +261,10 @@ public class AeronCacheClient implements CacheTransport {
     // --- Async Operations ---
 
     public CompletableFuture<CreateResponse> createCacheAsync(String cacheId) {
-        String json = "{\"cacheId\":\"" + cacheId + "\"}";
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + "/api/v1/cache"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .uri(URI.create(baseUrl + "/api/v1/cache/" + cacheId))
+                .header("Accept", "application/json")
+                .PUT(HttpRequest.BodyPublishers.noBody())
                 .build();
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenApply(resp -> {
@@ -434,8 +431,7 @@ public class AeronCacheClient implements CacheTransport {
     // --- Counter Operations (Async) ---
 
     public CompletableFuture<CreateResponse> createCounterCacheAsync(String cacheId) {
-        String json = "{\"cacheId\":\"" + cacheId + "\"}";
-        return sendAsync(URI.create(baseUrl + "/api/v1/counters/"), "POST", json, CreateResponse.class);
+        return sendAsync(URI.create(baseUrl + "/api/v1/counters/" + cacheId), "PUT", null, CreateResponse.class);
     }
 
     public CompletableFuture<PutItemResponse> putCounterAsync(String cacheId, String key, long value) {
@@ -591,6 +587,10 @@ public class AeronCacheClient implements CacheTransport {
         if ("POST".equals(method)) {
             builder.header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body));
+        } else if ("PUT".equals(method)) {
+            builder.header("Accept", "application/json")
+                    .PUT(body == null ? HttpRequest.BodyPublishers.noBody()
+                            : HttpRequest.BodyPublishers.ofString(body));
         } else if ("DELETE".equals(method)) {
             builder.DELETE();
         } else {

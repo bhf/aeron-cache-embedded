@@ -52,12 +52,6 @@ pub struct ClearCacheResponse {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CreateRequest {
-    #[serde(rename = "cacheId")]
-    pub cache_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CreateResponse {
     #[serde(rename = "cacheId")]
     pub cache_id: String,
@@ -342,10 +336,8 @@ impl AeronCacheClient {
     // --- Sync Operations ---
 
     pub fn create_cache(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
-        let url = format!("{}/api/v1/cache", self.base_url);
-        let req = CreateRequest { cache_id: cache_id.to_string() };
-        let resp = self.get_sync_client().post(&url)
-            .json(&req)
+        let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
+        let resp = self.get_sync_client().put(&url)
             .send()?;
         if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
@@ -425,10 +417,8 @@ impl AeronCacheClient {
     // --- Async Operations ---
 
     pub async fn create_cache_async(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
-        let url = format!("{}/api/v1/cache", self.base_url);
-        let req = CreateRequest { cache_id: cache_id.to_string() };
-        let resp = self.async_client.post(&url)
-            .json(&req)
+        let url = format!("{}/api/v1/cache/{}", self.base_url, cache_id);
+        let resp = self.async_client.put(&url)
             .send()
             .await?;
         if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
@@ -661,9 +651,8 @@ impl AeronCacheClient {
     // --- Counter Operations (Sync) ---
 
     pub fn create_counter_cache(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
-        let url = format!("{}/api/v1/counters/", self.base_url);
-        let req = CreateRequest { cache_id: cache_id.to_string() };
-        let resp = self.get_sync_client().post(&url).json(&req).send()?;
+        let url = format!("{}/api/v1/counters/{}", self.base_url, cache_id);
+        let resp = self.get_sync_client().put(&url).send()?;
         if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text()?).into());
         }
@@ -748,9 +737,8 @@ impl AeronCacheClient {
     // --- Counter Operations (Async) ---
 
     pub async fn create_counter_cache_async(&self, cache_id: &str) -> Result<CreateResponse, Box<dyn Error>> {
-        let url = format!("{}/api/v1/counters/", self.base_url);
-        let req = CreateRequest { cache_id: cache_id.to_string() };
-        let resp = self.async_client.post(&url).json(&req).send().await?;
+        let url = format!("{}/api/v1/counters/{}", self.base_url, cache_id);
+        let resp = self.async_client.put(&url).send().await?;
         if !resp.status().is_success() && resp.status() != 400 && resp.status() != 401 && resp.status() != 404 {
             return Err(format!("HTTP Error: {} - {}", resp.status(), resp.text().await?).into());
         }

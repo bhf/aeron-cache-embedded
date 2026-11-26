@@ -44,10 +44,8 @@ export class AeronCacheClient {
     // Providing Async methods.
 
     async createCache(cacheId: string): Promise<CreateResponse> {
-        const response = await fetch(`${this.baseUrl}/api/v1/cache`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cacheId })
+        const response = await fetch(`${this.baseUrl}/api/v1/cache/${cacheId}`, {
+            method: 'PUT'
         });
         return this.handleResponse(response);
     }
@@ -166,10 +164,8 @@ export class AeronCacheClient {
     // --- Counter Operations ---
 
     async createCounterCache(cacheId: string): Promise<CreateResponse> {
-        const response = await fetch(`${this.baseUrl}/api/v1/counters/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cacheId })
+        const response = await fetch(`${this.baseUrl}/api/v1/counters/${cacheId}`, {
+            method: 'PUT'
         });
         return this.handleResponse(response);
     }
